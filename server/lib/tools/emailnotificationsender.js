@@ -16,9 +16,9 @@
 const NAME = "EmailNotificationSender";
 const ENV_KEY = 'INTEGRATION_EMAILNOTIFICATIONSENDER_MODE';
 const safety = require('../safety');
+const email = require('../email');
 
-// Flip to `true` once realRun() is a genuine integration.
-const realImplemented = false;
+const realImplemented = true;
 
 function currentMode() {
   return (process.env[ENV_KEY] || 'mock').toLowerCase() === 'live' ? 'live' : 'mock';
@@ -27,7 +27,7 @@ function currentMode() {
 // Three-state capability status: 'mock' | 'live' | 'unimplemented'.
 function status() {
   if (currentMode() === 'mock') return 'mock';
-  return realImplemented ? 'live' : 'unimplemented';
+  return email.isConfigured() ? 'live' : 'unimplemented';
 }
 
 async function mockRun(input, ctx) {
@@ -41,13 +41,37 @@ async function mockRun(input, ctx) {
   };
 }
 
+// Real send — delegates to lib/email.js (Resend/SendGrid), the same path
+// the product itself uses for verification/notification emails.
 async function realRun(input, ctx) {
-  // TODO: implement the real EmailNotificationSender integration (call the real API / data source).
-  // Until then, live mode refuses rather than fake it.
-  const err = new Error(`${NAME}: real integration not implemented — set ${ENV_KEY}=mock for demo data, or implement realRun().`);
-  err.code = 'integration_unimplemented';
-  err.statusCode = 501;
-  throw err;
+  if (!email.isConfigured()) {
+    const err = new Error(`${NAME}: no email provider configured (RESEND_API_KEY or SENDGRID_API_KEY) — cannot send a real email (use ${ENV_KEY}=mock for demo data).`);
+    err.code = 'integration_unconfigured'; err.statusCode = 501;
+    throw err;
+  }
+  const { recipient_email, template_id, template_vars, approved_by } = input || {};
+  if (!recipient_email) {
+    const err = new Error(`${NAME}: recipient_email is required.`);
+    err.code = 'invalid_input'; err.statusCode = 400;
+    throw err;
+  }
+  // "Human-approved outbound commercial emails only" (see tool description) —
+  // enforce the approval this tool claims to guarantee, not just document it.
+  if (!approved_by) {
+    const err = new Error(`${NAME}: approved_by is required — this tool sends only human-approved outbound emails.`);
+    err.code = 'invalid_input'; err.statusCode = 400;
+    throw err;
+  }
+  const result = template_id
+    ? await email.sendTemplate(template_id, recipient_email, { ...(template_vars || {}), approved_by })
+    : await email.send({
+        to: recipient_email,
+        subject: (template_vars && template_vars.subject) || 'ScopeCash AI notification',
+        html: template_vars && template_vars.html,
+        text: (template_vars && template_vars.text) || 'Notification from ScopeCash AI.',
+        tags: ['tool:EmailNotificationSender'],
+      });
+  return { message_id: result.id || null, delivery_status: 'sent' };
 }
 
 module.exports = {

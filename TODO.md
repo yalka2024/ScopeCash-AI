@@ -13,7 +13,7 @@ is in STATUS.md. Everything below is either in progress or not started.
         (BullMQ now, or Cloud Tasks per Phase 3 — don't build both).
   - [ ] Add a real `mimeType` column to `EvidenceItem` instead of guessing
         image/jpeg or audio/mpeg in `routes/evidence.js`.
-  - [ ] Delete `lib/tools/vertexaigeminiclient.js` (dead code, unreferenced,
+  - [x] Delete `lib/tools/vertexaigeminiclient.js` (dead code, unreferenced,
         superseded by `lib/vertex-ai.js`).
   - [ ] Eval-dataset-driven tests for contradiction/duplicate detection
         quality (Phase 8), not just citation-enforcement unit tests.
@@ -40,11 +40,14 @@ is in STATUS.md. Everything below is either in progress or not started.
       bugs (two Prisma 500s, an unmounted route file, and a route-ordering
       auth-shadowing bug breaking the public pricing/trust/help pages)
       found and fixed via actual browser-driven QA while building it.
-- [ ] **Phase 7 — Remaining mock tool stubs.** `CloudTasksEnqueuer`,
-      `SecretManagerClient` (folds into Phase 3). `EmailNotificationSender`
-      already has a real path (Resend/SendGrid); `MalwareScanHook` already
-      calls `AV_SCAN_URL` when configured; `SHA256Hasher` is trivial;
-      `TOTPMFAProvider`/MFA secret encryption — **done in Phase 1**.
+- [x] **Phase 7 — Remaining mock tool stubs.** `CloudTasksEnqueuer`,
+      `SecretManagerClient` done in Phase 3. `EmailNotificationSender`,
+      `MalwareScanHook`, `SHA256Hasher`, `TOTPMFAProvider` now wired to
+      their existing real implementations (`lib/email.js`,
+      `lib/storage.js#scanForViruses`, `crypto`, `lib/security.js`
+      respectively) — a follow-up audit correctly noted the tool-adapter
+      *wrappers* were still stubs even though the underlying real
+      functionality existed elsewhere in the app.
 - [x] **Phase 8 — Evaluation dataset + six-stage enforcement.** See
       STATUS.md. No open follow-ups from this phase.
 

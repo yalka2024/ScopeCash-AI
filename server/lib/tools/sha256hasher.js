@@ -16,18 +16,17 @@
 const NAME = "SHA256Hasher";
 const ENV_KEY = 'INTEGRATION_SHA256HASHER_MODE';
 const safety = require('../safety');
+const crypto = require('crypto');
 
-// Flip to `true` once realRun() is a genuine integration.
-const realImplemented = false;
+const realImplemented = true;
 
 function currentMode() {
   return (process.env[ENV_KEY] || 'mock').toLowerCase() === 'live' ? 'live' : 'mock';
 }
 
-// Three-state capability status: 'mock' | 'live' | 'unimplemented'.
+// Pure local computation — no external service to be unconfigured.
 function status() {
-  if (currentMode() === 'mock') return 'mock';
-  return realImplemented ? 'live' : 'unimplemented';
+  return currentMode() === 'mock' ? 'mock' : 'live';
 }
 
 async function mockRun(input, ctx) {
@@ -41,13 +40,19 @@ async function mockRun(input, ctx) {
   };
 }
 
+// Real hash — file_bytes arrives as base64 (this tool is invoked over a JSON
+// HTTP API, which can't carry raw binary) or already as a Buffer if called
+// in-process.
 async function realRun(input, ctx) {
-  // TODO: implement the real SHA256Hasher integration (call the real API / data source).
-  // Until then, live mode refuses rather than fake it.
-  const err = new Error(`${NAME}: real integration not implemented — set ${ENV_KEY}=mock for demo data, or implement realRun().`);
-  err.code = 'integration_unimplemented';
-  err.statusCode = 501;
-  throw err;
+  const { file_bytes } = input || {};
+  if (!file_bytes) {
+    const err = new Error(`${NAME}: file_bytes is required.`);
+    err.code = 'invalid_input'; err.statusCode = 400;
+    throw err;
+  }
+  const buffer = Buffer.isBuffer(file_bytes) ? file_bytes : Buffer.from(file_bytes, 'base64');
+  const sha256_hex = crypto.createHash('sha256').update(buffer).digest('hex');
+  return { sha256_hex };
 }
 
 module.exports = {

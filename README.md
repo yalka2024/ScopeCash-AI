@@ -72,9 +72,7 @@ optional in dev (in-memory fallbacks are used).
 
 
 
-**Tools (12)** — under `server/lib/tools/`. Each is an **adapter**: it runs on **labeled mock data** by default (results tagged `_mock: true`); set `INTEGRATION_<NAME>_MODE=live` and implement `realRun()` to connect the real system. In live mode an unimplemented integration **refuses** rather than fake it. Live/mock status is at `/api/health/integrations`:
-
-- **VertexAIGeminiClient** — Multimodal Gemini API wrapper for document extraction, image interpretation, audio transcription, scope comparison, and packet drafting. Records model version, token usage, latency, cost, and citations per call.
+**Tools (11)** — under `server/lib/tools/`. Each is an **adapter**: it runs on **labeled mock data** by default (results tagged `_mock: true`); set `INTEGRATION_<NAME>_MODE=live` and implement `realRun()` to connect the real system. In live mode an unimplemented integration **refuses** rather than fake it. Live/mock status is at `/api/health/integrations`. (The originally-generated `VertexAIGeminiClient` — a generic HTTP-POST wrapper — was deleted; multimodal Gemini calls go through the real `lib/vertex-ai.js` client, wired directly into the evidence pipeline rather than the generic tool-adapter pattern.)
 
 - **CloudStorageClient** — Immutable evidence store with signed URL generation, path validation, and no public exposure.
 

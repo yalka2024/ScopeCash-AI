@@ -16,18 +16,20 @@
 const NAME = "TOTPMFAProvider";
 const ENV_KEY = 'INTEGRATION_TOTPMFAPROVIDER_MODE';
 const safety = require('../safety');
+const prisma = require('../prisma');
+const { verifyTotp } = require('../security');
+const { decrypt } = require('../encryption');
 
-// Flip to `true` once realRun() is a genuine integration.
-const realImplemented = false;
+const realImplemented = true;
 
 function currentMode() {
   return (process.env[ENV_KEY] || 'mock').toLowerCase() === 'live' ? 'live' : 'mock';
 }
 
-// Three-state capability status: 'mock' | 'live' | 'unimplemented'.
+// Pure local computation (RFC 6238, see lib/security.js) once a user's
+// stored secret is loaded — no external service to be unconfigured.
 function status() {
-  if (currentMode() === 'mock') return 'mock';
-  return realImplemented ? 'live' : 'unimplemented';
+  return currentMode() === 'mock' ? 'mock' : 'live';
 }
 
 async function mockRun(input, ctx) {
@@ -41,13 +43,34 @@ async function mockRun(input, ctx) {
   };
 }
 
+// Real TOTP verification against the target user's stored, encrypted MFA
+// secret (the same lib/security.js#verifyTotp logic routes/auth.js already
+// uses at login). Declared as a challenge/verification tool, not enrollment
+// — enrollment stays on the dedicated, session-authenticated
+// /api/auth/mfa/setup + /mfa/enable endpoints, which correctly require the
+// caller to be proving they hold the secret they're enrolling, not just
+// passing a user_id. This tool never fabricates backup codes: the product
+// doesn't implement backup codes today, so that output is honestly null
+// rather than invented.
 async function realRun(input, ctx) {
-  // TODO: implement the real TOTPMFAProvider integration (call the real API / data source).
-  // Until then, live mode refuses rather than fake it.
-  const err = new Error(`${NAME}: real integration not implemented — set ${ENV_KEY}=mock for demo data, or implement realRun().`);
-  err.code = 'integration_unimplemented';
-  err.statusCode = 501;
-  throw err;
+  const userId = (input && input.user_id) || (ctx && ctx.userId);
+  const totpCode = input && input.totp_code;
+  if (!userId) {
+    const err = new Error(`${NAME}: user_id is required.`);
+    err.code = 'invalid_input'; err.statusCode = 400;
+    throw err;
+  }
+  if (!totpCode) {
+    const err = new Error(`${NAME}: totp_code is required.`);
+    err.code = 'invalid_input'; err.statusCode = 400;
+    throw err;
+  }
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { mfaEnabled: true, mfaSecret: true } });
+  if (!user || !user.mfaEnabled || !user.mfaSecret) {
+    return { mfa_status: 'not_enrolled', backup_codes: null };
+  }
+  const valid = verifyTotp(decrypt(user.mfaSecret), totpCode);
+  return { mfa_status: valid ? 'verified' : 'invalid', backup_codes: null };
 }
 
 module.exports = {
