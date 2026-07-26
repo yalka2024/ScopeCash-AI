@@ -845,12 +845,31 @@ pre-existing AWS Terraform/Helm chart already has HIGH/CRITICAL findings,
 so it's `continue-on-error: true` for now rather than risking a red build
 on unreviewed existing infra. Findings still upload to the Security tab.
 
+**Competition Evidence Center purpose-built forms**: closed the gap the
+page's own empty state literally admitted to ("add rows via the
+CompetitionEvidence API"). Added a revenue-logging form
+(classification/period/label/amount/source, POSTs to the existing
+`/api/competitionEvidence` generic entity endpoint with `category` fixed
+to `'revenue'`) and a deployment/uptime-evidence form (category select +
+label/source/notes) directly to `CompetitionEvidencePage.js`. **Verified
+in a real browser, not just a build check**: created an admin user, built
+and served the dashboard from the actual Express server
+(`SERVE_DASHBOARD=1`), logged in, submitted both forms via Playwright, and
+confirmed the new evidence row appears in the rendered report table with
+zero console errors. Genuinely deferred (not just "not gotten to yet"):
+reconciling `gcpGeminiExpense()` against the live GCP Billing API itself
+(today it's real internal `AiSpendEvent` tracking, honestly labeled as
+such, just not cross-checked against an actual GCP billing account — none
+was available); and a formal judge-report review/approval/lock state
+(the report is regenerated on-demand today, no immutable "final, approved"
+snapshot exists — would need its own model, shaped like the existing
+evidence-packet approval flow).
+
 ### Known gaps / not done in Phase 10
 
-- The move-evidence-analysis-onto-Cloud-Tasks item, the Competition
-  Evidence Center workflow gaps, and operational hardening (ownership
-  transfer, legal hold execution, API-key project scopes) are all still
-  open — see TODO.md.
+- The move-evidence-analysis-onto-Cloud-Tasks item and operational
+  hardening (ownership transfer, legal hold execution, API-key project
+  scopes) are still open — see TODO.md.
 
 ## Not yet started
 

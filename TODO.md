@@ -47,9 +47,21 @@ is in STATUS.md. Everything below is either in progress or not started.
   - [ ] Cloud Logging structured fields / Cloud Monitoring alert policies.
 - [x] **Phase 4 — Riverside HVAC demo.** See STATUS.md. `npm run
       db:seed:demo`. No open follow-ups from this phase.
-- [x] **Phase 5 — Competition Evidence Center.** See STATUS.md. Remaining
-      follow-ups: purpose-built forms for logging deployment/uptime
-      evidence and revenue classification (currently generic CRUD only).
+- [x] **Phase 5 — Competition Evidence Center.** See STATUS.md.
+      Purpose-built revenue-classification and deployment/uptime-evidence
+      logging forms added in Phase 10 (previously generic CRUD only —
+      the page's own empty-state literally said "add rows via the API").
+      Verified end-to-end in a real browser (login → log revenue → log
+      evidence → confirm both appear in the report), not just a build
+      check. Remaining follow-ups, both genuinely deferred: "real GCP
+      cost reconciliation" against the GCP Billing API itself (current
+      `gcpGeminiExpense()` is real internal `AiSpendEvent` tracking, not
+      reconciled against a live GCP billing account — no such account was
+      available to build or test against); and a formal judge-report
+      review/approval/lock workflow (the report is regenerated on-demand
+      today, there's no "final, approved, immutable" state for it — would
+      need its own model, similar in shape to the evidence-packet
+      approval flow, not yet built).
 - [x] **Phase 6 — Legal pages + EU AI Act removal.** See STATUS.md.
       Remaining follow-ups: none — `ropa-template.md` turned out to be more
       than "low priority": it described the deleted EU AI Act Annex IV

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { apiJson } from './api';
 import { Button } from './components/ui/button';
+import { Input } from './components/ui/input';
 
 const API_URL = process.env.REACT_APP_API_URL || '/api';
 
@@ -33,6 +34,9 @@ async function downloadFile(path, filename) {
   URL.revokeObjectURL(url);
 }
 
+const emptyRevenueForm = { classification: 'arms_length', period: currentMonth(), label: '', amountDollars: '', sourceType: '', sourceRef: '', notes: '' };
+const emptyEvidenceForm = { category: 'deployment', label: '', sourceType: '', sourceRef: '', notes: '' };
+
 export default function CompetitionEvidencePage() {
   const [from, setFrom] = useState('2026-05');
   const [to, setTo] = useState(currentMonth());
@@ -40,6 +44,12 @@ export default function CompetitionEvidencePage() {
   const [reconciliation, setReconciliation] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [revenueForm, setRevenueForm] = useState(emptyRevenueForm);
+  const [revenueBusy, setRevenueBusy] = useState(false);
+  const [revenueError, setRevenueError] = useState(null);
+  const [evidenceForm, setEvidenceForm] = useState(emptyEvidenceForm);
+  const [evidenceBusy, setEvidenceBusy] = useState(false);
+  const [evidenceError, setEvidenceError] = useState(null);
 
   function refresh() {
     setError(null);
@@ -51,6 +61,53 @@ export default function CompetitionEvidencePage() {
   }
 
   useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [from, to]);
+
+  async function logRevenue(e) {
+    e.preventDefault();
+    setRevenueBusy(true); setRevenueError(null);
+    try {
+      const amountCents = Math.round(parseFloat(revenueForm.amountDollars || '0') * 100);
+      if (!revenueForm.label.trim()) throw new Error('Label is required');
+      if (!Number.isFinite(amountCents) || amountCents <= 0) throw new Error('Amount must be a positive dollar figure');
+      await apiJson('/competitionEvidence', {
+        method: 'POST',
+        body: JSON.stringify({
+          category: 'revenue',
+          classification: revenueForm.classification,
+          period: revenueForm.period,
+          label: revenueForm.label.trim(),
+          amountCents,
+          sourceType: revenueForm.sourceType || null,
+          sourceRef: revenueForm.sourceRef || null,
+          notes: revenueForm.notes || null,
+        }),
+      });
+      setRevenueForm(emptyRevenueForm);
+      refresh();
+    } catch (err) { setRevenueError(String(err.message || err)); }
+    finally { setRevenueBusy(false); }
+  }
+
+  async function logEvidence(e) {
+    e.preventDefault();
+    setEvidenceBusy(true); setEvidenceError(null);
+    try {
+      if (!evidenceForm.label.trim()) throw new Error('Label is required');
+      await apiJson('/competitionEvidence', {
+        method: 'POST',
+        body: JSON.stringify({
+          category: evidenceForm.category,
+          label: evidenceForm.label.trim(),
+          sourceType: evidenceForm.sourceType || null,
+          sourceRef: evidenceForm.sourceRef || null,
+          notes: evidenceForm.notes || null,
+        }),
+      });
+      setEvidenceForm(emptyEvidenceForm);
+      refresh();
+    } catch (err) { setEvidenceError(String(err.message || err)); }
+    finally { setEvidenceBusy(false); }
+  }
 
   async function exportFile(kind) {
     setBusy(true);
@@ -140,6 +197,32 @@ export default function CompetitionEvidencePage() {
             })}
           </tbody>
         </table>
+
+        <form onSubmit={logRevenue} className="mt-4 flex flex-wrap items-end gap-2 rounded-lg border border-border bg-card p-4">
+          <label className="text-sm text-foreground">Classification
+            <select value={revenueForm.classification} onChange={(e) => setRevenueForm({ ...revenueForm, classification: e.target.value })}
+              className="block rounded-md border border-border bg-background px-2 py-1 text-sm text-foreground" aria-label="Revenue classification">
+              <option value="arms_length">Arms-length</option>
+              <option value="related_party">Related-party</option>
+            </select>
+          </label>
+          <label className="text-sm text-foreground">Period
+            <input type="month" value={revenueForm.period} onChange={(e) => setRevenueForm({ ...revenueForm, period: e.target.value })}
+              className="block rounded-md border border-border bg-background px-2 py-1 text-sm text-foreground" aria-label="Revenue period" />
+          </label>
+          <Input placeholder="Label (e.g. Riverside CC — pilot audit)" value={revenueForm.label}
+            onChange={(e) => setRevenueForm({ ...revenueForm, label: e.target.value })} className="w-56" aria-label="Revenue label" />
+          <Input type="number" step="0.01" min="0" placeholder="Amount ($)" value={revenueForm.amountDollars}
+            onChange={(e) => setRevenueForm({ ...revenueForm, amountDollars: e.target.value })} className="w-28" aria-label="Amount in dollars" />
+          <Input placeholder="Source type (e.g. stripe_invoice)" value={revenueForm.sourceType}
+            onChange={(e) => setRevenueForm({ ...revenueForm, sourceType: e.target.value })} className="w-44" aria-label="Source type" />
+          <Input placeholder="Source ref (e.g. invoice id)" value={revenueForm.sourceRef}
+            onChange={(e) => setRevenueForm({ ...revenueForm, sourceRef: e.target.value })} className="w-40" aria-label="Source reference" />
+          <Input placeholder="Notes" value={revenueForm.notes}
+            onChange={(e) => setRevenueForm({ ...revenueForm, notes: e.target.value })} className="w-40" aria-label="Notes" />
+          <Button type="submit" size="sm" disabled={revenueBusy}>{revenueBusy ? 'Logging…' : 'Log revenue'}</Button>
+          {revenueError && <div role="alert" className="w-full text-sm text-red-400">{revenueError}</div>}
+        </form>
       </section>
 
       <section className="mb-8">
@@ -168,10 +251,30 @@ export default function CompetitionEvidencePage() {
               </tr>
             ))}
             {report && report.deploymentEvidence.length === 0 && report.uptimeEvidence.length === 0 && (
-              <tr><td colSpan={4} className="p-4 text-center text-muted-foreground">No deployment/uptime evidence logged yet — add rows via the CompetitionEvidence API (category: "deployment" | "uptime").</td></tr>
+              <tr><td colSpan={4} className="p-4 text-center text-muted-foreground">No deployment/uptime evidence logged yet — use the form below.</td></tr>
             )}
           </tbody>
         </table>
+
+        <form onSubmit={logEvidence} className="mt-4 flex flex-wrap items-end gap-2 rounded-lg border border-border bg-card p-4">
+          <label className="text-sm text-foreground">Category
+            <select value={evidenceForm.category} onChange={(e) => setEvidenceForm({ ...evidenceForm, category: e.target.value })}
+              className="block rounded-md border border-border bg-background px-2 py-1 text-sm text-foreground" aria-label="Evidence category">
+              <option value="deployment">Deployment</option>
+              <option value="uptime">Uptime</option>
+            </select>
+          </label>
+          <Input placeholder="Label (e.g. Cloud Run — production deploy)" value={evidenceForm.label}
+            onChange={(e) => setEvidenceForm({ ...evidenceForm, label: e.target.value })} className="w-64" aria-label="Evidence label" />
+          <Input placeholder="Source type (e.g. cloud_run_revision)" value={evidenceForm.sourceType}
+            onChange={(e) => setEvidenceForm({ ...evidenceForm, sourceType: e.target.value })} className="w-48" aria-label="Source type" />
+          <Input placeholder="Source ref (e.g. revision id, status-page URL)" value={evidenceForm.sourceRef}
+            onChange={(e) => setEvidenceForm({ ...evidenceForm, sourceRef: e.target.value })} className="w-56" aria-label="Source reference" />
+          <Input placeholder="Notes" value={evidenceForm.notes}
+            onChange={(e) => setEvidenceForm({ ...evidenceForm, notes: e.target.value })} className="w-40" aria-label="Notes" />
+          <Button type="submit" size="sm" disabled={evidenceBusy}>{evidenceBusy ? 'Logging…' : 'Log evidence'}</Button>
+          {evidenceError && <div role="alert" className="w-full text-sm text-red-400">{evidenceError}</div>}
+        </form>
       </section>
     </div>
   );
