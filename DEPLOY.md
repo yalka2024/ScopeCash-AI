@@ -49,6 +49,16 @@ market. The `[[mounts]]` block reserves `/data` for local uploads; swap
 
 ## Google Cloud Run
 
+For a full infrastructure-as-code path (VPC, private-IP Cloud SQL, Cloud
+Storage, Cloud Tasks, Artifact Registry, Secret Manager, IAM), see
+[`deploy/terraform-gcp/main.tf`](deploy/terraform-gcp/main.tf) — it
+provisions everything below plus the least-privilege service account, and
+its Cloud Run env vars are wired directly to the real GCP integration code
+in `server/lib/{vertex-ai,storage,cloud-tasks,secret-manager}.js`. Written
+against this repo's actual code but not run against a live GCP project —
+review the plan output carefully before applying. The manual path below
+still works for a quick single-command deploy without provisioning a VPC.
+
 Cloud Run builds the Dockerfile via Cloud Build and runs the container
 stateless; use a managed Postgres (Cloud SQL, Neon, or Supabase) and run the
 schema setup once from your machine against the production `DATABASE_URL`

@@ -821,6 +821,30 @@ loses AsyncLocalStorage context" bug documented in Phase 1 — a useful
 confirmation that gotcha is still real and easy to reintroduce even when
 you know about it.
 
+**GCP Terraform**: the audit's "only Terraform remains AWS-based" is
+closed — `deploy/terraform-gcp/main.tf` (new, alongside the existing AWS
+module, not replacing it) provisions VPC + private-IP Cloud SQL Postgres,
+Cloud Storage, Cloud Tasks, Artifact Registry, Secret Manager secret
+*containers* (deliberately not secret versions — a value set via
+Terraform lives in tfstate in plaintext, defeating the point), a
+least-privilege service account, and the Cloud Run service itself. Env
+var names were verified against the real integration code
+(`server/lib/vertex-ai.js`, `storage.js`, `cloud-tasks.js`,
+`secret-manager.js`), not copied from a generic template — e.g. it
+deliberately does NOT set `VERTEX_GEMINI_MODEL`/`VERTEX_GEMINI_PRO_MODEL`,
+matching that file's own refusal to start with an unpinned or `-latest`
+model id. **Not run against a live GCP project** (none was available) —
+also no Terraform CLI was available to run `terraform validate`/`plan`,
+only a manual brace-balance check and careful re-reading. Run
+`terraform plan` and read it before ever running `apply`.
+
+Added `.github/workflows/iac-scan.yml` (Trivy config scan over `deploy/`)
+alongside it — same report-only reasoning as the earlier `npm audit`
+addition: no Trivy CLI was available locally to check whether the
+pre-existing AWS Terraform/Helm chart already has HIGH/CRITICAL findings,
+so it's `continue-on-error: true` for now rather than risking a red build
+on unreviewed existing infra. Findings still upload to the Security tab.
+
 ### Known gaps / not done in Phase 10
 
 - The move-evidence-analysis-onto-Cloud-Tasks item, the Competition

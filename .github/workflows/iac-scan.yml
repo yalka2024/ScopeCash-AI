@@ -1,0 +1,50 @@
+name: iac-scan
+
+on:
+  push:
+    branches: [main]
+    paths: ['deploy/**']
+  pull_request:
+    branches: [main]
+    paths: ['deploy/**']
+  schedule:
+    - cron: '41 6 * * *'   # daily 06:41 UTC
+
+jobs:
+  trivy-config:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      # Trivy's config scanner (tfsec's actively-maintained successor —
+      # tfsec itself is in maintenance mode) covers both Terraform modules
+      # and the Helm chart under deploy/ in one pass. The three Dockerfiles
+      # live outside deploy/ (repo root, server/, dashboard/) and are
+      # already covered by container-build-sign.yml's grype scan of the
+      # built image, a more thorough check than static Dockerfile linting.
+      #
+      # NOT blocking yet (exit-code 0, continue-on-error): no Trivy CLI was
+      # available in the session that added this to pre-check whether the
+      # PRE-EXISTING AWS Terraform/Helm/Dockerfiles (not just the new GCP
+      # module) already have HIGH/CRITICAL findings — making this blocking
+      # blind could red the build on unreviewed existing infra rather than
+      # on anything this change introduced. Findings still upload to the
+      # Security tab either way. Review the first real run's findings, fix
+      # what's real, then flip exit-code to '1' (see TODO.md).
+      - name: Scan deploy/ for IaC misconfigurations
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: deploy
+          format: sarif
+          output: trivy-iac.sarif
+          severity: HIGH,CRITICAL
+          exit-code: '0'
+      - name: Upload results to code scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-iac.sarif

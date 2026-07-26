@@ -32,7 +32,18 @@ is in STATUS.md. Everything below is either in progress or not started.
   - [ ] Real client-side V4 signed upload URL (direct browser-to-GCS PUT),
         not just server-side `putObject`.
   - [ ] Cloud SQL IAM database authentication.
-  - [ ] GCP Terraform (`deploy/terraform/` is still AWS-only).
+  - [x] GCP Terraform — `deploy/terraform-gcp/main.tf` (new, alongside the
+        existing AWS module, not replacing it). Provisions VPC + private-IP
+        Cloud SQL Postgres, Cloud Storage, Cloud Tasks, Artifact Registry,
+        Secret Manager secret containers, a least-privilege service
+        account, and the Cloud Run service itself — env vars wired
+        directly to the real `server/lib/{vertex-ai,storage,cloud-tasks,
+        secret-manager}.js` integration code, not generic placeholders.
+        **Not run against a live GCP project** (none was available in the
+        authoring session) — no Terraform CLI was available to run
+        `terraform validate`/`plan` either, only a manual brace-balance
+        check and careful re-reading against the real env var names. Run
+        `terraform plan` and read it before ever running `apply`.
   - [ ] Cloud Logging structured fields / Cloud Monitoring alert policies.
 - [x] **Phase 4 — Riverside HVAC demo.** See STATUS.md. `npm run
       db:seed:demo`. No open follow-ups from this phase.
@@ -160,8 +171,16 @@ is in STATUS.md. Everything below is either in progress or not started.
       published release and still carries them, so there is currently no
       safe fix available from this side, only a downgrade. Revisit making
       it blocking after a future `@google-cloud/storage` bump.
-- [ ] IaC scanning (`tfsec`/`checkov` or similar) — folds into the GCP
-      Terraform item below; nothing to scan until that exists.
+- [x] IaC scanning — `.github/workflows/iac-scan.yml` (new), Trivy's config
+      scanner over `deploy/` (both Terraform modules + the Helm chart),
+      results uploaded to the Security tab. **Report-only for now**
+      (`exit-code: '0'`, `continue-on-error: true`) — no Trivy CLI was
+      available to pre-check whether the pre-existing AWS Terraform/Helm
+      already have HIGH/CRITICAL findings, and blocking blind risked
+      redding the build on unreviewed existing infra rather than on
+      anything this change introduced. Review the first real run's
+      findings on the Security tab, fix what's real, then flip
+      `exit-code` to `'1'`.
 - [ ] Explicit regional/data-residency configuration.
 - [x] WCAG 2.2 AA — automated scanning (Playwright + axe-core, wired into
       CI) done in Phase 9; found and fixed 4 real contrast bugs, see
