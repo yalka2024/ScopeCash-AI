@@ -88,6 +88,57 @@ async function extractDocumentText({ mimeType, buffer }) {
   return null;
 }
 
+// ── Gemini-native document extraction (fallback) ────────────────────────
+// pdf-parse/mammoth only read a text LAYER — a scanned contract (photographed
+// or scanned pages with no embedded text, just images of pages) has none, so
+// extractDocumentText() above returns technically-successful-but-empty text
+// rather than null. Gemini reads documents natively (it can see the page
+// images directly, same as any multimodal input), so this is a real fallback
+// path, not a second guess dressed up as one — it goes through the same
+// AgentRunRecord bookkeeping, cost tracking, and "never invent a fact" system
+// instruction discipline as every other Gemini call in this pipeline.
+const DOCUMENT_EXTRACTION_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    text: { type: Type.STRING, description: 'Every word of readable text in the document, transcribed faithfully, in reading order, with a blank line between pages' },
+    pageCount: { type: Type.INTEGER },
+    unreadable: { type: Type.BOOLEAN, description: 'true only if the document contains no legible text at all (blank pages, unrecognizable scan)' },
+  },
+  required: ['text', 'unreadable'],
+};
+const DOCUMENT_EXTRACTION_SYSTEM = 'You are transcribing a scanned or image-based document for a home-services contractor '
+  + 'documentation platform. Transcribe EVERY word of visible text exactly as written — do not summarize, paraphrase, '
+  + 'correct, or omit anything. Preserve numbers, dates, and dollar amounts character-for-character. If a word or section '
+  + 'is illegible, write [illegible] there rather than guessing. Never add text that is not actually visible in the document.';
+
+/**
+ * @param {{mimeType:string, buffer?:Buffer, gcsUri?:string, model?:string}} doc
+ * @returns {Promise<{text:string, pages:null, method:'gemini-native', modelVersion, usage, costUsd, outputRefs, confidence}>}
+ */
+async function extractDocumentTextViaGemini({ orgId, projectId, sourceDocumentId, mimeType, buffer, gcsUri, model }) {
+  return withAgentRun(
+    { orgId, projectId, agentType: 'gemini_native_document_extraction', inputRefs: { sourceDocumentId } },
+    async () => {
+      const part = gcsUri
+        ? { gcsUri, mimeType }
+        : { base64: buffer.toString('base64'), mimeType };
+      const result = await vertex.generate({
+        model,
+        systemInstruction: DOCUMENT_EXTRACTION_SYSTEM,
+        parts: [part],
+        responseSchema: DOCUMENT_EXTRACTION_SCHEMA,
+        maxOutputTokens: 16384,
+      });
+      const { text = '', pageCount = null, unreadable = false } = result.json || {};
+      return {
+        text, pages: null, method: 'gemini-native', unreadable,
+        modelVersion: result.modelVersion, usage: result.usage, costUsd: result.costUsd,
+        outputRefs: { sourceDocumentId }, confidence: null, pageCountHint: pageCount,
+      };
+    },
+  );
+}
+
 // ── Contract / estimate baseline extraction ─────────────────────────────
 const BASELINE_SCHEMA = {
   type: Type.OBJECT,
@@ -415,6 +466,7 @@ async function validateCitations({ orgId, findingId }) {
 
 module.exports = {
   extractDocumentText,
+  extractDocumentTextViaGemini,
   extractContractBaseline,
   transcribeAudio,
   interpretImage,

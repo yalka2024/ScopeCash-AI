@@ -200,8 +200,8 @@ const ENTITIES = [
   },
   {
     model: 'evidenceItem', plural: 'evidenceItems',
-    fields: ['project_id', 'sourceDocumentId', 'evidenceType', 'storageUri', 'sha256Hash', 'capturedAt', 'gpsLat', 'gpsLng', 'deviceMetadata', 'transcript', 'extractedText', 'uploadedById', 'duplicateOfId', 'quality'],
-    fieldTypes: { project_id: 'String', sourceDocumentId: 'String', evidenceType: 'String', storageUri: 'String', sha256Hash: 'String', capturedAt: 'DateTime', gpsLat: 'Float', gpsLng: 'Float', deviceMetadata: 'String', transcript: 'String', extractedText: 'String', uploadedById: 'String', duplicateOfId: 'String', quality: 'String' },
+    fields: ['project_id', 'sourceDocumentId', 'evidenceType', 'storageUri', 'sha256Hash', 'mimeType', 'capturedAt', 'gpsLat', 'gpsLng', 'deviceMetadata', 'transcript', 'extractedText', 'uploadedById', 'duplicateOfId', 'quality'],
+    fieldTypes: { project_id: 'String', sourceDocumentId: 'String', evidenceType: 'String', storageUri: 'String', sha256Hash: 'String', mimeType: 'String', capturedAt: 'DateTime', gpsLat: 'Float', gpsLng: 'Float', deviceMetadata: 'String', transcript: 'String', extractedText: 'String', uploadedById: 'String', duplicateOfId: 'String', quality: 'String' },
     required: ['project_id', 'evidenceType', 'storageUri', 'sha256Hash'],
     writeRoles: ['owner', 'admin', 'project_manager', 'estimator', 'field_user'],
     fk: { project_id: 'projectRecord' },

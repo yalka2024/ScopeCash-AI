@@ -22,6 +22,12 @@ const { audit } = require('../lib/audit');
 const limiters = require('../lib/ratelimit');
 const storage = require('../lib/storage');
 const pipeline = require('../lib/evidence-pipeline');
+const vertex = require('../lib/vertex-ai');
+
+// A pdf-parse/mammoth "success" with next to no text is what a scanned/
+// image-only document looks like (no text layer to extract) — not a real
+// extraction. Treat it the same as extractDocumentText returning null.
+const MIN_EXTRACTED_CHARS = 20;
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -31,7 +37,13 @@ const MAX_BYTES = parseInt(process.env.UPLOAD_MAX_BYTES || `${20 * 1024 * 1024}`
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_BYTES } });
 
 const DOCUMENT_EXTS = new Set(['pdf', 'docx', 'doc', 'txt', 'csv']);
-const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'tiff']);
+// gif/tiff are intentionally NOT included: Gemini vision does not officially
+// support either format, and lib/storage.js has no magic-byte signature for
+// them either — declaring them "accepted" without either would silently
+// mislead (see TODO.md). webp/heic/heif are both real: Gemini vision
+// supports all three natively, and lib/storage.js#sniffMagicBytes now
+// recognizes their signatures.
+const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif']);
 const AUDIO_EXTS = new Set(['mp3', 'wav', 'ogg', 'm4a', 'webm']);
 
 async function persistFile(req, file) {
@@ -93,7 +105,7 @@ router.post('/projects/:projectId/evidenceItems', requireAnyOrgRole(...UPLOAD_RO
     const row = await prisma.evidenceItem.create({
       data: {
         orgId: req.tenant.orgId, project_id: project.id, evidenceType, storageUri: persisted.key,
-        sha256Hash: persisted.sha256, uploadedById: req.user.id,
+        sha256Hash: persisted.sha256, mimeType: persisted.mime, uploadedById: req.user.id,
         duplicateOfId: existing ? existing.id : null,
         quality: existing ? 'ok' : null,
       },
@@ -117,10 +129,26 @@ router.post('/sourceDocuments/:id/analyze', requireAnyOrgRole(...ANALYZE_ROLES),
   for await (const chunk of stream) chunks.push(chunk);
   const buffer = Buffer.concat(chunks);
 
-  const extracted = await pipeline.extractDocumentText({ mimeType: sourceDocument.mime_type, buffer });
-  if (!extracted) {
-    await prisma.sourceDocument.update({ where: { id: sourceDocument.id }, data: { extraction_status: 'failed' } });
-    throw new HttpError(422, `No text extractor for mime type ${sourceDocument.mime_type} yet — native Gemini document understanding for scanned/image documents is a follow-up`, 'extraction_unsupported');
+  let extracted = await pipeline.extractDocumentText({ mimeType: sourceDocument.mime_type, buffer });
+  let geminiFallbackRunId = null;
+  const needsFallback = !extracted || (extracted.text || '').trim().length < MIN_EXTRACTED_CHARS;
+  if (needsFallback) {
+    if (!vertex.isConfigured()) {
+      await prisma.sourceDocument.update({ where: { id: sourceDocument.id }, data: { extraction_status: 'failed' } });
+      const reason = extracted ? 'appears to be a scanned/image-only document with no extractable text layer' : `no local text extractor for mime type ${sourceDocument.mime_type}`;
+      throw new HttpError(422, `This document ${reason}, and Gemini (the native-document fallback) is not configured — set GCP_PROJECT_ID.`, 'extraction_unsupported');
+    }
+    const gcsUri = storage.gcsUri(sourceDocument.storage_uri);
+    const viaGemini = await pipeline.extractDocumentTextViaGemini({
+      orgId: req.tenant.orgId, projectId: project.id, sourceDocumentId: sourceDocument.id,
+      mimeType: sourceDocument.mime_type, buffer: gcsUri ? undefined : buffer, gcsUri,
+    });
+    geminiFallbackRunId = viaGemini.agentRunId;
+    if (viaGemini.unreadable || viaGemini.text.trim().length === 0) {
+      await prisma.sourceDocument.update({ where: { id: sourceDocument.id }, data: { extraction_status: 'failed' } });
+      throw new HttpError(422, 'Gemini could not read any text from this document — it may be blank, corrupted, or too low quality to transcribe.', 'extraction_unreadable', { agentRunId: geminiFallbackRunId });
+    }
+    extracted = { text: viaGemini.text, pages: null, method: viaGemini.method };
   }
 
   let baseline = null;
@@ -131,9 +159,9 @@ router.post('/sourceDocuments/:id/analyze', requireAnyOrgRole(...ANALYZE_ROLES),
     where: { id: sourceDocument.id },
     data: { extraction_status: 'extracted', page_count: extracted.pages ? extracted.pages.length : sourceDocument.page_count },
   });
-  await audit(req, 'sourceDocuments.analyze', { resource: 'sourceDocument', resourceId: sourceDocument.id });
+  await audit(req, 'sourceDocuments.analyze', { resource: 'sourceDocument', resourceId: sourceDocument.id, details: { method: extracted.method } });
   res.json({
-    extraction: { method: extracted.method, textLength: extracted.text.length, pageCount: extracted.pages ? extracted.pages.length : null },
+    extraction: { method: extracted.method, textLength: extracted.text.length, pageCount: extracted.pages ? extracted.pages.length : null, geminiFallbackRunId },
     baseline: baseline ? { scopeItemCount: baseline.scopeItems.length, contractProvisionCount: baseline.contractProvisions.length, agentRunId: baseline.agentRunId } : null,
   });
 }));
@@ -141,7 +169,10 @@ router.post('/sourceDocuments/:id/analyze', requireAnyOrgRole(...ANALYZE_ROLES),
 router.post('/evidenceItems/:id/analyze', requireAnyOrgRole(...ANALYZE_ROLES), asyncHandler(async (req, res) => {
   const evidenceItem = await prisma.evidenceItem.findFirst({ where: { id: req.params.id, orgId: req.tenant.orgId } });
   if (!evidenceItem) return res.status(404).json({ error: 'not_found' });
-  const mimeType = evidenceItem.evidenceType === 'photo' ? 'image/jpeg' : 'audio/mpeg'; // best-effort; see follow-up below
+  // Real sniffed content-type, stored at upload time. Only pre-existing rows
+  // from before this column existed fall back to a guess.
+  const mimeType = evidenceItem.mimeType
+    || (evidenceItem.evidenceType === 'photo' ? 'image/jpeg' : 'audio/mpeg');
 
   // Prefer a gs:// reference (no byte round-trip through this server) when
   // the GCS storage driver is active; only fall back to reading+base64-

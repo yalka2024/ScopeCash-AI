@@ -135,12 +135,28 @@ function verifyLocalSignature(key, exp, sig) {
 // format (docx/xlsx/pptx), and plain text backs csv/tsv/md/json. Each entry therefore
 // declares every extension its signature legitimately covers — comparing against a
 // single ext would reject a valid .csv (detected as text) or .xlsx (detected as zip).
+// HEIC/HEIF (iPhone default photo format) and WEBP both use a small
+// "brand" identifier a fixed number of bytes in, rather than a fixed
+// leading signature — the shared helpers below read it.
+const ISOBMFF_HEIC_BRANDS = new Set(['heic', 'heix', 'heim', 'heis', 'hevc', 'hevx', 'hevm', 'hevs', 'mif1', 'msf1']);
+function isIsobmfHeic(b) {
+  if (b.length < 12) return false;
+  if (b.slice(4, 8).toString('ascii') !== 'ftyp') return false;
+  return ISOBMFF_HEIC_BRANDS.has(b.slice(8, 12).toString('ascii').toLowerCase());
+}
+function isRiffWebp(b) {
+  return b.length >= 12 && b.slice(0, 4).toString('ascii') === 'RIFF' && b.slice(8, 12).toString('ascii') === 'WEBP';
+}
+
 const MAGIC = [
   { exts: ['pdf'], mime: 'application/pdf', match: b => b.slice(0, 4).toString() === '%PDF' },
   { exts: ['png'], mime: 'image/png',
     match: b => b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47 },
   { exts: ['jpg', 'jpeg'], mime: 'image/jpeg',
     match: b => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
+  // Gemini vision natively supports webp/heic/heif — see lib/evidence-pipeline.js.
+  { exts: ['webp'], mime: 'image/webp', match: isRiffWebp },
+  { exts: ['heic', 'heif'], mime: 'image/heic', match: isIsobmfHeic },
   { exts: ['docx', 'xlsx', 'pptx', 'zip'], mime: 'application/zip',
     match: b => b[0] === 0x50 && b[1] === 0x4b && b[2] === 0x03 && b[3] === 0x04 },
   // Catch-all, must stay last: any run of printable/UTF-8 bytes. NUL and other
@@ -155,6 +171,9 @@ const EXT_MIME = {
   png: 'image/png',
   jpg: 'image/jpeg',
   jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  heic: 'image/heic',
+  heif: 'image/heif',
   zip: 'application/zip',
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

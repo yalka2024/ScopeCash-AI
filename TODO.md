@@ -7,12 +7,21 @@ is in STATUS.md. Everything below is either in progress or not started.
 
 - [x] **Phase 2 — Gemini/Vertex AI evidence pipeline.** See STATUS.md for
       what shipped. Remaining follow-ups from Phase 2:
-  - [ ] Gemini-native document understanding fallback when local PDF/DOCX
-        extraction returns null (scanned/image PDFs, HEIC).
+  - [x] Gemini-native document understanding fallback when local extraction
+        returns null OR near-empty text (scanned/image-only PDFs) —
+        `pipeline.extractDocumentTextViaGemini()`, wired into
+        `/sourceDocuments/:id/analyze`. Real HEIC/HEIF/WEBP support added
+        too: `lib/storage.js#sniffMagicBytes` now recognizes their magic
+        bytes (previously `gif`/`tiff`/`webp` were declared as accepted
+        `IMAGE_EXTS` but had no signature at all — every such upload would
+        have 400'd; `gif`/`tiff` are intentionally left unsupported since
+        Gemini vision doesn't officially support either format). Covered
+        by new tests in `evidence-routes.test.js`.
   - [ ] Move analysis off the synchronous HTTP request path onto a job queue
         (BullMQ now, or Cloud Tasks per Phase 3 — don't build both).
-  - [ ] Add a real `mimeType` column to `EvidenceItem` instead of guessing
-        image/jpeg or audio/mpeg in `routes/evidence.js`.
+  - [x] Add a real `mimeType` column to `EvidenceItem` instead of guessing
+        image/jpeg or audio/mpeg in `routes/evidence.js`. Older pre-migration
+        rows still fall back to the guess (no real mime data exists for them).
   - [x] Delete `lib/tools/vertexaigeminiclient.js` (dead code, unreferenced,
         superseded by `lib/vertex-ai.js`).
   - [ ] Eval-dataset-driven tests for contradiction/duplicate detection

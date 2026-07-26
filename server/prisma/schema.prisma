@@ -1212,6 +1212,7 @@ model EvidenceItem {
   evidenceType     String   // photo|audio|receipt|message|video|document
   storageUri       String
   sha256Hash       String
+  mimeType         String?  // real sniffed content-type (e.g. image/heic) — set at upload; older rows may be null
   capturedAt       DateTime?
   gpsLat           Float?
   gpsLng           Float?

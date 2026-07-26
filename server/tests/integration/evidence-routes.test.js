@@ -6,7 +6,7 @@
 const crypto = require('crypto');
 // test.db migration is handled once by tests/global-setup.js (Jest globalSetup).
 
-jest.mock('../../lib/vertex-ai', () => ({ generate: jest.fn() }));
+jest.mock('../../lib/vertex-ai', () => ({ generate: jest.fn(), isConfigured: jest.fn(() => true) }));
 
 const express = require('express');
 const cookieParser = require('cookie-parser');
@@ -16,6 +16,7 @@ const prisma = require('../../lib/prisma');
 const { errorMiddleware } = require('../../lib/validate');
 const { signAccessToken } = require('../../lib/security');
 const evidenceRoutes = require('../../routes/evidence');
+const pipeline = require('../../lib/evidence-pipeline');
 
 function buildApp() {
   const app = express();
@@ -42,7 +43,11 @@ async function makeOwnerAndProject() {
 }
 
 afterAll(async () => { await prisma.$disconnect(); });
-beforeEach(() => { vertex.generate.mockReset(); });
+beforeEach(() => {
+  vertex.generate.mockReset();
+  vertex.isConfigured.mockReset().mockReturnValue(true);
+  jest.restoreAllMocks();
+});
 
 describe('evidence upload + analysis routes', () => {
   test('upload a contract, analyze it, upload a photo, analyze it, generate findings, validate citations', async () => {
@@ -153,5 +158,84 @@ describe('evidence upload + analysis routes', () => {
     expect(second.status).toBe(201);
     expect(second.body.duplicateOfId).toBe(first.body.id);
     expect(second.body.sha256Hash).toBe(first.body.sha256Hash);
+  });
+
+  test('photo upload stores its real sniffed mimeType (not a guess)', async () => {
+    const { user, project } = await makeOwnerAndProject();
+    const res = await request(app).post(`/api/projects/${project.id}/evidenceItems`).set('Authorization', bearer(user))
+      .attach('file', Buffer.from([0xff, 0xd8, 0xff, 0x00, 0x01, 0x02, 0x03]), { filename: 'roof.jpg', contentType: 'image/jpeg' });
+    expect(res.status).toBe(201);
+    expect(res.body.mimeType).toBe('image/jpeg');
+  });
+
+  test('accepts a real HEIC photo (Gemini-supported iPhone default format)', async () => {
+    const { user, project } = await makeOwnerAndProject();
+    // Minimal valid HEIC signature: an ISOBMFF "ftyp" box with a heic brand.
+    const heic = Buffer.concat([
+      Buffer.from([0x00, 0x00, 0x00, 0x18]), Buffer.from('ftyp'), Buffer.from('heic'),
+      Buffer.from([0x00, 0x00, 0x00, 0x00]), Buffer.from('mif1heic'),
+    ]);
+    const res = await request(app).post(`/api/projects/${project.id}/evidenceItems`).set('Authorization', bearer(user))
+      .attach('file', heic, { filename: 'jobsite.heic', contentType: 'image/heic' });
+    expect(res.status).toBe(201);
+    expect(res.body.mimeType).toBe('image/heic');
+  });
+
+  test('falls back to Gemini-native document extraction when local extraction finds no text layer (scanned document)', async () => {
+    const { user, project } = await makeOwnerAndProject();
+    const uploadRes = await request(app)
+      .post(`/api/projects/${project.id}/sourceDocuments`)
+      .set('Authorization', bearer(user))
+      .field('document_type', 'contract')
+      .attach('file', Buffer.from('%PDF-1.4 fake scanned pdf bytes'), { filename: 'scanned.pdf', contentType: 'application/pdf' });
+    expect(uploadRes.status).toBe(201);
+
+    // Simulate pdf-parse successfully "parsing" a scan with no text layer.
+    jest.spyOn(pipeline, 'extractDocumentText').mockResolvedValueOnce({ text: '', pages: [], method: 'pdf-parse' });
+    // First generate() call: the Gemini-native extraction fallback.
+    vertex.generate.mockResolvedValueOnce({
+      text: '{}',
+      json: { text: 'CONTRACT: Replace 3-ton rooftop HVAC unit.', unreadable: false, pageCount: 1 },
+      modelVersion: 'gemini-2.5-flash-001',
+      usage: { promptTokens: 300, completionTokens: 40, totalTokens: 340 },
+      costUsd: 0.0004,
+    });
+    // Second generate() call: baseline extraction runs against the recovered text.
+    vertex.generate.mockResolvedValueOnce({
+      text: '{}',
+      json: { scopeItems: [{ description: 'Replace 3-ton rooftop HVAC unit', pageNumber: 1 }], contractProvisions: [] },
+      modelVersion: 'gemini-2.5-flash-001',
+      usage: { promptTokens: 200, completionTokens: 50, totalTokens: 250 },
+      costUsd: 0.0003,
+    });
+
+    const analyzeRes = await request(app).post(`/api/sourceDocuments/${uploadRes.body.id}/analyze`).set('Authorization', bearer(user));
+    expect(analyzeRes.status).toBe(200);
+    expect(analyzeRes.body.extraction.method).toBe('gemini-native');
+    expect(analyzeRes.body.extraction.geminiFallbackRunId).toBeTruthy();
+    expect(analyzeRes.body.baseline.scopeItemCount).toBe(1);
+  });
+
+  test('422s when Gemini-native fallback also cannot read the document', async () => {
+    const { user, project } = await makeOwnerAndProject();
+    const uploadRes = await request(app)
+      .post(`/api/projects/${project.id}/sourceDocuments`)
+      .set('Authorization', bearer(user))
+      .field('document_type', 'contract')
+      .attach('file', Buffer.from('%PDF-1.4 fake blank pdf bytes'), { filename: 'blank.pdf', contentType: 'application/pdf' });
+    expect(uploadRes.status).toBe(201);
+
+    jest.spyOn(pipeline, 'extractDocumentText').mockResolvedValueOnce(null);
+    vertex.generate.mockResolvedValueOnce({
+      text: '{}',
+      json: { text: '', unreadable: true },
+      modelVersion: 'gemini-2.5-flash-001',
+      usage: { promptTokens: 300, completionTokens: 5, totalTokens: 305 },
+      costUsd: 0.0001,
+    });
+
+    const analyzeRes = await request(app).post(`/api/sourceDocuments/${uploadRes.body.id}/analyze`).set('Authorization', bearer(user));
+    expect(analyzeRes.status).toBe(422);
+    expect(analyzeRes.body.code).toBe('extraction_unreadable');
   });
 });
