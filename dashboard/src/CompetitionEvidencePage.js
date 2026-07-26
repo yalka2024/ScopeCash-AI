@@ -36,6 +36,7 @@ async function downloadFile(path, filename) {
 
 const emptyRevenueForm = { classification: 'arms_length', period: currentMonth(), label: '', amountDollars: '', sourceType: '', sourceRef: '', notes: '' };
 const emptyEvidenceForm = { category: 'deployment', label: '', sourceType: '', sourceRef: '', notes: '' };
+const emptyTestimonialForm = { quote: '', authorName: '', authorTitle: '', subjectName: '', method: 'verbal_logged', approveNow: true };
 
 export default function CompetitionEvidencePage() {
   const [from, setFrom] = useState('2026-05');
@@ -50,6 +51,9 @@ export default function CompetitionEvidencePage() {
   const [evidenceForm, setEvidenceForm] = useState(emptyEvidenceForm);
   const [evidenceBusy, setEvidenceBusy] = useState(false);
   const [evidenceError, setEvidenceError] = useState(null);
+  const [testimonialForm, setTestimonialForm] = useState(emptyTestimonialForm);
+  const [testimonialBusy, setTestimonialBusy] = useState(false);
+  const [testimonialError, setTestimonialError] = useState(null);
 
   function refresh() {
     setError(null);
@@ -107,6 +111,39 @@ export default function CompetitionEvidencePage() {
       refresh();
     } catch (err) { setEvidenceError(String(err.message || err)); }
     finally { setEvidenceBusy(false); }
+  }
+
+  async function logTestimonial(e) {
+    e.preventDefault();
+    setTestimonialBusy(true); setTestimonialError(null);
+    try {
+      if (!testimonialForm.quote.trim()) throw new Error('Quote is required');
+      // Real consent first — this is what makes the testimonial usable as
+      // genuine submission evidence rather than just a claim.
+      const consent = await apiJson('/consentRecords', {
+        method: 'POST',
+        body: JSON.stringify({
+          subjectType: 'customer',
+          subjectName: testimonialForm.subjectName || null,
+          consentType: 'testimonial',
+          granted: true,
+          method: testimonialForm.method,
+        }),
+      });
+      await apiJson('/testimonials', {
+        method: 'POST',
+        body: JSON.stringify({
+          quote: testimonialForm.quote.trim(),
+          authorName: testimonialForm.authorName || null,
+          authorTitle: testimonialForm.authorTitle || null,
+          consentRecordId: consent.id,
+          status: testimonialForm.approveNow ? 'approved' : 'pending',
+        }),
+      });
+      setTestimonialForm(emptyTestimonialForm);
+      refresh();
+    } catch (err) { setTestimonialError(String(err.message || err)); }
+    finally { setTestimonialBusy(false); }
   }
 
   async function exportFile(kind) {
@@ -235,6 +272,35 @@ export default function CompetitionEvidencePage() {
             </div>
           )) : <div className="text-sm text-muted-foreground">No approved testimonials logged yet.</div>}
         </div>
+
+        <form onSubmit={logTestimonial} className="mt-4 flex flex-wrap items-end gap-2 rounded-lg border border-border bg-card p-4">
+          <label className="block w-full text-sm text-foreground">Quote
+            <textarea value={testimonialForm.quote} onChange={(e) => setTestimonialForm({ ...testimonialForm, quote: e.target.value })}
+              rows={2} placeholder="What the customer actually said"
+              className="mt-1 block w-full rounded-md border border-border bg-background px-2 py-1 text-sm text-foreground" aria-label="Testimonial quote" />
+          </label>
+          <Input placeholder="Author name" value={testimonialForm.authorName}
+            onChange={(e) => setTestimonialForm({ ...testimonialForm, authorName: e.target.value })} className="w-44" aria-label="Author name" />
+          <Input placeholder="Author title / company" value={testimonialForm.authorTitle}
+            onChange={(e) => setTestimonialForm({ ...testimonialForm, authorTitle: e.target.value })} className="w-52" aria-label="Author title or company" />
+          <Input placeholder="Customer name (for the consent record)" value={testimonialForm.subjectName}
+            onChange={(e) => setTestimonialForm({ ...testimonialForm, subjectName: e.target.value })} className="w-64" aria-label="Customer name for consent record" />
+          <label className="text-sm text-foreground">How consent was obtained
+            <select value={testimonialForm.method} onChange={(e) => setTestimonialForm({ ...testimonialForm, method: e.target.value })}
+              className="block rounded-md border border-border bg-background px-2 py-1 text-sm text-foreground" aria-label="Consent method">
+              <option value="verbal_logged">Verbal (logged)</option>
+              <option value="written">Written (email/message)</option>
+              <option value="digital_signature">Digital signature</option>
+            </select>
+          </label>
+          <label className="flex items-center gap-1.5 text-sm text-foreground">
+            <input type="checkbox" checked={testimonialForm.approveNow}
+              onChange={(e) => setTestimonialForm({ ...testimonialForm, approveNow: e.target.checked })} />
+            Approve for judge report now
+          </label>
+          <Button type="submit" size="sm" disabled={testimonialBusy}>{testimonialBusy ? 'Logging…' : 'Log testimonial'}</Button>
+          {testimonialError && <div role="alert" className="w-full text-sm text-red-400">{testimonialError}</div>}
+        </form>
       </section>
 
       <section>

@@ -334,20 +334,25 @@ These showed up in the audit as P0/P1 items but are not things code can do:
   authenticated nav being keyboard/screen-reader-unreachable. See
   `dashboard/a11y/MANUAL-AT-TESTING-PROTOCOL.md` for the concrete checklist
   a human tester should run for final sign-off.
-- Real arms-length paying customers, real earned revenue, and production
-  customer testimonials with real consent — a third follow-up asked for
-  these explicitly, framed around what XPRIZE judges require. Refused to
-  fabricate any of them: this requires actual people, actual transactions,
-  and actual signed consent, and presenting invented data as genuine
-  submission evidence would be fraud, not a shortcut. The backend
-  infrastructure to capture all three CORRECTLY the moment they're real
-  already exists — `CompetitionEvidence`'s `paidCustomerStats`/
-  `revenueByMonth` derive strictly from real `Invoice`/`Stripe` rows (see
-  `server/lib/competition-evidence.js`'s `reconcile()`, which cross-checks
-  entered figures against real invoice totals specifically to catch drift
-  or fabrication before submission), and `Testimonial`/`ConsentRecord` are
-  full CRUD entities with a `status: pending/approved` gate already wired
-  into the Competition Evidence Center report. What's actually missing is
-  you: real pilot customers, a real Stripe live-mode subscription, and a
-  real conversation asking a real customer for a quote and their consent
-  to use it.
+- [x] Real arms-length paying customers, real earned revenue, and production
+      customer testimonials with real consent — a third follow-up asked for
+      these explicitly, framed around what XPRIZE judges require. Refused
+      to fabricate any of them: this requires actual people, actual
+      transactions, and actual signed consent, and presenting invented data
+      as genuine submission evidence would be fraud, not a shortcut. What
+      Phase 12 DID do (code only, no data): verified the real-money path
+      end-to-end (`lib/billing/stripe.js` → `routes/stripe-webhook.js` →
+      `lib/competition-evidence.js`) — real Checkout Sessions, HMAC-verified
+      webhooks, `Invoice` rows keyed off Stripe's own `amount_paid`, and
+      `reconcile()` cross-checking entered figures against real invoice
+      totals to catch drift before submission — no code changes needed, it
+      was already correct. Then closed a real UX gap: `Testimonial`/
+      `ConsentRecord` had full backend CRUD but no purpose-built capture
+      flow (previously only the generic "Customers" tab — create a
+      ConsentRecord, copy its id, create a Testimonial by hand). Added a
+      "Log testimonial" form directly to the Competition Evidence Center
+      that creates both correctly in one submission, verified end-to-end in
+      a real browser. What's still actually missing is you: real pilot
+      customers, a real Stripe live-mode subscription, and a real
+      conversation asking a real customer for a quote and their consent to
+      use it.

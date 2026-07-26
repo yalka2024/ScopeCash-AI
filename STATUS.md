@@ -1062,6 +1062,28 @@ Full suite: 14/14 server test suites still passing (140/156, unrelated to
 this dashboard-only + one entities.js fix); dashboard build clean; all 30
 authenticated a11y/keyboard tests and all 7 public a11y tests pass.
 
+**Revenue/testimonial capture infrastructure — verified, then extended.**
+Traced the real-money path end-to-end (`server/lib/billing/stripe.js` →
+`server/routes/stripe-webhook.js` → `server/lib/competition-evidence.js`):
+Checkout Session creation uses real tier price IDs and real customer
+records; the webhook verifies Stripe's HMAC signature and is idempotent on
+`event.id`; `invoice.payment_succeeded` persists a real `Invoice` row keyed
+off Stripe's own reported `amount_paid`, not anything self-entered; and
+`reconcile()` cross-checks manually-entered `CompetitionEvidence` revenue
+rows against that real invoice total specifically to catch drift or
+fabrication before submission. No code changes needed — it was already
+correct. What WAS a real gap: `Testimonial`/`ConsentRecord` had full backend
+CRUD (generic entity routes) but no purpose-built capture flow in the
+dashboard, unlike the revenue/evidence-logging forms added in Phase 10 —
+capturing a real testimonial meant manually creating a `ConsentRecord`,
+copying its id, then creating a `Testimonial` referencing it by hand via the
+generic "Customers" tab. Added a single "Log testimonial" form directly to
+the Competition Evidence Center (quote, author, consent method, and an
+"approve for judge report now" checkbox) that creates both records
+correctly in one submission — verified end-to-end in a real browser
+(screenshot-checked): submitted quote appears in the judge-facing report
+immediately, no console errors.
+
 ## Not yet started
 
 See TODO.md.
