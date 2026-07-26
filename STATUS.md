@@ -89,6 +89,97 @@ non-code items.
   tests, real SQLite DB, migrations applied fresh) covers all of the above.
   Full suite: 93 passed, 12 skipped, 0 failed.
 
+## Phase 2 — Gemini/Vertex AI evidence pipeline (DONE, 2026-07-26)
+
+- Added real GCP SDK dependencies: `@google/genai` (Google's current unified
+  SDK — supports both the Gemini Developer API and Vertex AI via
+  `vertexai: true`; the older `@google-cloud/vertexai` is in maintenance
+  mode, so this is the one to build on), `google-auth-library`,
+  `@google-cloud/storage`, `@google-cloud/tasks`, `@google-cloud/secret-manager`
+  (the latter three are Phase 3, installed together).
+- `server/lib/vertex-ai.js`: real Vertex AI client. ADC auth (no API key —
+  service account / workload identity, matching how Vertex AI IAM actually
+  works), `GCP_PROJECT_ID`/`GCP_LOCATION` region config, multimodal `Part`
+  construction (`text` | `gcsUri`+mimeType | `base64`+mimeType),
+  `responseSchema`-constrained JSON output, retry with backoff on 429/5xx,
+  cost estimation. **Model IDs are read from `VERTEX_GEMINI_MODEL`/
+  `VERTEX_GEMINI_PRO_MODEL` env vars with no fallback default, and the code
+  actively rejects any value ending in `-latest`** — pinning is enforced,
+  not just documented, and every call stamps the actual `modelVersion` the
+  API returned onto `AgentRunRecord`, not the configured alias.
+- `server/lib/evidence-pipeline.js`: the actual analysis logic, all of it
+  grounded in real DB rows via `Citation`, never freehand text:
+  - `extractDocumentText` — deterministic PDF (`pdf-parse`, page-level text)
+    and DOCX (`mammoth`) extraction; returns `null` for types with no local
+    extractor (image-only PDFs, HEIC, etc.) so the caller falls back to
+    Gemini's native document understanding — that fallback path itself is
+    not yet wired (see TODO).
+  - `extractContractBaseline` — structured Gemini call over extracted text,
+    persists `ScopeItem`/`ContractProvision` rows with page references.
+  - `transcribeAudio` / `interpretImage` — multimodal Gemini calls against
+    `EvidenceItem` bytes, persist `transcript`/`extractedText`/`quality`.
+  - `compareScopeToEvidence` — the actual cross-document scope-delta /
+    contradiction / missing-evidence / duplicate detection. **Mandatory
+    citation enforcement is a code-level filter, not just a prompt
+    instruction**: every piece of scope/evidence is given a bracketed
+    `sourceKey` in the prompt; any finding the model returns whose
+    citations don't resolve to a real, indexed source is discarded before
+    it ever reaches the database — this is the unsupported-assertion
+    refusal, verified in tests (a finding with a fabricated `sourceKey` or
+    zero citations never becomes an `EvidenceFinding` row).
+  - `validateCitations` — checks each `Citation` row's `quotedText` actually
+    appears in its cited `EvidenceItem`'s transcript/extractedText (best-
+    effort substring match — catches outright fabricated quotes, not subtle
+    misquotes).
+  - Every call is wrapped in `withAgentRun`, which logs a full
+    `AgentRunRecord` (model version, token usage, cost, latency,
+    input/output refs) and marks it `failed` with the error on any
+    exception — real traceable Gemini cost/outcome attribution, not a
+    fire-and-forget call.
+- `server/routes/evidence.js`: the actual HTTP entry points — multipart
+  upload for `SourceDocument`/`EvidenceItem` (mirrors `routes/project.js`'s
+  existing magic-byte-sniff + AV-scan + `lib/storage` pattern rather than
+  inventing a new one), plus `/analyze` and `/findings/generate` triggers.
+  Mounted in `index.js` at `/api`.
+- 12 new tests (`tests/integration/evidence-pipeline.test.js`,
+  `tests/integration/evidence-routes.test.js`), mocking only
+  `vertex-ai#generate` — persistence, citation enforcement, and the full
+  upload→analyze→findings→validate HTTP flow all run for real. Full suite:
+  105 passed, 12 skipped, 0 failed.
+- Found and fixed a real schema gap while wiring this: `EvidenceFinding.userId`
+  was required from Phase 1, but AI-generated findings have no human creator
+  at creation time — made optional (new migration).
+
+### Known gaps / not done in Phase 2
+
+- No fallback path yet for Gemini-native document understanding when
+  `extractDocumentText` returns `null` (scanned/image-only PDFs, HEIC, etc.)
+  — currently `POST /sourceDocuments/:id/analyze` just 422s for those.
+- Analysis runs synchronously inside the HTTP request (no job queue). Fine
+  for a single page of text; a large multi-page contract or a batch of
+  evidence will need this moved to the existing BullMQ worker
+  (`lib/worker.js`) before it's usable at real scale — this is also where
+  Phase 3's Cloud Tasks work should land instead of BullMQ, per the spec.
+- `evidenceType` -> mimeType in `routes/evidence.js`'s `/analyze` handlers is
+  a hardcoded guess (`image/jpeg` / `audio/mpeg`) rather than the actual
+  stored MIME type — `EvidenceItem` doesn't have a `mimeType` column;
+  should add one rather than guess.
+- The old `lib/tools/vertexaigeminiclient.js` (generic HTTP-POST-to-a-
+  configurable-URL wrapper, the thing the audit specifically called out) is
+  still present and unreferenced by any agent config — dead code now, safe
+  to delete, just not done yet.
+- `lib/agent-runtime.js`'s generic tool-calling loop (`AI_PROVIDER=gemini`)
+  still talks to the Gemini Developer API's OpenAI-compatible endpoint, not
+  Vertex AI — that's a legitimate, separate, already-real integration for
+  the general agent chat/tools product surface; it doesn't need to become
+  Vertex AI, but don't confuse the two when reading `config/models.json`'s
+  `gemini-*-latest` entries (those price the OpenAI-compatible path, not
+  anything in `vertex-ai.js`).
+- No contradiction/duplicate-detection tests beyond citation enforcement —
+  the prompt asks for these finding types but nothing yet asserts the model
+  is actually good at producing them (that needs the Phase 8 eval dataset,
+  not more mocked-response unit tests).
+
 ## Not yet started
 
 See TODO.md.

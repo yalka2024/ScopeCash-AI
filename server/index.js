@@ -42,6 +42,7 @@ const healthRoutes = require('./routes/health');
 const adminRoutes = require('./routes/admin');
 const projectRoutes = require('./routes/project');
 const entityRoutes = require('./routes/entities');
+const evidenceRoutes = require('./routes/evidence');
 const toolsRoutes = require('./routes/tools');
 const notificationRoutes = require('./routes/notification');
 const apikeyRoutes = require('./routes/apikey');
@@ -189,6 +190,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api', entityRoutes);   // spec-driven domain CRUD (Phase 2)
+app.use('/api', evidenceRoutes); // evidence upload + Gemini analysis (Phase 2)
 app.use('/api/tools', toolsRoutes);   // list + invoke the platform's real tools
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/api-keys', apikeyRoutes);

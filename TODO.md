@@ -5,15 +5,18 @@ is in STATUS.md. Everything below is either in progress or not started.
 
 ## P0 — core product (next up)
 
-- [ ] **Phase 2 — Gemini/Vertex AI evidence pipeline.** Real Vertex AI SDK
-      (`@google-cloud/vertexai` or `googleapis`), ADC/service-account auth,
-      regional endpoints, `gs://` input, multimodal parts, structured schema
-      output, citation validation against `Citation` rows, retry/backoff,
-      model-version pinning (no `-latest`). Evidence pipeline: baseline
-      extraction, page/section grounding, audio transcription (currently
-      deferred, not implemented), image metadata/EXIF, cross-document scope
-      comparison, contradiction discovery, unsupported-assertion refusal,
-      mandatory citation enforcement, persisted reviewer corrections.
+- [x] **Phase 2 — Gemini/Vertex AI evidence pipeline.** See STATUS.md for
+      what shipped. Remaining follow-ups from Phase 2:
+  - [ ] Gemini-native document understanding fallback when local PDF/DOCX
+        extraction returns null (scanned/image PDFs, HEIC).
+  - [ ] Move analysis off the synchronous HTTP request path onto a job queue
+        (BullMQ now, or Cloud Tasks per Phase 3 — don't build both).
+  - [ ] Add a real `mimeType` column to `EvidenceItem` instead of guessing
+        image/jpeg or audio/mpeg in `routes/evidence.js`.
+  - [ ] Delete `lib/tools/vertexaigeminiclient.js` (dead code, unreferenced,
+        superseded by `lib/vertex-ai.js`).
+  - [ ] Eval-dataset-driven tests for contradiction/duplicate detection
+        quality (Phase 8), not just citation-enforcement unit tests.
 - [ ] **Phase 3 — GCP native integrations.** GCS storage adapter (parallel to
       existing S3 adapter), Cloud Tasks enqueuer (replace mock), Secret
       Manager client (replace mock), Cloud Logging structured fields, Cloud

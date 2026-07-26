@@ -947,7 +947,7 @@ model EvidenceFinding {
   human_decision   String?  // supported|unsupported|rejected|pending
   reviewer_id      String?
   decision_reason  String?
-  userId           String
+  userId           String?  // null for AI-generated findings (ai_generated=true) — no human creator until reviewed
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 

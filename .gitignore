@@ -12,6 +12,7 @@ dev.db-journal
 *.db-journal
 uploads/
 server/uploads/
+server/uploads-test/
 logs/
 *.log
 npm-debug.log*
