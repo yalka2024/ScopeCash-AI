@@ -13,6 +13,7 @@ dev.db-journal
 uploads/
 server/uploads/
 server/uploads-test/
+server/eval-gate-report.json
 logs/
 *.log
 npm-debug.log*

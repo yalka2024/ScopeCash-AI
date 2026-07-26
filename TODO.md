@@ -39,14 +39,8 @@ is in STATUS.md. Everything below is either in progress or not started.
       already has a real path (Resend/SendGrid); `MalwareScanHook` already
       calls `AV_SCAN_URL` when configured; `SHA256Hasher` is trivial;
       `TOTPMFAProvider`/MFA secret encryption — **done in Phase 1**.
-- [ ] **Phase 8 — Evaluation dataset + six-stage enforcement.**
-      `StageTransition` ledger + centralized transition endpoint — **done in
-      Phase 1**. Still needed: real contractor-specific eval cases (supported
-      vs. unsupported findings, contradictory evidence, duplicate/missing-
-      timestamp evidence, ambiguous clauses, invented-rate refusal, prompt
-      injection inside PDF/DOCX/email, low-quality/unreadable evidence,
-      rejected-finding exclusion from packets). `server/scripts/eval-gate.js`
-      needs to recognize a real Gemini provider, not just `mock`.
+- [x] **Phase 8 — Evaluation dataset + six-stage enforcement.** See
+      STATUS.md. No open follow-ups from this phase.
 
 ## P1 — hardening
 

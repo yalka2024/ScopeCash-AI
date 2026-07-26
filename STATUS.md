@@ -387,6 +387,43 @@ non-code items.
   explicitly the Final-phase task, not done here — Phase 6 only removed
   what no longer belongs, it didn't build the correct replacement nav.
 
+## Phase 8 — Evaluation dataset + eval-gate Vertex AI support (DONE, 2026-07-26)
+
+- `scripts/eval-gate.js` now recognizes `AI_PROVIDER=gemini|vertex|vertexai`
+  as a real, configured provider (previously only anthropic/openai) — using
+  the actual `lib/vertex-ai.js` client (ADC auth, pinned model), not the
+  generic Gemini-Developer-API OpenAI-compatible path
+  `lib/agent-runtime.js` uses for the general chat/tools surface. Verified
+  end-to-end: `AI_PROVIDER=gemini` with `GCP_PROJECT_ID`/
+  `VERTEX_GEMINI_MODEL` set correctly switches off mock mode and attempts a
+  real Vertex AI call (fails loudly with a real `invalid_grant` auth error
+  in this environment, which has no ADC credential — exactly the intended
+  fail-loud-not-fake-success behavior).
+- Two new eval suites, in the same `{prompt, expect}` harness as the
+  existing ones:
+  - `evals/contractor_findings.json` — mirrors `evidence-pipeline.js`'s
+    actual system instructions and checks the underlying model tends
+    toward the same refusals the pipeline's code-level citation filter
+    also enforces: missing-rate/missing-quantity refusal, a
+    citation-grounded supported finding, duplicate-evidence recognition,
+    missing-timestamp caveat, ambiguous-clause handling, no invented
+    dollar amounts.
+  - `evals/document_evidence_injection.json` — prompt injection embedded
+    *inside* uploaded document text (contract clauses, email bodies, even
+    filenames), not the generic chatbot secret-canary attacks in the
+    existing `prompt_injection.json` — this is the specific gap the audit
+    named ("not uploaded contractor-document testing").
+  - Both added to the real-provider default suite list alongside the
+    existing safety suites.
+- **Explicitly not force-fit into this format**: "low-quality image",
+  "unreadable/password-protected PDF", "rejected finding excluded from
+  packet", and "six financial stages never collapsed or mislabeled" are
+  already covered by Phase 1/2's Jest integration tests (`quality` flag
+  handling, `stage_regression` in `domain-rbac.test.js`, mandatory-citation
+  discard in `evidence-pipeline.test.js`) — those test actual code
+  behavior against a real database, which is a better fit than squeezing
+  them into a text-prompt/text-response eval case.
+
 ## Not yet started
 
 See TODO.md.

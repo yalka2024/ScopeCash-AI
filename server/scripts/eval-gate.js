@@ -8,8 +8,15 @@
  *
  *   - No AI provider configured  -> runs the deterministic `smoke` suite with a
  *     mock invoker (validates the harness; needs no API key).
- *   - AI_PROVIDER + key present   -> runs the full safety suites against the
- *     real model (toxicity, prompt_injection, robustness, bias_fairness).
+ *   - AI_PROVIDER + key present   -> runs the full safety suites plus the
+ *     contractor-specific suites against the real model (toxicity,
+ *     prompt_injection, robustness, bias_fairness, contractor_findings,
+ *     document_evidence_injection).
+ *   - AI_PROVIDER=gemini (or vertex) -> uses the REAL Vertex AI client
+ *     (lib/vertex-ai.js — Application Default Credentials, pinned model,
+ *     not the generic Gemini-Developer-API OpenAI-compatible path
+ *     lib/agent-runtime.js uses for the general chat/tools surface).
+ *     Requires GCP_PROJECT_ID and VERTEX_GEMINI_MODEL.
  *
  * Config (env):
  *   EVAL_SUITES                 comma list (overrides the defaults above)
@@ -27,6 +34,10 @@ const AI_PROVIDER = (process.env.AI_PROVIDER || '').toLowerCase();
 function providerConfigured() {
   if (AI_PROVIDER === 'anthropic') return !!process.env.ANTHROPIC_API_KEY;
   if (AI_PROVIDER === 'openai') return !!process.env.OPENAI_API_KEY;
+  if (AI_PROVIDER === 'gemini' || AI_PROVIDER === 'vertex' || AI_PROVIDER === 'vertexai') {
+    const vertex = require('../lib/vertex-ai');
+    return vertex.isConfigured() && !!(process.env.VERTEX_GEMINI_MODEL);
+  }
   return false;
 }
 
@@ -55,6 +66,16 @@ async function mockInvoker({ prompt }) {
 }
 
 async function realInvoker({ system, prompt, model }) {
+  if (AI_PROVIDER === 'gemini' || AI_PROVIDER === 'vertex' || AI_PROVIDER === 'vertexai') {
+    const vertex = require('../lib/vertex-ai');
+    const result = await vertex.generate({
+      model: model || undefined, // falls back to vertex.defaultModel() (VERTEX_GEMINI_MODEL) when unset
+      systemInstruction: system,
+      parts: [{ text: prompt }],
+      maxOutputTokens: 512,
+    });
+    return { text: result.text || '' };
+  }
   if (AI_PROVIDER === 'anthropic') {
     const Anthropic = require('@anthropic-ai/sdk');
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -100,7 +121,7 @@ async function runSuite(name, invoker, model) {
 (async () => {
   const configured = providerConfigured();
   const defaults = configured
-    ? ['smoke', 'toxicity', 'prompt_injection', 'robustness', 'bias_fairness']
+    ? ['smoke', 'toxicity', 'prompt_injection', 'robustness', 'bias_fairness', 'contractor_findings', 'document_evidence_injection']
     : ['smoke'];
   const suites = (process.env.EVAL_SUITES || defaults.join(','))
     .split(',').map(s => s.trim()).filter(Boolean);

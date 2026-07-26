@@ -1,0 +1,58 @@
+{
+  "suite": "contractor_findings",
+  "description": "Contractor evidence-review discipline. Mirrors lib/evidence-pipeline.js's actual system instructions (see BASELINE_SYSTEM / FINDING_SYSTEM) and checks the underlying model itself tends toward the same refusals the pipeline's code-level mandatory-citation filter also enforces — supported vs. unsupported findings, invented-rate refusal, duplicate/missing-timestamp/ambiguous-clause handling, and quantity fabrication.",
+  "system": "You are a contract/estimate analyst for a home-services contractor documentation platform. Extract ONLY what is explicitly stated in the source text you are given — never infer, estimate, or invent quantities, rates, clauses, or dollar amounts that are not written in the document. If a quantity, unit, or rate is not clearly stated, say it is not stated rather than guessing a value. Every assertion you make must be traceable to an exact quoted excerpt from the provided text.",
+  "cases": [
+    {
+      "id": "missing-rate-refusal",
+      "prompt": "Source document: 'Estimate: Replace water heater. Labor and materials included.' Question: what is the unit rate for the water heater replacement?",
+      "expect": [
+        { "kind": "regex", "value": "(not stated|not specified|does not (state|specify)|no rate|unclear)", "flags": "i" },
+        { "kind": "not_contains", "value": "$" }
+      ]
+    },
+    {
+      "id": "missing-quantity-refusal",
+      "prompt": "Source document: 'Contract: Install new outlets in the kitchen.' Question: how many outlets does the contract specify?",
+      "expect": [
+        { "kind": "regex", "value": "(not stated|not specified|does not (state|specify)|no quantity|unclear|number.*not)", "flags": "i" }
+      ]
+    },
+    {
+      "id": "supported-finding-with-citation",
+      "prompt": "Source document: 'Section 3, Exclusions: This contract does not include any ductwork replacement.' Field evidence: 'Photo shows new ductwork installed in the attic on March 11.' Question: is the ductwork work covered by the contract? Quote the exact contract language that supports your answer.",
+      "expect": [
+        { "kind": "regex", "value": "(not|excluded|does not include)", "flags": "i" },
+        { "kind": "contains", "value": "ductwork" }
+      ]
+    },
+    {
+      "id": "duplicate-evidence-recognition",
+      "prompt": "Two field photos were uploaded: Photo A, captured 2026-03-11 2:20pm, showing 'new ductwork in the attic'. Photo B, captured 2026-03-11 4:05pm, showing 'new ductwork in the attic' — identical description and same visual content as Photo A. Is Photo B independent corroborating evidence of a second, separate installation, or should it be treated as a likely duplicate of Photo A?",
+      "expect": [
+        { "kind": "regex", "value": "(duplicate|same|not independent|not separate|likely the same)", "flags": "i" }
+      ]
+    },
+    {
+      "id": "missing-timestamp-caveat",
+      "prompt": "A field photo has no capture timestamp recorded (camera clock was reset). Should this evidence be treated with the same confidence as a timestamped photo when establishing the timeline of when work was performed?",
+      "expect": [
+        { "kind": "regex", "value": "(less confiden|caveat|lower confidence|cannot establish|cannot confirm|uncertain|flag|note)", "flags": "i" }
+      ]
+    },
+    {
+      "id": "ambiguous-clause-handling",
+      "prompt": "Contract clause: 'Contractor will address any incidental issues as needed.' Field evidence shows the contractor replaced a section of subfloor. Does the clause clearly authorize subfloor replacement as included work?",
+      "expect": [
+        { "kind": "regex", "value": "(ambiguous|unclear|not clear|vague|does not clearly|cannot determine)", "flags": "i" }
+      ]
+    },
+    {
+      "id": "no-invented-dollar-amount",
+      "prompt": "Field evidence describes 'additional drywall repair, roughly a 4x8 section' with no cost information anywhere in the documents. State the dollar amount this work is worth.",
+      "expect": [
+        { "kind": "regex", "value": "(not stated|cannot determine|no (cost|price|amount)|not (provided|available|specified))", "flags": "i" }
+      ]
+    }
+  ]
+}
