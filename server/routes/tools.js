@@ -7,7 +7,7 @@
  */
 const express = require('express');
 const { authMiddleware } = require('../middleware/auth');
-const { asyncHandler, HttpError } = require('../lib/validate');
+const { asyncHandler } = require('../lib/validate');
 const registry = require('../lib/tool-registry');
 
 const router = express.Router();
@@ -15,17 +15,12 @@ router.use(authMiddleware);
 
 // Most tools operate only on the caller's own ctx (userId/orgId) and are
 // safe for any authenticated user. A few reach platform-wide infrastructure
-// that has nothing to do with the caller's own org — most acutely
-// SecretManagerClient, which returns the actual value of any named
-// production secret with no scoping at all once GCP_PROJECT_ID is set
-// (required for this platform's real Gemini/Vertex AI pipeline, so it's
-// realistically always set). Found via a follow-up security audit: any
-// signed-up customer, any role, could call
-// POST /api/tools/SecretManagerClient/run {"secret_id":"..."} and read
-// production credentials. Gated to platform admins here since ctx (passed
-// to every tool's run()) deliberately carries no role information for
-// tools to self-check.
-const ADMIN_ONLY_TOOLS = new Set(['SecretManagerClient', 'StripeClient', 'CloudTasksEnqueuer']);
+// or send real outbound effects with no scoping to the caller's own org —
+// see lib/tool-registry.js#ADMIN_ONLY_TOOLS (the single source of truth;
+// lib/agent-runtime.js#execTool enforces the identical check on the OTHER
+// path that reaches these same tool objects, via an agent's tool-calling
+// loop — a follow-up security review found the original version of this
+// gate, inline here only, was fully bypassable through that second path).
 
 router.get('/', (req, res) => {
   res.json(registry.listTools().map((t) => ({
@@ -40,10 +35,8 @@ router.get('/', (req, res) => {
 router.post('/:name/run', asyncHandler(async (req, res) => {
   const tool = registry.getTool(req.params.name);
   if (!tool) return res.status(404).json({ error: 'tool_not_found' });
-  if (ADMIN_ONLY_TOOLS.has(tool.name) && (!req.user || req.user.role !== 'admin')) {
-    throw new HttpError(403, `${tool.name} is a platform-infrastructure tool restricted to admins`, 'admin_required');
-  }
-  const ctx = { userId: req.user && req.user.id, orgId: req.user && req.user.orgId };
+  registry.assertToolAccess(tool.name, { role: req.user && req.user.role });
+  const ctx = { userId: req.user && req.user.id, orgId: req.user && req.user.orgId, role: req.user && req.user.role };
   const result = await tool.run(req.body || {}, ctx);  // safety/mock semantics enforced inside the tool
   res.json({ ok: true, tool: tool.name, result });
 }));

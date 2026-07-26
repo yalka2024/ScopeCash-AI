@@ -44,7 +44,7 @@ router.post('/:name/run', requireScope('read', 'ai'), validate(RunSchema),
     const agent = agentRegistry.getAgent(req.params.name);
     if (!agent) throw new HttpError(404, `Unknown agent: ${req.params.name}`, 'agent_not_found');
 
-    const ctx = { userId: req.user.id, orgId: req.user.orgId, modelId: req.body.model };
+    const ctx = { userId: req.user.id, orgId: req.user.orgId, role: req.user.role, modelId: req.body.model };
     // Scope memory to the caller's tenant so sessions never leak across orgs.
     if (req.body.session) ctx.session = `${req.user.orgId}:${req.body.session}`;
     const quota = await guard.checkAiQuota(prisma, ctx);
@@ -112,7 +112,7 @@ router.post('/:name/run/stream', requireScope('read', 'ai'), validate(RunSchema)
     const agent = agentRegistry.getAgent(req.params.name);
     if (!agent) throw new HttpError(404, `Unknown agent: ${req.params.name}`, 'agent_not_found');
 
-    const ctx = { userId: req.user.id, orgId: req.user.orgId, modelId: req.body.model };
+    const ctx = { userId: req.user.id, orgId: req.user.orgId, role: req.user.role, modelId: req.body.model };
     if (req.body.session) ctx.session = `${req.user.orgId}:${req.body.session}`;
     const quota = await guard.checkAiQuota(prisma, ctx);
     if (!quota.ok) throw new HttpError(429, quota.reason, 'ai_quota_exceeded', { used: quota.used, limit: quota.limit });
@@ -156,7 +156,7 @@ router.post('/:name/run/async', requireScope('read', 'ai'), validate(RunSchema),
   asyncHandler(async (req, res) => {
     const agent = agentRegistry.getAgent(req.params.name);
     if (!agent) throw new HttpError(404, `Unknown agent: ${req.params.name}`, 'agent_not_found');
-    const ctx = { userId: req.user.id, orgId: req.user.orgId, modelId: req.body.model };
+    const ctx = { userId: req.user.id, orgId: req.user.orgId, role: req.user.role, modelId: req.body.model };
     if (req.body.session) ctx.session = `${req.user.orgId}:${req.body.session}`;
 
     const rawInput = typeof req.body.input === 'string' ? req.body.input : JSON.stringify(req.body.input);

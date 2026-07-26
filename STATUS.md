@@ -934,6 +934,57 @@ test, signed subprocessor DPAs, a real GCP billing account, physical
 backup-restore drills, manual assistive-technology testing) are unchanged
 and listed below — no amount of further coding session closes these.
 
+## Phase 11 — Pre-push /security-review: 3 more high-confidence findings (DONE, 2026-07-26)
+
+Before pushing Phase 10's 12 commits, ran a full `/security-review` of the
+diff (identify → parallel adversarial verify → confidence-≥-8 filter).
+Found 3 real, high-confidence (9/10) vulnerabilities — none named by the
+second follow-up audit, all introduced or exposed by Phase 10's own
+changes:
+
+1. **`routes/setup.js` unauthenticated privilege escalation.** Newly
+   mounted this phase (see Phase 10 legal-cleanup entry). Gated
+   "fresh deployment" on admin-count alone; `role` is a global,
+   platform-wide field with no per-org scoping, and normal self-serve
+   registration never sets it — so on any live deployment where the
+   operator never manually ran `prisma/seed.js`, `POST /api/setup/complete`
+   stayed permanently callable by anyone, even after real paying customers
+   had signed up. An anonymous attacker could become `role:'admin'` and get
+   attached to `organization.findFirst()` (renaming whichever real org
+   sorted first). Fixed: `isFreshDeployment()` now requires BOTH zero
+   admins AND zero organizations (any real signup permanently closes the
+   endpoint), and the check + create now run as one
+   `runWithSystemAccess(() => prisma.tenantTransaction(...))` to close the
+   remaining check-then-write TOCTOU window — mirrors `routes/auth.js`'s
+   own register-handler pattern exactly.
+2. **Tool admin-gate bypass via the agent-runtime path.** Phase 10 added an
+   admin-only gate for `SecretManagerClient`/`StripeClient`/
+   `CloudTasksEnqueuer` — but only inline in `routes/tools.js`'s direct
+   HTTP path. Every shipped agent's `tools: []` means "every registered
+   tool," so any authenticated user could reach the same admin-only tool
+   objects unfiltered through `lib/agent-runtime.js#execTool` (an agent's
+   own tool-calling loop) — a second call path the first fix never
+   touched. Fixed by centralizing the check into a single
+   `assertToolAccess(toolName, ctx)` in `lib/tool-registry.js` (single
+   source of truth for `ADMIN_ONLY_TOOLS`), imported and enforced by both
+   `routes/tools.js` and `agent-runtime.js#execTool`. `agents.js`'s 3
+   `ctx` constructions (sync/stream/async run endpoints) now include
+   `role: req.user.role` so the shared check has something to evaluate.
+3. **`EmailNotificationSender` had no admin gate at all.** Its
+   `approved_by` field is self-asserted free text from the same caller
+   invoking it, not a server-verified approval record — so any
+   authenticated account, including a brand-new self-registered one, could
+   send arbitrary outbound email (including attacker-controlled HTML) to
+   an arbitrary external address from the platform's own verified sending
+   domain. Folded into the same `ADMIN_ONLY_TOOLS` set as fix 2 rather
+   than a separate mechanism. Revisit removing it from the set only once
+   `realRun()` checks `approved_by` against a real approval object instead
+   of trusting the caller's own claim.
+
+Full suite: 14/14 suites, 140/156 passing (16 skipped — Postgres RLS tests
+gracefully skip under the default SQLite test run) — no regressions from
+any of the three fixes.
+
 ## Not yet started
 
 See TODO.md.

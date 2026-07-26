@@ -326,6 +326,13 @@ async function execTool(call, ctx, trace) {
   const tool = toolRegistry.getTool(call.name);
   if (!tool) return { error: `unknown tool: ${call.name}` };
   try {
+    // Every shipped agent's `tools: []` resolves to "every registered tool"
+    // (see runAgent above), so without this check any authenticated user
+    // could ask an agent to invoke an admin-only tool (SecretManagerClient
+    // et al) on their behalf — the exact bypass of routes/tools.js's own
+    // gate a follow-up security review found. Same shared check, same
+    // source of truth, enforced on this path too.
+    toolRegistry.assertToolAccess(tool.name, ctx);
     return await withTimeout(Promise.resolve(tool.run(call.input || {}, ctx)), STEP_TIMEOUT_MS, `tool ${call.name}`);
   } catch (e) {
     return { error: e.message };

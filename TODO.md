@@ -269,11 +269,23 @@ is in STATUS.md. Everything below is either in progress or not started.
       a missing feature needing product direction. Mounted at
       `/api/setup`; verified end-to-end (create-first-admin succeeds once,
       then permanently 409s). See STATUS.md.
+- [x] Pre-push `/security-review` of Phase 10's diff — 3 more high-
+      confidence findings, all fixed same-session. See STATUS.md Phase 11:
+      `routes/setup.js` unauthenticated privilege escalation (fresh-
+      deployment check gated on admin-count alone), the admin-only tool
+      gate bypassable via `agent-runtime.js#execTool` (a second path to
+      the same tool objects the first fix never covered), and
+      `EmailNotificationSender` having no admin gate at all despite its
+      `approved_by` field being caller-asserted, not server-verified.
 - [ ] Promote the ad hoc Playwright nav-smoke script used to QA the Final
       phase's nav rewrite into a real, committed authenticated-app e2e
       suite (`dashboard/e2e/` or similar) — it registers a user and clicks
       every nav item asserting no error boundaries/console errors; only
       existed as a throwaway script this session.
+- [ ] `EmailNotificationSender` is admin-gated as a stopgap (Phase 11) —
+      revisit removing it from `ADMIN_ONLY_TOOLS` once `realRun()`
+      verifies `approved_by` against a real approval object instead of
+      trusting the caller's own free-text claim.
 
 ## P2 — maturity (not started, lower priority)
 
