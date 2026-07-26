@@ -16,9 +16,9 @@
 const NAME = "CloudTasksEnqueuer";
 const ENV_KEY = 'INTEGRATION_CLOUDTASKSENQUEUER_MODE';
 const safety = require('../safety');
+const cloudTasks = require('../cloud-tasks');
 
-// Flip to `true` once realRun() is a genuine integration.
-const realImplemented = false;
+const realImplemented = true;
 
 function currentMode() {
   return (process.env[ENV_KEY] || 'mock').toLowerCase() === 'live' ? 'live' : 'mock';
@@ -27,7 +27,7 @@ function currentMode() {
 // Three-state capability status: 'mock' | 'live' | 'unimplemented'.
 function status() {
   if (currentMode() === 'mock') return 'mock';
-  return realImplemented ? 'live' : 'unimplemented';
+  return cloudTasks.isConfigured() ? 'live' : 'unimplemented';
 }
 
 async function mockRun(input, ctx) {
@@ -36,18 +36,32 @@ async function mockRun(input, ctx) {
   return {
     _mock: true,
     tool: NAME,
-    note: `mock data — implement realRun() and set ${ENV_KEY}=live to use the real ${NAME}`,
+    note: `mock data — set ${ENV_KEY}=live (and GCP_PROJECT_ID + CLOUD_TASKS_INVOKER_SA) to enqueue a real Cloud Tasks task`,
     input,
   };
 }
 
+// Real Cloud Tasks enqueue — see lib/cloud-tasks.js for the client and
+// routes/jobs.js for the receiving push endpoint + OIDC verification.
 async function realRun(input, ctx) {
-  // TODO: implement the real CloudTasksEnqueuer integration (call the real API / data source).
-  // Until then, live mode refuses rather than fake it.
-  const err = new Error(`${NAME}: real integration not implemented — set ${ENV_KEY}=mock for demo data, or implement realRun().`);
-  err.code = 'integration_unimplemented';
-  err.statusCode = 501;
-  throw err;
+  if (!cloudTasks.isConfigured()) {
+    const err = new Error(`${NAME}: GCP_PROJECT_ID and CLOUD_TASKS_INVOKER_SA are not set — cannot enqueue a real task (use ${ENV_KEY}=mock for demo data).`);
+    err.code = 'integration_unconfigured'; err.statusCode = 501;
+    throw err;
+  }
+  const targetUrl = process.env.CLOUD_TASKS_PUSH_URL;
+  if (!targetUrl) {
+    const err = new Error(`${NAME}: CLOUD_TASKS_PUSH_URL is not set — cannot enqueue without a push target.`);
+    err.code = 'integration_unconfigured'; err.statusCode = 501;
+    throw err;
+  }
+  const { task_payload, queue_name, schedule_time } = input || {};
+  const delaySeconds = schedule_time ? Math.max(0, Math.floor((new Date(schedule_time).getTime() - Date.now()) / 1000)) : 0;
+  const result = await cloudTasks.enqueueTask({
+    queueName: queue_name || process.env.CLOUD_TASKS_QUEUE || 'scopecash-jobs',
+    targetUrl, payload: task_payload || {}, delaySeconds,
+  });
+  return { task_id: result.taskName, queue_status: 'enqueued' };
 }
 
 module.exports = {

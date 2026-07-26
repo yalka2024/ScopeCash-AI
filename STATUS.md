@@ -180,6 +180,59 @@ non-code items.
   is actually good at producing them (that needs the Phase 8 eval dataset,
   not more mocked-response unit tests).
 
+## Phase 3 — GCP native integrations (DONE, 2026-07-26)
+
+- `lib/storage.js` gained a third driver, `STORAGE_DRIVER=gcs`, alongside the
+  existing local/S3 drivers — `@google-cloud/storage`, ADC auth (same
+  credential resolution as `lib/vertex-ai.js`). Added `storage.gcsUri(key)`
+  so `routes/evidence.js`'s `/analyze` endpoints pass a `gs://` reference
+  straight to Gemini instead of reading+base64-inlining bytes when the GCS
+  driver is active — the local/S3 drivers still base64-inline, unchanged.
+- `lib/cloud-tasks.js`: real `@google-cloud/tasks` client. Push-based (unlike
+  BullMQ's pull worker) — Cloud Tasks itself HTTP-POSTs each task to a
+  target URL with an OIDC token it mints by impersonating
+  `CLOUD_TASKS_INVOKER_SA`; GCP manages retry/backoff/dead-lettering at the
+  queue level. `routes/jobs.js` (`POST /api/jobs/process-task`) is the
+  receiving end — verifies the OIDC token's audience AND that its email
+  matches the configured invoker before running anything; not behind
+  `authMiddleware` (the caller is Cloud Tasks, not a logged-in user), so
+  that verification is the *only* thing standing between the public
+  internet and running a job. `lib/worker.js#enqueueJob` picks this path
+  when `JOBS_BACKEND=cloud-tasks`, otherwise unchanged (BullMQ/local FIFO).
+- `lib/secret-manager.js`: real `@google-cloud/secret-manager` client,
+  `getSecret(id, version)` with a 5-minute in-process TTL cache.
+- All three matching `lib/tools/*.js` adapters (`CloudStorageClient`,
+  `CloudTasksEnqueuer`, `SecretManagerClient`) now call these real libs in
+  `realRun()` instead of throwing `integration_unimplemented` (the latter
+  two) or computing a fake HMAC-signed-URL-shaped string with no backing
+  object (`CloudStorageClient` — it was marked `realImplemented: true`
+  while doing zero actual storage I/O, which is worse than an honest
+  `false`). All pass the existing generic tool-adapter contract test
+  unchanged.
+- 15 new unit tests mocking the GCP SDK clients (`@google-cloud/storage`,
+  `@google-cloud/tasks`, `google-auth-library`, `@google-cloud/secret-manager`)
+  — no real credentials needed to verify the integration code paths. Full
+  suite: 120 passed, 12 skipped, 0 failed.
+
+### Known gaps / not done in Phase 3
+
+- `CloudStorageClient`'s `signed_upload_url` output is now `null` — writes go
+  through the tool's own `putObject()` call rather than handing the caller a
+  client-side signed PUT URL to upload directly to the bucket. Fine for the
+  agent-tool use case (the agent already has the bytes in-process), not
+  fine if a browser needs to upload directly to GCS without proxying
+  through the app server — that needs a real `generateSignedUploadUrl`
+  path (V4 signed URL for a PUT), not built yet.
+- Cloud SQL IAM database authentication (as opposed to the Cloud Tasks/GCS/
+  Secret Manager work above) is still just the connector notes in
+  `prisma.postgres.config.ts` — no IAM auth proxy wiring.
+- No GCP Terraform yet — `deploy/terraform/` is still AWS-only (VPC, RDS,
+  ElastiCache, S3, ECR). A parallel `deploy/terraform-gcp/` (Cloud Run,
+  Cloud SQL, GCS bucket, Cloud Tasks queue, Secret Manager secrets, IAM
+  service accounts) is real infra-as-code work, not done here.
+- Cloud Logging structured fields / Cloud Monitoring alert policies not
+  done — folds into the broader P1 observability gap in TODO.md.
+
 ## Not yet started
 
 See TODO.md.

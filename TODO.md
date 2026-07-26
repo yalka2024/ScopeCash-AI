@@ -17,10 +17,14 @@ is in STATUS.md. Everything below is either in progress or not started.
         superseded by `lib/vertex-ai.js`).
   - [ ] Eval-dataset-driven tests for contradiction/duplicate detection
         quality (Phase 8), not just citation-enforcement unit tests.
-- [ ] **Phase 3 — GCP native integrations.** GCS storage adapter (parallel to
-      existing S3 adapter), Cloud Tasks enqueuer (replace mock), Secret
-      Manager client (replace mock), Cloud Logging structured fields, Cloud
-      SQL/IAM auth notes, GCP Terraform (current Terraform is AWS-only).
+- [x] **Phase 3 — GCP native integrations.** GCS storage driver, Cloud Tasks
+      enqueuer + verified push endpoint, Secret Manager client — see
+      STATUS.md. Remaining follow-ups:
+  - [ ] Real client-side V4 signed upload URL (direct browser-to-GCS PUT),
+        not just server-side `putObject`.
+  - [ ] Cloud SQL IAM database authentication.
+  - [ ] GCP Terraform (`deploy/terraform/` is still AWS-only).
+  - [ ] Cloud Logging structured fields / Cloud Monitoring alert policies.
 - [ ] **Phase 4 — Riverside HVAC demo.** Authored fictional contract/estimate/
       photos/voice-note/messages, deterministic seed script, expected
       findings + review decisions, a marked-fictional generated packet.

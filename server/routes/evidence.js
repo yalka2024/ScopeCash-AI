@@ -110,6 +110,8 @@ router.post('/sourceDocuments/:id/analyze', requireAnyOrgRole(...ANALYZE_ROLES),
   if (!sourceDocument) return res.status(404).json({ error: 'not_found' });
   const project = await prisma.projectRecord.findFirst({ where: { id: sourceDocument.project_id, orgId: req.tenant.orgId } });
 
+  // Local text extraction (pdf-parse/mammoth) needs bytes regardless of
+  // driver; only the Gemini multimodal fallback below would prefer gs://.
   const stream = await storage.getStream(sourceDocument.storage_uri);
   const chunks = [];
   for await (const chunk of stream) chunks.push(chunk);
@@ -139,19 +141,25 @@ router.post('/sourceDocuments/:id/analyze', requireAnyOrgRole(...ANALYZE_ROLES),
 router.post('/evidenceItems/:id/analyze', requireAnyOrgRole(...ANALYZE_ROLES), asyncHandler(async (req, res) => {
   const evidenceItem = await prisma.evidenceItem.findFirst({ where: { id: req.params.id, orgId: req.tenant.orgId } });
   if (!evidenceItem) return res.status(404).json({ error: 'not_found' });
-
-  const stream = await storage.getStream(evidenceItem.storageUri);
-  const chunks = [];
-  for await (const chunk of stream) chunks.push(chunk);
-  const buffer = Buffer.concat(chunks);
-  const base64 = buffer.toString('base64');
   const mimeType = evidenceItem.evidenceType === 'photo' ? 'image/jpeg' : 'audio/mpeg'; // best-effort; see follow-up below
+
+  // Prefer a gs:// reference (no byte round-trip through this server) when
+  // the GCS storage driver is active; only fall back to reading+base64-
+  // inlining the bytes on the local/S3 drivers.
+  const gcsUri = storage.gcsUri(evidenceItem.storageUri);
+  let base64 = null;
+  if (!gcsUri) {
+    const stream = await storage.getStream(evidenceItem.storageUri);
+    const chunks = [];
+    for await (const chunk of stream) chunks.push(chunk);
+    base64 = Buffer.concat(chunks).toString('base64');
+  }
 
   let result;
   if (evidenceItem.evidenceType === 'audio') {
-    result = await pipeline.transcribeAudio({ orgId: req.tenant.orgId, evidenceItem, base64, mimeType });
+    result = await pipeline.transcribeAudio({ orgId: req.tenant.orgId, evidenceItem, gcsUri, base64, mimeType });
   } else if (evidenceItem.evidenceType === 'photo') {
-    result = await pipeline.interpretImage({ orgId: req.tenant.orgId, evidenceItem, base64, mimeType });
+    result = await pipeline.interpretImage({ orgId: req.tenant.orgId, evidenceItem, gcsUri, base64, mimeType });
   } else {
     throw new HttpError(422, `No Gemini analysis path for evidenceType "${evidenceItem.evidenceType}" yet`, 'analysis_unsupported');
   }

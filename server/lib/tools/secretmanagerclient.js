@@ -16,9 +16,9 @@
 const NAME = "SecretManagerClient";
 const ENV_KEY = 'INTEGRATION_SECRETMANAGERCLIENT_MODE';
 const safety = require('../safety');
+const secretManager = require('../secret-manager');
 
-// Flip to `true` once realRun() is a genuine integration.
-const realImplemented = false;
+const realImplemented = true;
 
 function currentMode() {
   return (process.env[ENV_KEY] || 'mock').toLowerCase() === 'live' ? 'live' : 'mock';
@@ -27,7 +27,7 @@ function currentMode() {
 // Three-state capability status: 'mock' | 'live' | 'unimplemented'.
 function status() {
   if (currentMode() === 'mock') return 'mock';
-  return realImplemented ? 'live' : 'unimplemented';
+  return secretManager.isConfigured() ? 'live' : 'unimplemented';
 }
 
 async function mockRun(input, ctx) {
@@ -36,18 +36,26 @@ async function mockRun(input, ctx) {
   return {
     _mock: true,
     tool: NAME,
-    note: `mock data — implement realRun() and set ${ENV_KEY}=live to use the real ${NAME}`,
+    note: `mock data — set ${ENV_KEY}=live (and GCP_PROJECT_ID) to read a real secret from Google Secret Manager`,
     input,
   };
 }
 
+// Real Secret Manager read — see lib/secret-manager.js.
 async function realRun(input, ctx) {
-  // TODO: implement the real SecretManagerClient integration (call the real API / data source).
-  // Until then, live mode refuses rather than fake it.
-  const err = new Error(`${NAME}: real integration not implemented — set ${ENV_KEY}=mock for demo data, or implement realRun().`);
-  err.code = 'integration_unimplemented';
-  err.statusCode = 501;
-  throw err;
+  if (!secretManager.isConfigured()) {
+    const err = new Error(`${NAME}: GCP_PROJECT_ID is not set — cannot read a real secret (use ${ENV_KEY}=mock for demo data).`);
+    err.code = 'integration_unconfigured'; err.statusCode = 501;
+    throw err;
+  }
+  const { secret_id, version } = input || {};
+  if (!secret_id) {
+    const err = new Error(`${NAME}: secret_id is required`);
+    err.code = 'invalid_request'; err.statusCode = 400;
+    throw err;
+  }
+  const secret_value = await secretManager.getSecret(secret_id, version || 'latest');
+  return { secret_value };
 }
 
 module.exports = {

@@ -3,8 +3,8 @@ const ENV_KEY = 'INTEGRATION_CLOUDSTORAGECLIENT_MODE';
 const safety = require('../safety');
 const crypto = require('crypto');
 const path = require('path');
+const storage = require('../storage');
 
-// Flip to `true` once realRun() is a genuine integration.
 const realImplemented = true;
 
 function currentMode() {
@@ -21,16 +21,16 @@ async function mockRun(input, ctx) {
   return {
     _mock: true,
     tool: NAME,
-    note: `mock data — implement realRun() and set ${ENV_KEY}=live to use the real ${NAME}`,
+    note: `mock data — set ${ENV_KEY}=live to use the real ${NAME} (writes through lib/storage.js: local disk, S3, or GCS per STORAGE_DRIVER)`,
     input,
   };
 }
 
 /**
- * realRun — computes deterministic signed-URL-style artifacts from inputs
- * without any network calls.  Genuine computation: path validation, HMAC
- * signature generation, and URI construction are all done locally using the
- * Node stdlib (crypto, path).
+ * realRun — actually writes through lib/storage.js (whichever STORAGE_DRIVER
+ * is configured: local disk, S3-compatible, or GCS) rather than computing a
+ * fake signed-URL-shaped string with no backing object. Object path
+ * validation and hashing are still done locally; the object itself is real.
  *
  * Inputs
  *   file_bytes   – Buffer | Uint8Array | base64 string | null/undefined
@@ -38,40 +38,23 @@ async function mockRun(input, ctx) {
  *   content_type – MIME string, e.g. "application/pdf"
  *
  * Outputs
- *   signed_upload_url   – deterministic signed URL token for upload
- *   signed_download_url – deterministic signed URL token for download
- *   storage_uri         – canonical internal URI for the stored object
- *   size_bytes          – byte length of the payload (when provided)
- *   sha256              – hex SHA-256 of the payload (when provided)
- *   path_valid          – boolean: whether object_path passes validation
- *   errors              – array of validation/input errors (empty if clean)
+ *   signed_download_url – real signedDownloadUrl() from lib/storage.js
+ *   storage_uri          – lib/storage.js key (gs://... on the GCS driver)
+ *   size_bytes, sha256    – of the payload, when file_bytes was provided
+ *   path_valid, errors
  */
 async function realRun(input, ctx) {
   input = input || {};
   const errors = [];
 
-  // ── 1. Resolve secret key for HMAC signing ─────────────────────────────
-  const signingSecret =
-    process.env.CLOUDSTORAGECLIENT_SIGNING_SECRET ||
-    process.env.STORAGE_SIGNING_SECRET ||
-    'default-scopecash-signing-secret-change-in-production';
-
-  // ── 2. Validate & normalise object_path ───────────────────────────────
   const rawPath = (input.object_path || '').trim();
   let objectPath = rawPath;
   let pathValid = false;
-
   if (!rawPath) {
     errors.push('object_path is required');
   } else {
-    // Reject path traversal, absolute paths, or double-dots
     const normalised = path.posix.normalize(rawPath);
-    if (
-      normalised.startsWith('..') ||
-      normalised.startsWith('/') ||
-      normalised.includes('../') ||
-      /[<>:"\\|?*\x00-\x1f]/.test(rawPath)
-    ) {
+    if (normalised.startsWith('..') || normalised.startsWith('/') || normalised.includes('../') || /[<>:"\\|?*\x00-\x1f]/.test(rawPath)) {
       errors.push(`object_path "${rawPath}" failed validation (path traversal or illegal characters)`);
     } else {
       objectPath = normalised;
@@ -79,84 +62,49 @@ async function realRun(input, ctx) {
     }
   }
 
-  // ── 3. Content-type ────────────────────────────────────────────────────
   const contentType = (input.content_type || 'application/octet-stream').trim();
 
-  // ── 4. Process file_bytes ──────────────────────────────────────────────
   let payloadBuffer = null;
-  let sizeBytes = null;
-  let sha256Hex = null;
-
   const rawBytes = input.file_bytes;
   if (rawBytes != null) {
     if (Buffer.isBuffer(rawBytes) || rawBytes instanceof Uint8Array) {
       payloadBuffer = Buffer.from(rawBytes);
     } else if (typeof rawBytes === 'string') {
-      // Treat as base64
-      try {
-        payloadBuffer = Buffer.from(rawBytes, 'base64');
-      } catch (e) {
-        errors.push('file_bytes: base64 decode failed — ' + e.message);
-      }
+      try { payloadBuffer = Buffer.from(rawBytes, 'base64'); } catch (e) { errors.push('file_bytes: base64 decode failed — ' + e.message); }
     } else {
       errors.push('file_bytes: unsupported type — must be Buffer, Uint8Array, or base64 string');
     }
-
-    if (payloadBuffer) {
-      sizeBytes = payloadBuffer.length;
-      sha256Hex = crypto.createHash('sha256').update(payloadBuffer).digest('hex');
-    }
   }
 
-  // ── 5. Build deterministic HMAC signatures ─────────────────────────────
-  // Context seed: combine org, user, model (all optional) for namespacing
-  const orgId   = (ctx && ctx.orgId)   || 'default-org';
-  const userId  = (ctx && ctx.userId)  || 'anonymous';
-  const modelId = (ctx && ctx.modelId) || 'default-model';
-
-  const now = new Date();
-  // Expiry window: round to nearest 15-minute slot so the same path+ctx
-  // produces a stable token within a window (deterministic, not truly ephemeral).
-  const windowMs = 15 * 60 * 1000;
-  const windowSlot = Math.floor(now.getTime() / windowMs) * windowMs;
-  const expiresAt = new Date(windowSlot + windowMs).toISOString();
-
-  function makeSignature(operation) {
-    const message = [operation, objectPath, contentType, orgId, userId, windowSlot].join('\n');
-    return crypto.createHmac('sha256', signingSecret).update(message).digest('hex');
+  if (!pathValid || errors.length > 0) {
+    return { signed_download_url: null, storage_uri: null, size_bytes: null, sha256: null, content_type: contentType, object_path: objectPath, path_valid: pathValid, errors };
   }
 
-  const uploadSig   = makeSignature('upload');
-  const downloadSig = makeSignature('download');
+  const orgId = (ctx && ctx.orgId) || 'default-org';
+  const key = `${orgId}/${objectPath}`;
 
-  // ── 6. Construct URL-like strings ──────────────────────────────────────
-  // These are self-contained signed tokens, not live URLs.  A real storage
-  // proxy would accept these tokens and perform the actual I/O.
-  const encodedPath = encodeURIComponent(objectPath);
+  let sizeBytes = null;
+  let sha256Hex = null;
+  let storageUri = null;
+  let signedUrl = null;
 
-  const signed_upload_url = pathValid
-    ? `scopecash-storage://upload/${encodedPath}?org=${encodeURIComponent(orgId)}&expires=${encodeURIComponent(expiresAt)}&sig=${uploadSig}`
-    : null;
+  if (payloadBuffer) {
+    sizeBytes = payloadBuffer.length;
+    sha256Hex = crypto.createHash('sha256').update(payloadBuffer).digest('hex');
+    const put = await storage.putObject({ key, body: payloadBuffer, contentType });
+    storageUri = storage.gcsUri(key) || `${put.provider}://${key}`;
+    signedUrl = await storage.signedDownloadUrl(key, 300);
+  }
 
-  const signed_download_url = pathValid
-    ? `scopecash-storage://download/${encodedPath}?org=${encodeURIComponent(orgId)}&expires=${encodeURIComponent(expiresAt)}&sig=${downloadSig}`
-    : null;
-
-  const storage_uri = pathValid
-    ? `scopecash://${encodeURIComponent(orgId)}/${objectPath}`
-    : null;
-
-  // ── 7. Return ──────────────────────────────────────────────────────────
   return {
-    signed_upload_url,
-    signed_download_url,
-    storage_uri,
-    size_bytes:   sizeBytes,
-    sha256:       sha256Hex,
+    signed_upload_url: null, // writes go through putObject() above, not a client-side signed PUT — see follow-up in STATUS.md
+    signed_download_url: signedUrl,
+    storage_uri: storageUri,
+    size_bytes: sizeBytes,
+    sha256: sha256Hex,
     content_type: contentType,
-    object_path:  objectPath,
-    path_valid:   pathValid,
-    expires_at:   expiresAt,
+    object_path: objectPath,
+    path_valid: pathValid,
     errors,
   };
 }

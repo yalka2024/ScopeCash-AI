@@ -1,13 +1,20 @@
 /**
  * Object storage abstraction.
- *   - STORAGE_DRIVER=s3  -> S3-compatible (AWS, Wasabi, R2, MinIO via STORAGE_ENDPOINT)
- *   - default            -> local disk under server/uploads
+ *   - STORAGE_DRIVER=s3   -> S3-compatible (AWS, Wasabi, R2, MinIO via STORAGE_ENDPOINT)
+ *   - STORAGE_DRIVER=gcs  -> Google Cloud Storage (ADC auth — ties into the
+ *                            same GCP project as lib/vertex-ai.js). Objects
+ *                            written here can be referenced by evidence-
+ *                            pipeline.js as `gcsUri` parts (gs://bucket/key)
+ *                            instead of round-tripping bytes through the app
+ *                            server as base64.
+ *   - default             -> local disk under server/uploads
  *
  * Public API:
  *   putObject({ key, body, contentType }) -> { key, provider }
  *   getStream(key) -> Readable
  *   deleteObject(key)
  *   signedDownloadUrl(key, ttlSeconds)
+ *   gcsUri(key) -> "gs://bucket/key" | null (GCS driver only)
  *   sniffMagicBytes(buffer, declaredExt) -> { ok, detectedExt, mime }
  *   scanForViruses(buffer)               -> { ok, reason? }
  */
@@ -36,6 +43,15 @@ if (DRIVER === 's3') {
   module.exports.__signedUrlFn = getSignedUrl;
 }
 
+let gcs = null, gcsBucket = null;
+if (DRIVER === 'gcs') {
+  const { Storage } = require('@google-cloud/storage');
+  // ADC auth (service account / workload identity) — same credential
+  // resolution as lib/vertex-ai.js, no separate key handling here.
+  gcs = new Storage(process.env.GCP_PROJECT_ID ? { projectId: process.env.GCP_PROJECT_ID } : undefined);
+  gcsBucket = gcs.bucket(process.env.STORAGE_BUCKET || 'scopecash-ai');
+}
+
 const BUCKET = process.env.STORAGE_BUCKET || 'scopecash-ai';
 
 function newKey(userId, originalName) {
@@ -50,6 +66,10 @@ async function putObject({ key, body, contentType }) {
     await s3.send(new S3Cmd.PutObjectCommand({ Bucket: BUCKET, Key: key, Body: body, ContentType: contentType }));
     return { key, provider: 's3' };
   }
+  if (DRIVER === 'gcs') {
+    await gcsBucket.file(key).save(body, { contentType, resumable: false });
+    return { key, provider: 'gcs' };
+  }
   const target = path.join(LOCAL_ROOT, key);
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, body);
@@ -61,12 +81,19 @@ async function getStream(key) {
     const r = await s3.send(new S3Cmd.GetObjectCommand({ Bucket: BUCKET, Key: key }));
     return r.Body;
   }
+  if (DRIVER === 'gcs') {
+    return gcsBucket.file(key).createReadStream();
+  }
   return fs.createReadStream(path.join(LOCAL_ROOT, key));
 }
 
 async function deleteObject(key) {
   if (DRIVER === 's3') {
     await s3.send(new S3Cmd.DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
+    return;
+  }
+  if (DRIVER === 'gcs') {
+    await gcsBucket.file(key).delete({ ignoreNotFound: true });
     return;
   }
   const p = path.join(LOCAL_ROOT, key);
@@ -78,10 +105,21 @@ async function signedDownloadUrl(key, ttlSeconds = 300) {
     const cmd = new S3Cmd.GetObjectCommand({ Bucket: BUCKET, Key: key });
     return module.exports.__signedUrlFn(s3, cmd, { expiresIn: ttlSeconds });
   }
+  if (DRIVER === 'gcs') {
+    const [url] = await gcsBucket.file(key).getSignedUrl({ action: 'read', expires: Date.now() + ttlSeconds * 1000 });
+    return url;
+  }
   // Local driver: signed token cookie via HMAC; routes consume via /api/files/:key
   const exp = Math.floor(Date.now() / 1000) + ttlSeconds;
   const sig = crypto.createHmac('sha256', process.env.JWT_SECRET).update(`${key}|${exp}`).digest('hex');
   return `/api/files/${encodeURIComponent(key)}?exp=${exp}&sig=${sig}`;
+}
+
+/** gs://bucket/key for the current object, or null when not on the GCS driver
+ * — evidence-pipeline.js prefers this over base64 inlining when available. */
+function gcsUri(key) {
+  if (DRIVER !== 'gcs') return null;
+  return `gs://${BUCKET}/${key}`;
 }
 
 function verifyLocalSignature(key, exp, sig) {
@@ -161,7 +199,7 @@ async function scanForViruses(buffer) {
 }
 
 module.exports = {
-  DRIVER, putObject, getStream, deleteObject, signedDownloadUrl,
+  DRIVER, putObject, getStream, deleteObject, signedDownloadUrl, gcsUri,
   newKey, sniffMagicBytes, scanForViruses, verifyLocalSignature,
 };
 

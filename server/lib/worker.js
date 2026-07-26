@@ -12,6 +12,7 @@ const path = require('path');
 const prisma = require('./prisma');
 const storage = require('./storage');
 const metrics = require('./metrics');
+const cloudTasks = require('./cloud-tasks');
 
 const QUEUE_NAME = 'scopecash-ai-jobs';
 const REDIS_URL = process.env.REDIS_URL || '';
@@ -96,9 +97,28 @@ async function processNextLocal() {
   }
 }
 
+// ── Mode C: Cloud Tasks (push-based; GCP manages retry/backoff) ──────────
+const JOBS_BACKEND = (process.env.JOBS_BACKEND || '').toLowerCase();
+function useCloudTasks() { return JOBS_BACKEND === 'cloud-tasks' && cloudTasks.isConfigured(); }
+
 // ── Public API ───────────────────────────────────────────────
 function enqueueJob(recordId, storageKey, userId, userEmail) {
   const data = { recordId, storageKey, userId, userEmail };
+
+  if (useCloudTasks()) {
+    const targetUrl = process.env.CLOUD_TASKS_PUSH_URL; // e.g. https://<cloud-run-url>/api/jobs/process-task
+    if (!targetUrl) {
+      console.error('[worker] JOBS_BACKEND=cloud-tasks but CLOUD_TASKS_PUSH_URL is unset; falling back to local queue');
+    } else {
+      cloudTasks.enqueueTask({ queueName: process.env.CLOUD_TASKS_QUEUE || 'scopecash-jobs', targetUrl, payload: data })
+        .catch((err) => {
+          console.error('[worker] Cloud Tasks enqueue failed; using local queue:', err.message);
+          localQueue.push(data); processNextLocal();
+        });
+      return;
+    }
+  }
+
   const q = initBull();
   if (q) {
     q.add('process', data, { jobId: recordId }).catch(err => {
