@@ -82,6 +82,7 @@ const exportRoutes = require('./routes/export');
 const webhookRoutes = require('./routes/webhook');
 const docsRoutes = require('./routes/docs');
 const helpRoutes = require('./routes/help');
+const dsarRoutes = require('./routes/dsar');
 
 const aiRoutes = require('./routes/ai');
 
@@ -221,6 +222,7 @@ app.use('/api/export', exportRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/docs', docsRoutes);
 app.use('/api/help', helpRoutes);
+app.use('/api/me', dsarRoutes); // GDPR Art. 15/17 export + erasure (DATA-006) — auth-gated in the router itself
 
 app.use('/api/ai', aiRoutes);
 
