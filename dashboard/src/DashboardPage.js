@@ -60,14 +60,14 @@ export default function DashboardPage() {
       </form>
 
       {goals.length === 0 ? (
-        <p style={{ color: '#6b7280' }}>No goals yet — submit one above.</p>
+        <p style={{ color: '#94a3b8' }}>No goals yet — submit one above.</p>
       ) : goals.map(g => (
         <div key={g.id} style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: 16, marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <strong>{g.goal || g.name}</strong>
             <span style={{ color: STATUS_COLOR[g.status] || '#374151', fontWeight: 600 }}>{g.status}</span>
           </div>
-          <div style={{ fontSize: 12, color: '#6b7280', margin: '4px 0' }}>
+          <div style={{ fontSize: 12, color: '#94a3b8', margin: '4px 0' }}>
             autonomy: {g.autonomy} · {(g.steps || []).length} steps
           </div>
           {Array.isArray(g.steps) && g.steps.length > 0 ? (

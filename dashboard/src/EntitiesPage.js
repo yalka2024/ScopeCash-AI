@@ -108,7 +108,12 @@ export function EntitySection({ entity }) {
       )}
 
       <Card>
-        <CardContent className="overflow-x-auto p-0">
+        <CardContent
+          className="overflow-x-auto p-0"
+          tabIndex={0}
+          role="region"
+          aria-label={`${humanize(entity.plural)} table, scroll horizontally for more columns`}
+        >
           <table className="w-full border-collapse">
             <thead>
               <tr>

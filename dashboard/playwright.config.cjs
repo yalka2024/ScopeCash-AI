@@ -6,6 +6,11 @@ const { defineConfig } = require('@playwright/test');
 
 module.exports = defineConfig({
   testDir: './a11y',
+  // Scoped to the public spec only — authenticated-pages.spec.cjs lives in
+  // the same directory but needs a real backend (see
+  // playwright.authed.config.cjs), which this static-preview webServer
+  // doesn't provide.
+  testMatch: /public-pages\.spec\.cjs/,
   timeout: 30_000,
   fullyParallel: true,
   reporter: [['list']],

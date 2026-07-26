@@ -97,10 +97,10 @@ export default function TrustPortalPage() {
             <th />
           </tr></thead>
           <tbody>
-            {kits.length === 0 && <tr><td colSpan={6} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>No kit requests.</td></tr>}
+            {kits.length === 0 && <tr><td colSpan={6} style={{ padding: 16, textAlign: 'center', color: '#94a3b8' }}>No kit requests.</td></tr>}
             {kits.map(k => (
               <tr key={k.id} style={{ borderBottom: '1px solid hsl(217 33% 17%)' }}>
-                <td style={{ padding: 8 }}>{k.prospectName || '—'}<br /><small style={{ color: '#6b7280' }}>{k.prospectCompany || ''}</small></td>
+                <td style={{ padding: 8 }}>{k.prospectName || '—'}<br /><small style={{ color: '#94a3b8' }}>{k.prospectCompany || ''}</small></td>
                 <td style={{ padding: 8 }}><code>{k.prospectEmail}</code></td>
                 <td style={{ padding: 8, textAlign: 'center' }}>
                   <span style={{ background: k.status === 'approved' ? '#10b981' : (k.status === 'rejected' ? '#ef4444' : '#9ca3af'), color: 'white', padding: '2px 8px', borderRadius: 4, fontSize: 11 }}>
@@ -123,7 +123,7 @@ export default function TrustPortalPage() {
 
       <section>
         <h2>Security questionnaire bank</h2>
-        <p style={{ color: '#6b7280' }}>
+        <p style={{ color: '#94a3b8' }}>
           Canonical answers shipped with ScopeCash AI. Override per org for customer-specific commitments.
           Customers can pull these via <code>GET /api/trust-portal/questions</code>.
         </p>
@@ -131,7 +131,7 @@ export default function TrustPortalPage() {
           const [fw, sect] = key.split('::');
           return (
             <article key={key} style={{ marginBottom: 16, border: '1px solid hsl(217 33% 24%)', borderRadius: 8, padding: 12 }}>
-              <header><strong>{sect}</strong> <span style={{ color: '#6b7280', fontSize: 12 }}>({fw.toUpperCase()})</span></header>
+              <header><strong>{sect}</strong> <span style={{ color: '#94a3b8', fontSize: 12 }}>({fw.toUpperCase()})</span></header>
               <ul style={{ listStyle: 'none', padding: 0, marginTop: 8 }}>
                 {items.map(q => {
                   const ov = overrideMap.get(q.id);
@@ -145,7 +145,7 @@ export default function TrustPortalPage() {
                           {ov && <> <button onClick={() => deleteOverride(q.id)}>Reset</button></>}
                         </span>
                       </div>
-                      <div style={{ color: '#374151', fontSize: 13, marginTop: 4 }}>{(ov && ov.answer) || q.answer}</div>
+                      <div style={{ color: '#94a3b8', fontSize: 13, marginTop: 4 }}>{(ov && ov.answer) || q.answer}</div>
                     </li>
                   );
                 })}
@@ -158,7 +158,7 @@ export default function TrustPortalPage() {
       {editing && (
         <aside style={{ position: 'fixed', right: 24, top: 24, width: 460, background: 'white', border: '1px solid hsl(217 33% 24%)', borderRadius: 8, padding: 16, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
           <h3 style={{ marginTop: 0 }}>Override answer</h3>
-          <p style={{ color: '#6b7280', fontSize: 13 }}>{editing.question}</p>
+          <p style={{ color: '#94a3b8', fontSize: 13 }}>{editing.question}</p>
           <form onSubmit={saveOverride}>
             <textarea rows={10} value={editing.answer} onChange={e => setEditing({ ...editing, answer: e.target.value })} style={{ width: '100%' }} required />
             <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>

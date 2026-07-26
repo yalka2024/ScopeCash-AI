@@ -82,8 +82,10 @@ export default function AuthPage({ isBeta }) {
           </form>
 
           {!isBeta && (
-            <p className="mt-4 cursor-pointer text-center text-sm text-muted-foreground hover:text-foreground" onClick={() => setIsLogin(!isLogin)}>
-              {isLogin ? "Don't have an account? Register" : 'Already have an account? Sign In'}
+            <p className="mt-4 text-center text-sm text-muted-foreground">
+              <button type="button" className="cursor-pointer border-0 bg-transparent p-0 text-inherit underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" onClick={() => setIsLogin(!isLogin)}>
+                {isLogin ? "Don't have an account? Register" : 'Already have an account? Sign In'}
+              </button>
             </p>
           )}
         </CardContent>

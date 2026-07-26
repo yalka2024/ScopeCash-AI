@@ -985,6 +985,83 @@ Full suite: 14/14 suites, 140/156 passing (16 skipped — Postgres RLS tests
 gracefully skip under the default SQLite test run) — no regressions from
 any of the three fixes.
 
+## Phase 12 — Third follow-up: real DR drill + deep accessibility pass (DONE, 2026-07-26)
+
+A third follow-up asked for five items: a backup restoration drill with
+documented RPO/RTO, manual assistive-technology testing, real arms-length
+customer validation, real earned revenue, and production testimonials with
+customer consent — framed around what XPRIZE judges require (real users,
+revenue, and production execution evidence).
+
+**Drew an explicit line on three of the five up front and held it**: real
+customers, real revenue, and real customer testimonials/consent cannot be
+produced by an engineering session — they require actual people, actual
+transactions, and actual signed consent. Fabricating any of them to present
+as genuine XPRIZE evidence would be submission fraud, not a shortcut, and
+was refused outright. What this phase did instead for those three: verified/
+hardened the real infrastructure that captures genuine evidence the moment
+it exists (see below) — code work only, no data.
+
+The other two were fully real engineering work with measured results:
+
+- **Backup/restore DR drill** — see STATUS.md's own prior "physical backup-
+  restore drills... unchanged" framing (Phase 10/11): that framing is now
+  out of date. Actually executed the real backup mechanism
+  (`ops/backup/pg-backup.sh`/`pg-restore.sh`, the exact scripts the Helm
+  CronJob runs) end-to-end against a dedicated, disposable Postgres 16
+  container: seeded data, backed up, simulated genuine data loss (`DROP
+  DATABASE`, not a truncate), restored, and verified exact row-count
+  integrity across all 71 tables — twice, at demo scale and again at a
+  synthetic 26 MB/50,000-row scale. Running it for real (not just reading
+  the scripts) found and fixed 3 real bugs that had never been exercised
+  before: a CRLF-broken shebang on Windows checkouts, a completely missing
+  `ops/Dockerfile` that `backup-cronjob.yaml` already referenced but which
+  didn't exist anywhere in the repo, and a client/server Postgres
+  major-version mismatch that silently breaks restores (plus the resulting
+  unhandled `EPIPE` crash in `db-restore.js`). Full write-up, honest
+  RPO/RTO figures per deployment path, and a re-run procedure in
+  `ops/backup/DR-DRILL-RESULTS.md`. Still not independently exercised: GCP
+  Cloud SQL's own PITR restore path (no live GCP project exists — same
+  gap noted throughout this doc), and RTO at real production data volume
+  (GBs, not tens of MB).
+- **Manual assistive-technology testing** — an AI agent cannot listen to
+  NVDA/JAWS/VoiceOver output as a human would; that gap is real and stated
+  plainly in `dashboard/a11y/MANUAL-AT-TESTING-PROTOCOL.md`, a concrete
+  checklist for a human tester to execute and record results against.
+  What real testing DID accomplish: extended automated axe-core WCAG 2.2
+  AA scanning to the entire authenticated dashboard (27 pages — Phase 9
+  only covered the public marketing/legal pages) plus real keyboard-only
+  navigation tests, all in a new
+  `dashboard/a11y/authenticated-pages.spec.cjs` +
+  `playwright.authed.config.cjs` (needs a real backend, unlike the public
+  suite's static preview server — wired into CI's `dashboard` job).
+  Running this for real found and fixed 16 distinct, genuine issues, several
+  severe: the ENTIRE authenticated sidebar nav was built as `<li onClick>`
+  with no `<button>`/`role`/keyboard handler — completely unreachable by
+  keyboard or screen reader; the login/register toggle on the sign-in page
+  had the same defect; the main authenticated content pane had no explicit
+  background and inherited a competing legacy theme file's white body
+  color while using dark-theme text colors, rendering large parts of the
+  app as near-invisible near-white-on-white text; the first-run setup
+  wizard never persisted the returned session to `localStorage`, so
+  completing setup silently dumped the operator back on the logged-out
+  marketing page; a shared `Button` "ghost" variant had no explicit
+  background, falling through to the native browser button's default gray
+  in at least two real usages; and a systemic pattern of insufficient
+  color contrast (badges, links, status colors) across 8+ page components,
+  fixed consistently while being careful not to break the SAME color used
+  correctly elsewhere as foreground text vs. badge background (a real
+  regression risk found and avoided in `TenantsPage.js`/`StatusPage.js`).
+  Also found and fixed, as a side effect of exercising real authenticated
+  page loads under real testing: `retentionLegalHold` — the only one of 21
+  generic entities without a `createdAt` column — had a 500 error on every
+  single `GET` list call via the generic entities route's hardcoded
+  `orderBy: { createdAt: 'desc' }`; this endpoint had never worked.
+
+Full suite: 14/14 server test suites still passing (140/156, unrelated to
+this dashboard-only + one entities.js fix); dashboard build clean; all 30
+authenticated a11y/keyboard tests and all 7 public a11y tests pass.
+
 ## Not yet started
 
 See TODO.md.

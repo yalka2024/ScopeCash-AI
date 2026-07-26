@@ -141,7 +141,7 @@ export default function AiEconomicsPage() {
           <tbody>
             {models.map(m => (
               <tr key={m.id} className={row}>
-                <td className="p-2"><code className="text-primary">{m.id}</code></td>
+                <td className="p-2"><code className="text-[hsl(263_70%_78%)]">{m.id}</code></td>
                 <td className="p-2 text-foreground">{m.provider}</td>
                 <td className="p-2 text-right text-foreground">{m.quality}</td>
                 <td className="p-2 text-right text-foreground">${m.inUsdPerM.toFixed(2)}</td>
@@ -160,7 +160,7 @@ export default function AiEconomicsPage() {
           <tbody>
             {spend && spend.orgs && spend.orgs.length > 0 ? spend.orgs.slice(0, 20).map(o => (
               <tr key={o.orgId} className={row}>
-                <td className="p-2"><code className="text-primary">{o.orgId}</code></td>
+                <td className="p-2"><code className="text-[hsl(263_70%_78%)]">{o.orgId}</code></td>
                 <td className="p-2 text-right text-foreground">{o.tokens.toLocaleString()}</td>
                 <td className="p-2 text-right text-foreground">{dollars(o.spent_usd)}</td>
               </tr>
@@ -180,7 +180,7 @@ export default function AiEconomicsPage() {
             {evals.length > 0 ? evals.map(r => (
               <tr key={r.id} className={row}>
                 <td className="p-2 text-foreground">{r.suite}</td>
-                <td className="p-2"><code className="text-primary">{r.model}</code></td>
+                <td className="p-2"><code className="text-[hsl(263_70%_78%)]">{r.model}</code></td>
                 <td className="p-2 text-right" style={{ color: r.score >= 0.9 ? '#34d399' : r.score >= 0.7 ? '#fbbf24' : '#f87171' }}>
                   {(r.score * 100).toFixed(1)}%
                 </td>

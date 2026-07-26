@@ -74,6 +74,7 @@ export default function AssistantPage() {
               <select
                 value={agent}
                 onChange={(e) => setAgent(e.target.value)}
+                aria-label="Choose agent"
                 className="h-9 w-fit rounded-md border border-border bg-background px-2 text-sm text-foreground"
               >
                 {agents.map((a) => (

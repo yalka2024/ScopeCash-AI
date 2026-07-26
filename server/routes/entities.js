@@ -233,11 +233,15 @@ const ENTITIES = [
   {
     // releasedById/releasedAt excluded — releasing a legal hold is a
     // sensitive action; only ever set via a future dedicated release route.
+    // No createdAt column on this model (the only one of 21 entities here
+    // without one) — placedAt is its creation timestamp; sortField below
+    // tells the generic list route to order by that instead.
     model: 'retentionLegalHold', plural: 'retentionLegalHolds',
     fields: ['resourceType', 'resourceId', 'holdType', 'reason', 'policyDays', 'placedById'],
     fieldTypes: { resourceType: 'String', resourceId: 'String', holdType: 'String', reason: 'String', policyDays: 'Int', placedById: 'String' },
     required: ['resourceType', 'resourceId', 'holdType'],
     writeRoles: ['owner', 'admin'],
+    sortField: 'placedAt',
   },
   {
     model: 'competitionEvidence', plural: 'competitionEvidence',
@@ -301,7 +305,7 @@ for (const e of ENTITIES) {
     const cursorArgs = req.query.cursor ? { cursor: { id: String(req.query.cursor) }, skip: 1 } : {};
     const rows = await prisma[model].findMany({
       where: scope(req),
-      orderBy: { createdAt: 'desc' },
+      orderBy: { [e.sortField || 'createdAt']: 'desc' },
       take: limit + 1,
       ...cursorArgs,
     });

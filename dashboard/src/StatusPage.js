@@ -11,12 +11,24 @@ import React, { useEffect, useState } from 'react';
  * No data points → grey "no data" tiles, never falsely green.
  */
 
-const COLORS = {
+// Two shade sets: BADGE_COLORS pair with white text as a filled badge
+// background (line ~100); TEXT_COLORS are plain foreground text on the dark
+// page background (line ~81) and decorative border/swatch accents — the
+// badge shades are too dark to read as foreground text on the same
+// background, and vice versa.
+const BADGE_COLORS = {
+  operational:    '#047857',
+  degraded:       '#b45309',
+  partial_outage: '#b45309',
+  major_outage:   '#b91c1c',
+  no_data:        '#374151',
+};
+const TEXT_COLORS = {
   operational:    '#10b981',
   degraded:       '#f59e0b',
   partial_outage: '#f59e0b',
   major_outage:   '#ef4444',
-  no_data:        '#374151',
+  no_data:        '#94a3b8',
 };
 
 function fmtPercent(v, digits = 2) {
@@ -25,11 +37,11 @@ function fmtPercent(v, digits = 2) {
 }
 
 function bucketColor(availability) {
-  if (availability == null) return COLORS.no_data;
-  if (availability >= 0.999) return COLORS.operational;
-  if (availability >= 0.99)  return COLORS.degraded;
-  if (availability >= 0.95)  return COLORS.partial_outage;
-  return COLORS.major_outage;
+  if (availability == null) return TEXT_COLORS.no_data;
+  if (availability >= 0.999) return TEXT_COLORS.operational;
+  if (availability >= 0.99)  return TEXT_COLORS.degraded;
+  if (availability >= 0.95)  return TEXT_COLORS.partial_outage;
+  return TEXT_COLORS.major_outage;
 }
 
 function statusLabel(s) { return String(s || 'unknown').replace(/_/g, ' '); }
@@ -71,7 +83,7 @@ export default function StatusPage() {
   if (loading) return <div className="p-8 text-muted-foreground">Loading status…</div>;
   if (!status) return null;
 
-  const overallColor = COLORS[status.overall] || '#6b7280';
+  const overallColor = TEXT_COLORS[status.overall] || '#94a3b8';
   const days = (uptime && uptime.history) || [];
 
   return (
@@ -97,7 +109,7 @@ export default function StatusPage() {
                   {c.id === 'storage'  && c.driver     && `Driver: ${c.driver}`}
                 </div>
               </div>
-              <span className="rounded-full px-2.5 py-1 text-xs font-semibold capitalize text-white" style={{ background: COLORS[c.status] || '#6b7280' }}>{statusLabel(c.status)}</span>
+              <span className="rounded-full px-2.5 py-1 text-xs font-semibold capitalize text-white" style={{ background: BADGE_COLORS[c.status] || '#6b7280' }}>{statusLabel(c.status)}</span>
             </li>
           ))}
         </ul>
@@ -113,14 +125,14 @@ export default function StatusPage() {
               <span className="ml-1.5 text-muted-foreground">avg over {(uptime && uptime.days_with_data) || 0} days with traffic</span>
             </div>
             <div className="text-[11px] text-muted-foreground">
-              {[['≥ 99.9%', COLORS.operational], ['≥ 99%', COLORS.degraded], ['< 95%', COLORS.major_outage], ['no data', COLORS.no_data]].map(([lbl, col]) => (
+              {[['≥ 99.9%', TEXT_COLORS.operational], ['≥ 99%', TEXT_COLORS.degraded], ['< 95%', TEXT_COLORS.major_outage], ['no data', TEXT_COLORS.no_data]].map(([lbl, col]) => (
                 <span key={lbl} className="mr-2.5 inline-flex items-center gap-1">
                   <span className="h-2.5 w-2.5 rounded-sm" style={{ background: col }} />{lbl}
                 </span>
               ))}
             </div>
           </div>
-          <div className="flex flex-nowrap gap-0.5 overflow-x-auto">
+          <div className="flex flex-nowrap gap-0.5 overflow-x-auto" tabIndex={0} role="region" aria-label="Daily uptime history, scroll horizontally">
             {days.map((d) => (
               <div key={d.date}
                 title={`${d.date} — ${d.availability == null ? 'no data' : fmtPercent(d.availability, 3)} (${d.total} requests, ${d.errors} errors)`}
@@ -153,7 +165,7 @@ export default function StatusPage() {
             return (
               <li key={s.id} className="grid grid-cols-[2fr_1fr_1fr_1fr] items-center gap-3 border-b border-border/60 bg-card px-4 py-3 text-sm">
                 <div>
-                  <div className="font-semibold text-foreground"><code className="text-primary">{s.id}</code></div>
+                  <div className="font-semibold text-foreground"><code className="text-[hsl(263_70%_78%)]">{s.id}</code></div>
                   <div className="mt-0.5 text-[11px] text-muted-foreground">{s.windowDays}-day window</div>
                 </div>
                 <div className="text-muted-foreground">Target: <strong className="text-foreground">{target}</strong></div>
@@ -172,7 +184,7 @@ export default function StatusPage() {
           ? <p className="text-muted-foreground">No active incidents.</p>
           : status.activeIncidents.map((i) => (
             <article key={i.id} className="mb-2 rounded-md bg-amber-500/10 px-3.5 py-2.5"
-              style={{ borderLeft: `4px solid ${COLORS[i.severity === 'sev1' ? 'major_outage' : 'partial_outage']}` }}>
+              style={{ borderLeft: `4px solid ${TEXT_COLORS[i.severity === 'sev1' ? 'major_outage' : 'partial_outage']}` }}>
               <strong className="text-foreground">{i.title}</strong>
               <span className="ml-2 text-xs text-muted-foreground">· {i.severity} · {i.status}{i.component ? ' · ' + i.component : ''}</span>
             </article>

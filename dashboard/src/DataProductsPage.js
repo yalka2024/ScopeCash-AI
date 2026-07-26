@@ -56,7 +56,7 @@ export default function DataProductsPage() {
   return (
     <div className="data-products-page" style={{ padding: 24 }}>
       <h1>Data products</h1>
-      <p style={{ color: '#6b7280' }}>
+      <p style={{ color: '#94a3b8' }}>
         Canonical analytical tables exposed as NDJSON. Pipe into your warehouse with{' '}
         <code>rclone</code>, <code>aws s3 sync</code>, or <code>gsutil rsync</code>.
       </p>
@@ -72,7 +72,7 @@ export default function DataProductsPage() {
             <th />
           </tr></thead>
           <tbody>
-            {products.length === 0 && <tr><td colSpan={5} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>No products defined.</td></tr>}
+            {products.length === 0 && <tr><td colSpan={5} style={{ padding: 16, textAlign: 'center', color: '#94a3b8' }}>No products defined.</td></tr>}
             {products.map(p => (
               <tr key={p.id} style={{ borderBottom: '1px solid hsl(217 33% 17%)' }}>
                 <td style={{ padding: 8 }}><code>{p.id}</code></td>
@@ -81,7 +81,7 @@ export default function DataProductsPage() {
                     {p.classification}
                   </span>
                 </td>
-                <td style={{ padding: 8, fontSize: 12, color: '#6b7280' }}>{p.columns.join(', ')}</td>
+                <td style={{ padding: 8, fontSize: 12, color: '#94a3b8' }}>{p.columns.join(', ')}</td>
                 <td style={{ padding: 8 }}>{p.description}</td>
                 <td style={{ padding: 8, textAlign: 'right' }}>
                   <button onClick={() => previewProduct(p.id)}>Preview</button>
@@ -107,12 +107,12 @@ export default function DataProductsPage() {
             <th style={{ textAlign: 'left', padding: 8 }}>Finished</th>
           </tr></thead>
           <tbody>
-            {exports.length === 0 && <tr><td colSpan={6} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>No exports yet.</td></tr>}
+            {exports.length === 0 && <tr><td colSpan={6} style={{ padding: 16, textAlign: 'center', color: '#94a3b8' }}>No exports yet.</td></tr>}
             {exports.map(e => (
               <tr key={e.id} style={{ borderBottom: '1px solid hsl(217 33% 17%)' }}>
                 <td style={{ padding: 8 }}><code>{e.runId}</code></td>
                 <td style={{ padding: 8, textAlign: 'center' }}>
-                  <span style={{ background: e.status === 'success' ? '#10b981' : (e.status === 'partial' ? '#f59e0b' : '#9ca3af'), color: 'white', padding: '2px 8px', borderRadius: 4, fontSize: 12 }}>
+                  <span style={{ background: e.status === 'success' ? '#047857' : (e.status === 'partial' ? '#b45309' : '#4b5563'), color: 'white', padding: '2px 8px', borderRadius: 4, fontSize: 12 }}>
                     {e.status}
                   </span>
                 </td>
@@ -134,7 +134,7 @@ export default function DataProductsPage() {
           </header>
           {preview.loading && <p>Loading…</p>}
           {preview.error && <p style={{ color: '#b91c1c' }}>{preview.error}</p>}
-          {!preview.loading && preview.rows.length === 0 && !preview.error && <p style={{ color: '#6b7280' }}>No rows in last 30 days.</p>}
+          {!preview.loading && preview.rows.length === 0 && !preview.error && <p style={{ color: '#94a3b8' }}>No rows in last 30 days.</p>}
           {preview.rows.length > 0 && (
             <pre style={{ background: 'hsl(222 47% 13%)', padding: 12, fontSize: 11, overflow: 'auto' }}>
               {preview.rows.map((r, i) => JSON.stringify(r, null, 2)).join('\n---\n')}

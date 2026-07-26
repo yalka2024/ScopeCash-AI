@@ -30,22 +30,46 @@ body {
 }
 .welcome { font-size: 0.8rem; color: hsl(215 20% 60%); padding: 0 0.5rem; margin-bottom: 1.5rem; }
 .nav-links { list-style: none; flex: 1; display: flex; flex-direction: column; gap: 0.125rem; overflow-y: auto; }
-.nav-links li {
+/* Nav items are real <button>s (keyboard/screen-reader reachable) styled to
+   look identical to the old <li onClick> — the <li> is now a plain wrapper. */
+.nav-links li button {
+  display: block;
+  width: 100%;
   padding: 0.55rem 0.75rem;
+  border: none;
   border-radius: 8px;
   cursor: pointer;
+  background: none;
   color: hsl(215 20% 70%);
+  font: inherit;
   font-size: 0.9rem;
   font-weight: 500;
+  text-align: left;
   transition: background 0.15s ease, color 0.15s ease;
 }
-.nav-links li:hover { background: hsl(217 33% 17%); color: hsl(210 40% 98%); }
-.nav-links li.active {
+.nav-links li button:hover { background: hsl(217 33% 17%); color: hsl(210 40% 98%); }
+.nav-links li button:focus-visible {
+  outline: 2px solid hsl(263 70% 70%);
+  outline-offset: -2px;
+}
+.nav-links li.active button {
   background: hsl(263 70% 60% / 0.15);
   color: hsl(263 70% 78%);
   box-shadow: inset 2px 0 0 hsl(263 70% 60%);
 }
-.content { flex: 1; overflow-y: auto; height: 100vh; }
+/* Explicit background/color rather than inheriting <body> — theme.css (the
+   separate, generated P7 brand-token file used by public/legacy pages) sets
+   body to a LIGHT theme, which collided with these shadcn-style dark-theme
+   surfaces: real testing found page headings/descriptions rendering as
+   near-white text on a white background (contrast ratio ~1:1). */
+.content { flex: 1; overflow-y: auto; height: 100vh; background: hsl(var(--background)); color: hsl(var(--foreground)); }
+/* theme.css's global `a { color: var(--color-primary) }` is a dark navy
+   (#1b3a5c) meant for the light marketing pages that rule was written for —
+   any plain, unstyled <a> rendered inside this dark authenticated pane
+   inherits it and becomes nearly invisible (real testing found this on
+   Marketplace's "Docs" links). Give links here a sensible, WCAG-AA default;
+   components with their own explicit text color class are unaffected. */
+.content a { color: hsl(263 70% 78%); }
 .logout-btn {
   background: transparent;
   border: 1px solid hsl(217 33% 24%);

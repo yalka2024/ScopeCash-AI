@@ -127,34 +127,40 @@ export default function App() {
         </div>
         <ul className="nav-links">
           {WORKFLOW_NAV.map((g) => (
-            <li key={g.key} className={authedPage === g.key ? 'active' : ''} onClick={() => setPage(g.key)}>{g.label}</li>
+            <li key={g.key} className={authedPage === g.key ? 'active' : ''}>
+              <button type="button" aria-current={authedPage === g.key ? 'page' : undefined} onClick={() => setPage(g.key)}>{g.label}</button>
+            </li>
           ))}
-          <li className={authedPage === 'assistant' ? 'active' : ''} onClick={() => setPage('assistant')}>AI Assistant</li>
+          <li className={authedPage === 'assistant' ? 'active' : ''}>
+            <button type="button" aria-current={authedPage === 'assistant' ? 'page' : undefined} onClick={() => setPage('assistant')}>AI Assistant</button>
+          </li>
 
           {isAdmin && <React.Fragment>
             {ADMIN_NAV.map((g) => (
-              <li key={g.key} className={authedPage === g.key ? 'active' : ''} onClick={() => setPage(g.key)}>{g.label}</li>
+              <li key={g.key} className={authedPage === g.key ? 'active' : ''}>
+                <button type="button" aria-current={authedPage === g.key ? 'page' : undefined} onClick={() => setPage(g.key)}>{g.label}</button>
+              </li>
             ))}
-            <li className={authedPage === 'competition' ? 'active' : ''} onClick={() => setPage('competition')}>Competition evidence</li>
-            <li className={authedPage === 'ai-economics' ? 'active' : ''} onClick={() => setPage('ai-economics')}>AI economics</li>
-            <li className={authedPage === 'evaluations' ? 'active' : ''} onClick={() => setPage('evaluations')}>AI evaluations</li>
-            <li className={authedPage === 'growth' ? 'active' : ''} onClick={() => setPage('growth')}>Growth</li>
-            <li className={authedPage === 'data-products' ? 'active' : ''} onClick={() => setPage('data-products')}>Data products</li>
-            <li className={authedPage === 'operations' ? 'active' : ''} onClick={() => setPage('operations')}>Operations</li>
-            <li className={authedPage === 'tenants' ? 'active' : ''} onClick={() => setPage('tenants')}>Tenants</li>
-            <li className={authedPage === 'trust-portal' ? 'active' : ''} onClick={() => setPage('trust-portal')}>Trust portal</li>
-            <li className={authedPage === 'governance' ? 'active' : ''} onClick={() => setPage('governance')}>Governance</li>
-            <li className={authedPage === 'agent-console' ? 'active' : ''} onClick={() => setPage('agent-console')}>Agent console</li>
-            <li className={authedPage === 'tools' ? 'active' : ''} onClick={() => setPage('tools')}>Tools</li>
-            <li className={authedPage === 'all-records' ? 'active' : ''} onClick={() => setPage('all-records')}>All records (raw)</li>
+            <li className={authedPage === 'competition' ? 'active' : ''}><button type="button" aria-current={authedPage === 'competition' ? 'page' : undefined} onClick={() => setPage('competition')}>Competition evidence</button></li>
+            <li className={authedPage === 'ai-economics' ? 'active' : ''}><button type="button" aria-current={authedPage === 'ai-economics' ? 'page' : undefined} onClick={() => setPage('ai-economics')}>AI economics</button></li>
+            <li className={authedPage === 'evaluations' ? 'active' : ''}><button type="button" aria-current={authedPage === 'evaluations' ? 'page' : undefined} onClick={() => setPage('evaluations')}>AI evaluations</button></li>
+            <li className={authedPage === 'growth' ? 'active' : ''}><button type="button" aria-current={authedPage === 'growth' ? 'page' : undefined} onClick={() => setPage('growth')}>Growth</button></li>
+            <li className={authedPage === 'data-products' ? 'active' : ''}><button type="button" aria-current={authedPage === 'data-products' ? 'page' : undefined} onClick={() => setPage('data-products')}>Data products</button></li>
+            <li className={authedPage === 'operations' ? 'active' : ''}><button type="button" aria-current={authedPage === 'operations' ? 'page' : undefined} onClick={() => setPage('operations')}>Operations</button></li>
+            <li className={authedPage === 'tenants' ? 'active' : ''}><button type="button" aria-current={authedPage === 'tenants' ? 'page' : undefined} onClick={() => setPage('tenants')}>Tenants</button></li>
+            <li className={authedPage === 'trust-portal' ? 'active' : ''}><button type="button" aria-current={authedPage === 'trust-portal' ? 'page' : undefined} onClick={() => setPage('trust-portal')}>Trust portal</button></li>
+            <li className={authedPage === 'governance' ? 'active' : ''}><button type="button" aria-current={authedPage === 'governance' ? 'page' : undefined} onClick={() => setPage('governance')}>Governance</button></li>
+            <li className={authedPage === 'agent-console' ? 'active' : ''}><button type="button" aria-current={authedPage === 'agent-console' ? 'page' : undefined} onClick={() => setPage('agent-console')}>Agent console</button></li>
+            <li className={authedPage === 'tools' ? 'active' : ''}><button type="button" aria-current={authedPage === 'tools' ? 'page' : undefined} onClick={() => setPage('tools')}>Tools</button></li>
+            <li className={authedPage === 'all-records' ? 'active' : ''}><button type="button" aria-current={authedPage === 'all-records' ? 'page' : undefined} onClick={() => setPage('all-records')}>All records (raw)</button></li>
           </React.Fragment>}
 
-          <li className={authedPage === 'marketplace' ? 'active' : ''} onClick={() => setPage('marketplace')}>Marketplace</li>
-          <li className={authedPage === 'security' ? 'active' : ''} onClick={() => setPage('security')}>Security</li>
-          <li className={authedPage === 'status' ? 'active' : ''} onClick={() => setPage('status')}>Status</li>
-          <li className={authedPage === 'settings' ? 'active' : ''} onClick={() => setPage('settings')}>Settings</li>
-          <li className={authedPage === 'pricing' ? 'active' : ''} onClick={() => setPage('pricing')}>Pricing</li>
-          <li className={authedPage === 'help' ? 'active' : ''} onClick={() => { window.location.hash = '#help'; setPage('help'); }}>Help centre</li>
+          <li className={authedPage === 'marketplace' ? 'active' : ''}><button type="button" aria-current={authedPage === 'marketplace' ? 'page' : undefined} onClick={() => setPage('marketplace')}>Marketplace</button></li>
+          <li className={authedPage === 'security' ? 'active' : ''}><button type="button" aria-current={authedPage === 'security' ? 'page' : undefined} onClick={() => setPage('security')}>Security</button></li>
+          <li className={authedPage === 'status' ? 'active' : ''}><button type="button" aria-current={authedPage === 'status' ? 'page' : undefined} onClick={() => setPage('status')}>Status</button></li>
+          <li className={authedPage === 'settings' ? 'active' : ''}><button type="button" aria-current={authedPage === 'settings' ? 'page' : undefined} onClick={() => setPage('settings')}>Settings</button></li>
+          <li className={authedPage === 'pricing' ? 'active' : ''}><button type="button" aria-current={authedPage === 'pricing' ? 'page' : undefined} onClick={() => setPage('pricing')}>Pricing</button></li>
+          <li className={authedPage === 'help' ? 'active' : ''}><button type="button" aria-current={authedPage === 'help' ? 'page' : undefined} onClick={() => { window.location.hash = '#help'; setPage('help'); }}>Help centre</button></li>
         </ul>
         <button className="logout-btn" onClick={logout}>Sign Out</button>
       </nav>

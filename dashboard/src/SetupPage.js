@@ -102,7 +102,11 @@ export default function SetupPage({ onHome, onLogin }) {
       });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(body.error || ('setup_failed_' + r.status));
-      // Session cookie is set; jump straight into the dashboard.
+      // Session cookie is set, but App.js's isLoggedIn()/getUser() (like
+      // api.js's login()/register()) read from localStorage, not the
+      // cookie — without this, the reload below lands back on the logged-
+      // out marketing page despite the server-side session being real.
+      if (body.user) { try { localStorage.setItem('user', JSON.stringify(body.user)); } catch { /* ignore */ } }
       window.location.hash = '#app';
       window.location.reload();
     } catch (e2) {

@@ -81,14 +81,14 @@ export default function GrowthPage() {
             <th style={{ padding: 8 }}>Volume</th>
           </tr></thead>
           <tbody>
-            {funnel.length === 0 && <tr><td colSpan={4} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>No events yet.</td></tr>}
+            {funnel.length === 0 && <tr><td colSpan={4} style={{ padding: 16, textAlign: 'center', color: '#94a3b8' }}>No events yet.</td></tr>}
             {funnel.map((s, i) => {
               const prev = i > 0 ? funnel[i - 1].unique_users : null;
               const conv = (prev != null && prev > 0) ? ((s.unique_users / prev) * 100).toFixed(1) : null;
               const widthPct = (s.unique_users / maxUnique) * 100;
               return (
                 <tr key={s.name} style={{ borderBottom: '1px solid hsl(217 33% 17%)' }}>
-                  <td style={{ padding: 8 }}><code>{s.name}</code>{conv != null && <span style={{ marginLeft: 8, color: '#6b7280', fontSize: 12 }}>({conv}% step conv.)</span>}</td>
+                  <td style={{ padding: 8 }}><code>{s.name}</code>{conv != null && <span style={{ marginLeft: 8, color: '#94a3b8', fontSize: 12 }}>({conv}% step conv.)</span>}</td>
                   <td style={{ padding: 8, textAlign: 'right' }}>{s.unique_users.toLocaleString()}</td>
                   <td style={{ padding: 8, textAlign: 'right' }}>{s.total.toLocaleString()}</td>
                   <td style={{ padding: 8, width: 240 }}>
@@ -118,18 +118,18 @@ export default function GrowthPage() {
             <th />
           </tr></thead>
           <tbody>
-            {flags.length === 0 && <tr><td colSpan={6} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>No flags defined.</td></tr>}
+            {flags.length === 0 && <tr><td colSpan={6} style={{ padding: 16, textAlign: 'center', color: '#94a3b8' }}>No flags defined.</td></tr>}
             {flags.map(f => (
               <tr key={f.key} style={{ borderBottom: '1px solid hsl(217 33% 17%)' }}>
                 <td style={{ padding: 8 }}><code>{f.key}</code></td>
                 <td style={{ padding: 8, textAlign: 'center' }}>
-                  <span style={{ background: f.enabled ? '#10b981' : '#9ca3af', color: 'white', padding: '2px 8px', borderRadius: 4, fontSize: 12 }}>
+                  <span style={{ background: f.enabled ? '#047857' : '#4b5563', color: 'white', padding: '2px 8px', borderRadius: 4, fontSize: 12 }}>
                     {f.enabled ? 'on' : 'off'}
                   </span>
                 </td>
                 <td style={{ padding: 8, textAlign: 'right' }}>{f.rolloutPercent}%</td>
                 <td style={{ padding: 8 }}>{f.planAllowList || '—'}</td>
-                <td style={{ padding: 8, color: '#6b7280' }}>{f.description || '—'}</td>
+                <td style={{ padding: 8, color: '#94a3b8' }}>{f.description || '—'}</td>
                 <td style={{ padding: 8, textAlign: 'right' }}>
                   <button onClick={() => setEditing(f)}>Edit</button>{' '}
                   <button onClick={() => deleteFlag(f.key)}>Delete</button>

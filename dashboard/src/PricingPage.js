@@ -116,7 +116,7 @@ export default function PricingPage({ onNavigateToAuth }) {
   const currency = plans.currency || 'USD';
 
   return (
-    <div className="mx-auto max-w-6xl p-8">
+    <div className="mx-auto min-h-screen max-w-6xl bg-background p-8 text-foreground">
       <header className="mb-8 text-center">
         <h1 className="mb-2 text-4xl font-bold text-foreground">Start with one project audit. Grow into a documented business.</h1>
         <p className="mx-auto max-w-2xl text-lg text-muted-foreground">
@@ -128,7 +128,7 @@ export default function PricingPage({ onNavigateToAuth }) {
       <div className="mb-6 flex items-center justify-center gap-2">
         <Button variant={cadence === 'monthly' ? 'default' : 'outline'} size="sm" onClick={() => setCadence('monthly')}>Monthly</Button>
         <Button variant={cadence === 'yearly' ? 'default' : 'outline'} size="sm" onClick={() => setCadence('yearly')}>
-          Annual <span className="ml-1 text-xs opacity-80">· save 20%</span>
+          Annual <span className="ml-1 text-xs">· save 20%</span>
         </Button>
       </div>
 
@@ -171,7 +171,7 @@ export default function PricingPage({ onNavigateToAuth }) {
                   </>
                 )}
                 {tier.trial_days > 0 && !isFree && !isContact && (
-                  <div className="mt-1 text-sm text-primary">{tier.trial_days}-day free trial</div>
+                  <div className="mt-1 text-sm text-[hsl(263_70%_78%)]">{tier.trial_days}-day free trial</div>
                 )}
               </div>
 

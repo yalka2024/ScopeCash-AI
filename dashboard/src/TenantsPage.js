@@ -9,12 +9,20 @@ function dollars(cents) {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+// Two shade sets for the same plan/lane categories: the lighter tints read
+// fine as plain text directly on the dark page background (used for the
+// "Lane: x" label below), but fail WCAG AA contrast paired with white text
+// as a filled badge background (used in the table below) — darker shades
+// there instead.
 function planBadgeColor(plan) {
-  return ({ free: '#9ca3af', starter: '#60a5fa', pro: '#10b981', enterprise: '#a855f7' })[plan] || '#9ca3af';
+  return ({ free: '#4b5563', starter: '#1d4ed8', pro: '#047857', enterprise: '#7e22ce' })[plan] || '#4b5563';
 }
 
-function laneBadgeColor(lane) {
+function laneTextColor(lane) {
   return ({ 'shared-low': '#9ca3af', 'shared-mid': '#60a5fa', 'shared-high': '#10b981', 'dedicated': '#a855f7' })[lane] || '#9ca3af';
+}
+function laneBadgeColor(lane) {
+  return ({ 'shared-low': '#4b5563', 'shared-mid': '#1d4ed8', 'shared-high': '#047857', 'dedicated': '#7e22ce' })[lane] || '#4b5563';
 }
 
 export default function TenantsPage() {
@@ -82,7 +90,7 @@ export default function TenantsPage() {
         </div>
         {Object.entries(census).map(([lane, count]) => (
           <div key={lane} className={tile}>
-            <div className="text-xs text-muted-foreground">Lane: <span style={{ color: laneBadgeColor(lane) }}>{lane}</span></div>
+            <div className="text-xs text-muted-foreground">Lane: <span style={{ color: laneTextColor(lane) }}>{lane}</span></div>
             <div className="text-2xl font-semibold text-foreground">{count}</div>
           </div>
         ))}
@@ -132,7 +140,7 @@ export default function TenantsPage() {
               <h3 className="mt-2 font-semibold text-foreground">Cost by resource</h3>
               <ul className="list-disc pl-5 text-sm text-foreground/90">
                 {Object.entries(margin.by_resource || {}).map(([k, v]) => (
-                  <li key={k}><code className="text-primary">{k}</code>: {v.units.toLocaleString()} units · {dollars(v.cents)}</li>
+                  <li key={k}><code className="text-[hsl(263_70%_78%)]">{k}</code>: {v.units.toLocaleString()} units · {dollars(v.cents)}</li>
                 ))}
               </ul>
               <Button size="sm" variant="outline" className="mt-3" onClick={() => setSelected(null)}>Close</Button>

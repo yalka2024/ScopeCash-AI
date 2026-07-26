@@ -135,10 +135,10 @@ export default function GovernancePage() {
             {models.map(m => (
               <tr key={m.id} className={row}>
                 <td className="p-2 text-foreground">{m.name}<br /><small className="text-muted-foreground">{m.purpose || ''}</small></td>
-                <td className="p-2"><code className="text-primary">{m.provider} / {m.modelId}{m.version ? ` @ ${m.version}` : ''}</code></td>
+                <td className="p-2"><code className="text-[hsl(263_70%_78%)]">{m.provider} / {m.modelId}{m.version ? ` @ ${m.version}` : ''}</code></td>
                 <td className="p-2 text-center text-foreground">{m.riskTier}</td>
                 <td className="p-2 text-center">
-                  <span className="rounded px-2 py-0.5 text-[11px] text-white" style={{ background: m.status === 'approved' ? '#10b981' : (m.status === 'retired' ? '#6b7280' : '#9ca3af') }}>{m.status}</span>
+                  <span className="rounded px-2 py-0.5 text-[11px] text-white" style={{ background: m.status === 'approved' ? '#047857' : (m.status === 'retired' ? '#6b7280' : '#4b5563') }}>{m.status}</span>
                 </td>
                 <td className="p-2 text-right">
                   {m.status === 'draft' && <Button size="sm" variant="ghost" onClick={() => transition(m.id, 'in_review')}>Submit for review</Button>}
@@ -189,10 +189,10 @@ export default function GovernancePage() {
               <tr key={r.id} className={row}>
                 <td className="p-2 text-foreground">{r.period}</td>
                 <td className="p-2 text-center text-xs text-muted-foreground">{new Date(r.generatedAt).toLocaleString()}</td>
-                <td className="p-2 text-xs"><code className="text-primary">{r.summary}</code></td>
+                <td className="p-2 text-xs"><code className="text-[hsl(263_70%_78%)]">{r.summary}</code></td>
                 <td className="p-2 text-right text-sm">
-                  <a className="text-primary hover:underline" href={`/api/governance/board-reports/${encodeURIComponent(r.id)}/files/report.md`}>Markdown</a>{' · '}
-                  <a className="text-primary hover:underline" href={`/api/governance/board-reports/${encodeURIComponent(r.id)}/files/report.json`}>JSON</a>
+                  <a className="text-[hsl(263_70%_78%)] hover:underline" href={`/api/governance/board-reports/${encodeURIComponent(r.id)}/files/report.md`}>Markdown</a>{' · '}
+                  <a className="text-[hsl(263_70%_78%)] hover:underline" href={`/api/governance/board-reports/${encodeURIComponent(r.id)}/files/report.json`}>JSON</a>
                 </td>
               </tr>
             ))}

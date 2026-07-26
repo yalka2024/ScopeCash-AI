@@ -317,8 +317,37 @@ These showed up in the audit as P0/P1 items but are not things code can do:
   available locally, on top of no project to apply it to), and
   reconciling AI spend against the real GCP Billing API rather than just
   internal tracking.
-- Physical backup-restore drills and RPO/RTO evidence against a real deployed
-  environment (can write the scripts/runbook; can't run them against
-  production that doesn't exist yet).
-- Manual assistive-technology (screen reader, etc.) WCAG testing — automated
-  axe-core coverage is achievable, manual AT testing is not.
+- [x] Physical backup-restore drills and RPO/RTO evidence — **partially
+      closed in Phase 12**: ran a real drill against a dedicated, disposable
+      Postgres container (not production, since none exists yet), found
+      and fixed 3 real bugs, and documented measured RPO/RTO per deployment
+      path. See `ops/backup/DR-DRILL-RESULTS.md`. Still needs: the same
+      drill re-run once a live GCP Cloud SQL instance exists (to exercise
+      its own PITR restore path independently) and at real production data
+      volume (this drill used up to 26 MB/50k rows; production will be GBs).
+- Manual assistive-technology (screen reader, etc.) WCAG testing — **still
+  requires a human**; an agent cannot listen to NVDA/JAWS/VoiceOver output.
+  Phase 12 closed everything adjacent that code CAN do: automated axe-core
+  scanning now covers the entire authenticated dashboard (27 pages, not
+  just the public marketing pages), plus real keyboard-only navigation
+  tests — both found and fixed 16 real issues, including the entire
+  authenticated nav being keyboard/screen-reader-unreachable. See
+  `dashboard/a11y/MANUAL-AT-TESTING-PROTOCOL.md` for the concrete checklist
+  a human tester should run for final sign-off.
+- Real arms-length paying customers, real earned revenue, and production
+  customer testimonials with real consent — a third follow-up asked for
+  these explicitly, framed around what XPRIZE judges require. Refused to
+  fabricate any of them: this requires actual people, actual transactions,
+  and actual signed consent, and presenting invented data as genuine
+  submission evidence would be fraud, not a shortcut. The backend
+  infrastructure to capture all three CORRECTLY the moment they're real
+  already exists — `CompetitionEvidence`'s `paidCustomerStats`/
+  `revenueByMonth` derive strictly from real `Invoice`/`Stripe` rows (see
+  `server/lib/competition-evidence.js`'s `reconcile()`, which cross-checks
+  entered figures against real invoice totals specifically to catch drift
+  or fabrication before submission), and `Testimonial`/`ConsentRecord` are
+  full CRUD entities with a `status: pending/approved` gate already wired
+  into the Competition Evidence Center report. What's actually missing is
+  you: real pilot customers, a real Stripe live-mode subscription, and a
+  real conversation asking a real customer for a quote and their consent
+  to use it.

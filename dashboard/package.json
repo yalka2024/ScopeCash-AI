@@ -31,7 +31,8 @@
     "start": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test:a11y": "playwright test --config=playwright.config.cjs"
+    "test:a11y": "playwright test --config=playwright.config.cjs",
+    "test:a11y:authed": "playwright test --config=playwright.authed.config.cjs"
   },
   "browserslist": {
     "production": [

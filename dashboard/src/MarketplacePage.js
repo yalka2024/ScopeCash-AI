@@ -90,9 +90,9 @@ export default function MarketplacePage({ user }) {
                     {i.category} · {i.mode}
                   </span>
                 </header>
-                <p style={{ color: '#6b7280', fontSize: 13, minHeight: 60 }}>{i.description}</p>
+                <p style={{ color: '#94a3b8', fontSize: 13, minHeight: 60 }}>{i.description}</p>
                 {i.events && i.events.length > 0 && (
-                  <p style={{ fontSize: 11, color: '#6b7280' }}>Events: {i.events.join(', ')}</p>
+                  <p style={{ fontSize: 11, color: '#94a3b8' }}>Events: {i.events.join(', ')}</p>
                 )}
                 <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                   {installed
@@ -121,7 +121,7 @@ export default function MarketplacePage({ user }) {
               <th />
             </tr></thead>
             <tbody>
-              {apps.length === 0 && <tr><td colSpan={5} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>No OAuth apps registered.</td></tr>}
+              {apps.length === 0 && <tr><td colSpan={5} style={{ padding: 16, textAlign: 'center', color: '#94a3b8' }}>No OAuth apps registered.</td></tr>}
               {apps.map(a => (
                 <tr key={a.clientId} style={{ borderBottom: '1px solid hsl(217 33% 17%)' }}>
                   <td style={{ padding: 8 }}><code>{a.clientId}</code></td>

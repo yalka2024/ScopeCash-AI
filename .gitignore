@@ -25,3 +25,7 @@ coverage/
 .idea/
 *.tsbuildinfo
 .claude/
+dashboard/a11y/.authed-state.json
+dashboard/playwright-report/
+dashboard/test-results/
+server/data-exports/

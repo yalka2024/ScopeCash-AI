@@ -130,7 +130,7 @@ export default function OnboardingWizard({ onNavigate }) {
     <div role="region" aria-label="Onboarding checklist" className="mb-5 rounded-xl border border-border bg-card p-5">
       <div className="mb-3 flex items-center justify-between">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-wide text-primary">Setup checklist</div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-[hsl(263_70%_78%)]">Setup checklist</div>
           <div className="mt-1 text-lg font-semibold text-foreground">{allDone ? 'You are ready to launch' : copy.title}</div>
         </div>
         <Button variant="outline" size="sm" onClick={dismiss} aria-label="Dismiss checklist">Dismiss</Button>
@@ -168,7 +168,7 @@ export default function OnboardingWizard({ onNavigate }) {
               <span aria-hidden="true" className="inline-flex h-4 w-4 flex-[0_0_auto] items-center justify-center rounded-full text-[11px] font-bold text-white"
                 style={{ background: done ? '#16a34a' : (current ? 'hsl(263 70% 60%)' : 'hsl(217 33% 24%)') }}>{done ? '✓' : ''}</span>
               <span className={done ? 'line-through' : ''}>{c.title}</span>
-              {current && <span className="ml-auto text-[11px] font-semibold uppercase tracking-wide text-primary">Next</span>}
+              {current && <span className="ml-auto text-[11px] font-semibold uppercase tracking-wide text-[hsl(263_70%_78%)]">Next</span>}
             </li>
           );
         })}

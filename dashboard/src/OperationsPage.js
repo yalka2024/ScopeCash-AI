@@ -85,13 +85,13 @@ export default function OperationsPage() {
               const color = used > 0.8 ? '#ef4444' : (used > 0.5 ? '#fbbf24' : '#34d399');
               return (
                 <tr key={s.id} className={row}>
-                  <td className="p-2"><code className="text-primary">{s.id}</code><br /><small className="text-muted-foreground">{s.description}</small></td>
+                  <td className="p-2"><code className="text-[hsl(263_70%_78%)]">{s.id}</code><br /><small className="text-muted-foreground">{s.description}</small></td>
                   <td className="p-2 text-center text-foreground">{target}</td>
                   <td className="p-2 text-center text-foreground">{sliPct}</td>
                   <td className="p-2 text-center text-foreground">{s.windowDays}d</td>
                   <td className="p-2"><Bar pct={used * 100} color={color} /><small className="text-muted-foreground">{(used * 100).toFixed(1)}%</small></td>
                   <td className="p-2 text-center">
-                    <span className="rounded px-2 py-0.5 text-xs text-white" style={{ background: s.healthy ? '#10b981' : '#ef4444' }}>
+                    <span className="rounded px-2 py-0.5 text-xs text-white" style={{ background: s.healthy ? '#047857' : '#b91c1c' }}>
                       {s.healthy ? 'healthy' : 'breach'}
                     </span>
                   </td>

@@ -150,4 +150,19 @@ jobs:
       - name: Accessibility scan (axe-core)
         working-directory: dashboard
         run: npm run test:a11y
+      # Authenticated-dashboard counterpart to the public scan above — needs
+      # a real backend (SERVE_DASHBOARD=1), not the static preview server,
+      # so it boots the actual Express app against a disposable SQLite DB.
+      - uses: actions/setup-node@v4
+        with: { node-version: '20.11', cache: 'npm', cache-dependency-path: server/package-lock.json }
+      - name: Install server deps
+        working-directory: server
+        run: npm ci --no-audit --no-fund
+      # playwright.authed.config.cjs's webServer migrates its own disposable
+      # SQLite DB before starting the server — no separate step needed here.
+      - name: Authenticated accessibility scan (axe-core + keyboard nav)
+        working-directory: dashboard
+        env:
+          JWT_SECRET: ci-jwt-secret-must-be-at-least-32-characters-long-ok
+        run: npm run test:a11y:authed
 

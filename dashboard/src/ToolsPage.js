@@ -9,7 +9,7 @@ import { Button } from './components/ui/button';
  * mock data until configured, and are blocked live on safety-gated platforms.
  */
 
-const STATUS_COLORS = { live: '#16a34a', mock: '#ca8a04', unimplemented: '#dc2626', builtin: '#2563eb' };
+const STATUS_COLORS = { live: '#15803d', mock: '#a16207', unimplemented: '#b91c1c', builtin: '#1d4ed8' };
 
 export default function ToolsPage() {
   const [tools, setTools] = useState([]);
@@ -49,14 +49,14 @@ export default function ToolsPage() {
         <div className="min-w-[260px] space-y-1.5">
           {tools.length === 0 && <div className="text-muted-foreground">No tools.</div>}
           {tools.map((t) => (
-            <div key={t.name} onClick={() => pick(t)}
-              className={'cursor-pointer rounded-md border p-2.5 ' + (sel && sel.name === t.name ? 'border-primary bg-accent' : 'border-border hover:bg-accent/50')}>
+            <button key={t.name} type="button" onClick={() => pick(t)} aria-pressed={!!(sel && sel.name === t.name)}
+              className={'block w-full cursor-pointer rounded-md border bg-transparent p-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ' + (sel && sel.name === t.name ? 'border-primary bg-accent' : 'border-border hover:bg-accent/50')}>
               <div className="flex justify-between gap-2 text-sm font-semibold text-foreground">
                 <span>{t.name}</span>
                 <span className="rounded-full px-2 py-0.5 text-[11px] text-white" style={{ background: STATUS_COLORS[t.status] || '#64748b' }}>{t.status}</span>
               </div>
               <div className="mt-0.5 text-xs text-muted-foreground">{t.description}</div>
-            </div>
+            </button>
           ))}
         </div>
         <div className="flex-1">

@@ -232,7 +232,7 @@ export default function HelpCenterPage({ onHome, onLogin }) {
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search articles..."
               aria-label="Search help articles"
-              style={{ width: '100%', padding: '12px 16px', fontSize: 15, border: `1px solid ${PALETTE.border}`, borderRadius: 8, marginBottom: 28, outline: 'none', background: PALETTE.panel }}
+              style={{ width: '100%', padding: '12px 16px', fontSize: 15, border: `1px solid ${PALETTE.border}`, borderRadius: 8, marginBottom: 28, outline: 'none', background: PALETTE.panel, color: PALETTE.text }}
             />
 
             {loading && <p style={{ color: PALETTE.muted }}>Loading articles...</p>}

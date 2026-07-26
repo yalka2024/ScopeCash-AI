@@ -135,7 +135,7 @@ export default function EvaluationsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <select value={pickedSuite} onChange={(e) => setPickedSuite(e.target.value)} disabled={running} className={field + ' min-w-[180px]'}>
+          <select value={pickedSuite} onChange={(e) => setPickedSuite(e.target.value)} disabled={running} aria-label="Evaluation suite" className={field + ' min-w-[180px]'}>
             {(suites.length ? suites.map((s) => s.name) : ['smoke','bias_fairness','toxicity','prompt_injection','robustness']).map((n) => (
               <option key={n} value={n}>{n}</option>
             ))}
