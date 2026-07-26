@@ -62,7 +62,7 @@ jobs:
           output-file: sbom-${{ matrix.name }}.spdx.json
 
       - name: Vulnerability scan (grype)
-        uses: anchore/scan-action@v4
+        uses: anchore/scan-action@v7
         with:
           image: ${{ steps.img.outputs.image }}@${{ steps.build.outputs.digest }}
           fail-build: false
