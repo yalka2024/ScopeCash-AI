@@ -83,11 +83,33 @@ is in STATUS.md. Everything below is either in progress or not started.
 - [ ] Integration tests against real Postgres + RLS in CI (currently CI runs
       tests against SQLite; Postgres is only migration-validated — see
       STATUS.md's RLS section for why this matters and what to watch for).
-- [ ] Cross-tenant access tests for every entity/route (Phase 1 covers the
-      generic `entities.js` CRUD + packet/outcome endpoints; other hand-
-      written routes — billing, notification, webhook, oauth, apikey,
-      analytics, dsar, governance, operations, tools — don't yet run
-      `attachTenant`/`runWithOrg` and haven't been individually audited).
+      This gap is exactly how the Phase 10 `billing.js`/`board-reports.js`
+      RLS-blackout bugs went undetected — SQLite has no RLS at all, so the
+      existing test suite structurally cannot catch "forgot to establish
+      tenant context" bugs. Phase 10 also found and fixed
+      `prisma.postgres.config.ts` pointing migrations at a separate,
+      silently-drifted `migrations-postgres/` directory — worth checking
+      that stays in sync (`npm run db:postgres:generate` after any schema
+      change) until this is automated in CI too.
+- [x] Cross-tenant access audit for the remaining hand-written routes
+      (billing, notification, webhook, oauth, apikey, analytics, dsar,
+      governance, operations, tools) — done in Phase 10 via three parallel
+      exhaustive audits + independent verification. Result: `notification`/
+      `webhook`/`apikey`/`analytics`/`dsar` were already safe (userId-scoped
+      models with no `orgId` column at all — correct by design, not missing
+      `attachTenant`). Real bugs found and fixed: `billing.js` and
+      `board-reports.js` never established RLS tenant/system context,
+      silently free-tiering every paying customer in production (severe —
+      see STATUS.md, verified against real Postgres+RLS); `oauth.js
+      POST /revoke` had no client authentication (RFC 7009); `tools.js`
+      let any authenticated user reach `SecretManagerClient` (real secret
+      exfiltration) and let `TOTPMFAProvider`/`AuditLogWriter` be fed a
+      spoofed target user/org via `input` instead of trusted `ctx`. Still
+      open: `entities.js`/`evidence.js`/`competition.js` are the only
+      routes with *committed, automated* cross-tenant regression tests
+      (`domain-rbac.test.js`) — the Phase 10 fixes have unit coverage
+      (`security-fixes.test.js`) but not full per-route integration suites
+      the way domain-rbac.test.js covers the generic CRUD routes.
 - [ ] Durable GCP jobs: idempotency, retries, heartbeat, cancellation,
       progress, dead-lettering, replay (folds into Phase 3).
 - [ ] Transactional outbox for billing/notifications/job creation/audit.

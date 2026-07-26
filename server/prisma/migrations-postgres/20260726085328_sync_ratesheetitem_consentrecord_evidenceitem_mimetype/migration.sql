@@ -1,0 +1,8 @@
+-- AlterTable
+ALTER TABLE "ConsentRecord" ADD COLUMN     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+-- AlterTable
+ALTER TABLE "EvidenceItem" ADD COLUMN     "mimeType" TEXT;
+
+-- AlterTable
+ALTER TABLE "RateSheetItem" ADD COLUMN     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;

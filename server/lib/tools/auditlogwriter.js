@@ -43,9 +43,16 @@ async function mockRun(input, ctx) {
  * lines are never modified or deleted by this tool.
  */
 async function realRun(input, ctx) {
+  // org_id/user_id are the WHO of an audit event and must be trustworthy —
+  // sourced ONLY from ctx (server-derived from the verified session, see
+  // routes/tools.js), never from input. The previous version used
+  // `input.org_id || ctx.orgId`-style destructuring defaults, which let any
+  // authenticated caller forge an audit entry attributed to an arbitrary
+  // org/user via a plain POST body — defeating the entire point of an
+  // audit trail (attributing actions to who actually took them).
+  const org_id  = (ctx && ctx.orgId)  || 'unknown_org';
+  const user_id = (ctx && ctx.userId) || 'unknown_user';
   const {
-    org_id     = (ctx && ctx.orgId)  || 'unknown_org',
-    user_id    = (ctx && ctx.userId) || 'unknown_user',
     action_type = 'UNKNOWN_ACTION',
     resource_id = '',
     metadata    = {},
@@ -93,8 +100,8 @@ async function realRun(input, ctx) {
 
 module.exports = {
   name: NAME,
-  description: "Appends immutable structured audit events for every sensitive platform action with org ID, user ID, action type, resource ID, and timestamp.",
-  inputs: ["org_id", "user_id", "action_type", "resource_id", "metadata"],
+  description: "Appends immutable structured audit events for every sensitive platform action with org ID, user ID, action type, resource ID, and timestamp. org_id/user_id are always the caller's own — not settable via input.",
+  inputs: ["action_type", "resource_id", "metadata"],
   outputs: ["audit_event_id"],
   envKey: ENV_KEY,
   configKeys: [ENV_KEY],

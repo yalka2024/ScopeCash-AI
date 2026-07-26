@@ -159,8 +159,14 @@ async function verifyAccessToken(accessToken) {
   return { userId: grant.userId, clientId: grant.clientId, scopes: grant.scopes };
 }
 
-async function revokeToken(token) {
-  await prisma.oAuthGrant.deleteMany({ where: { tokenHash: _hash(token) } }).catch(() => {});
+// RFC 7009: the revocation endpoint must authenticate the client, not just
+// accept any token string — previously this took a bare token with no
+// client_id/client_secret at all. Client-scoped delete also means a caller
+// can only revoke tokens belonging to the client they authenticated as.
+async function revokeToken({ token, clientId, clientSecret }) {
+  const app = await getApp(clientId);
+  if (!app || app.clientSecretHash !== _hash(clientSecret || '')) throw new Error('invalid_client');
+  await prisma.oAuthGrant.deleteMany({ where: { tokenHash: _hash(token), clientId } }).catch(() => {});
 }
 
 module.exports = {

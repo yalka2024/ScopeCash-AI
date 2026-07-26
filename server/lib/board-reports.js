@@ -19,6 +19,7 @@ const path = require('path');
 const crypto = require('crypto');
 
 const prisma = require('./prisma');
+const { runWithSystemAccess } = require('./tenant-context');
 const trust = require('./trust-pack');
 const slo = require('./slo');
 const incidents = require('./incidents');
@@ -79,17 +80,27 @@ async function _vendorKitsSection() {
     return { pendingRequests: pending, approvedKits: approved };
   } catch (_) { return null; }
 }
+// Deliberately cross-org (a board report aggregates every tenant's
+// subscription, not one org's) — Subscription is RLS-protected like every
+// org-scoped table, so this needs the explicit system-access grant, not
+// attachTenant (which scopes to a single org). Without it, on Postgres this
+// silently always returned zero subscriptions instead of erroring — the
+// "subscriptionsByPlan" section of every board report would have quietly
+// shown "none" no matter how much real revenue existed. Found via a
+// follow-up audit alongside the identical bug in routes/billing.js.
 async function _tenantSection({ from, to }) {
   try {
-    const orgs = await prisma.organization.count().catch(() => 0);
-    const newOrgs = await prisma.organization.count({ where: { createdAt: { gte: from, lt: to } } }).catch(() => 0);
-    const subs = await prisma.subscription.findMany().catch(() => []);
-    const byPlan = {};
-    for (const s of subs) {
-      const k = s.planId || s.plan || 'unknown';
-      byPlan[k] = (byPlan[k] || 0) + 1;
-    }
-    return { totalOrgs: orgs, newOrgs, subscriptionsByPlan: byPlan };
+    return await runWithSystemAccess(async () => {
+      const orgs = await prisma.organization.count().catch(() => 0);
+      const newOrgs = await prisma.organization.count({ where: { createdAt: { gte: from, lt: to } } }).catch(() => 0);
+      const subs = await prisma.subscription.findMany().catch(() => []);
+      const byPlan = {};
+      for (const s of subs) {
+        const k = s.planId || s.plan || 'unknown';
+        byPlan[k] = (byPlan[k] || 0) + 1;
+      }
+      return { totalOrgs: orgs, newOrgs, subscriptionsByPlan: byPlan };
+    });
   } catch (_) { return null; }
 }
 

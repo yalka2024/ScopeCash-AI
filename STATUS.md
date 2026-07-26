@@ -573,6 +573,166 @@ non-code items.
   outbox, ownership transfer/deletion execution, API-key scope matrices)
   remain open — see TODO.md.
 
+## Phase 10 — Second follow-up audit: test flakiness, remaining P0 gaps, tenant/RBAC sweep (DONE, 2026-07-26)
+
+A second follow-up audit reported ~55-65% production readiness, a failing
+test suite, and ten categories of remaining gaps. This phase worked through
+it systematically, verifying every claim against actual code before acting
+on it (several were confirmed as described; the "tests failing" claim could
+not be reproduced, but investigating it surfaced a real structural fragility
+— see below).
+
+**Test suite**: reproduced 12/12 suites green, contradicting the audit's
+failure report. Investigating why turned up a real bug anyway: four
+integration test files each independently deleted `test.db` and spawned
+their own `npx prisma migrate deploy` child process at module-load time —
+slow (4x redundant `npx` cold-starts) and fragile on Windows specifically
+(a file "in use" briefly after a prior file's `$disconnect()` is exactly
+this kind of transient race, and this session hit that exact class of
+issue firsthand earlier with `dev.db`). Consolidated into a single Jest
+`globalSetup` (`tests/global-setup.js`) — full suite now runs in ~10s
+instead of 28-104s, and the race is structurally eliminated.
+
+**Remaining mock tool stubs**: `EmailNotificationSender`, `MalwareScanHook`,
+`SHA256Hasher`, `TOTPMFAProvider` wired to their existing real
+implementations (`lib/email.js`, `lib/storage.js#scanForViruses`, `crypto`,
+`lib/security.js`). Deleted `lib/tools/vertexaigeminiclient.js` (superseded,
+unreferenced).
+
+**Gemini pipeline gaps**: added `EvidenceItem.mimeType` (was guessed as
+`image/jpeg`/`audio/mpeg`); added `evidence-pipeline.js#extractDocumentTextViaGemini()`,
+a real Gemini-native document-understanding fallback for scanned/image-only
+PDFs (no text layer), wired into `/sourceDocuments/:id/analyze`; added real
+HEIC/HEIF/WEBP magic-byte detection to `lib/storage.js` (found `gif`/`tiff`
+were declared-accepted extensions with no signature at all — every such
+upload has always 400'd; left them unsupported since Gemini vision doesn't
+officially support either format, rather than half-fixing it).
+
+**Eval gate**: `eval-gate.js` itself was already correctly designed to run
+the full 7-suite battery against a real provider — the real bug was that
+`.github/workflows/ci.yml` never invoked it at all. Added a CI step, gated
+on `GCP_PROJECT_ID`/`VERTEX_GEMINI_MODEL`/`GCP_SERVICE_ACCOUNT_KEY` repo
+secrets (documented in TODO.md); without them it still runs the
+deterministic mock smoke suite, same as before. **Not verified end-to-end**
+— no GCP project was available in this session to test the real-Vertex path.
+
+**Postgres migrations drift**: found `prisma.postgres.config.ts` points
+migrations at a *separate* directory (`prisma/migrations-postgres/`) from
+the one `prisma migrate dev` writes to by default (`prisma/migrations/`) —
+two migrations added earlier this session (`ratesheetitem_consentrecord_createdat`,
+`evidence_item_mimetype`) had never been propagated, meaning CI's "validate
+Postgres migrations apply cleanly" step has been silently validating a
+stale schema. Generated the missing Postgres-dialect migration against a
+real scratch Postgres container and verified it applies cleanly.
+
+**Tenant/RBAC audit of the ten hand-written routes the audit named**
+(billing, notification, webhook, oauth, apikey, analytics, dsar,
+governance, operations, tools) — delegated to three parallel research
+agents for an exhaustive line-by-line pass, each verdict independently
+cross-checked before acting. Full results:
+
+- `notification.js`, `webhook.js`, `apikey.js`, `analytics.js`, `dsar.js`:
+  **confirmed safe** — their models (`Notification`, `ApiKey`, `Webhook`,
+  `WebhookDelivery`) have no `orgId` column at all (correctly per-user
+  resources, not org-shared), and every query filters by
+  `userId: req.user.id`, server-derived, never from request input.
+- `oauth.js`: token/grant queries are bound to unguessable secret hashes
+  or server-derived `userId` — **no cross-tenant leak found**. Two adjacent
+  issues fixed anyway: **`POST /oauth/revoke` accepted a bare token with
+  zero client authentication** (RFC 7009 requires it) — now requires
+  `client_id`/`client_secret` and verifies the token belongs to that
+  client. `oauthApps.verifyAccessToken` is dead code (no caller anywhere)
+  — flagged, not removed, since a future integration may need it; whoever
+  wires it up must re-derive `orgId` fresh per-request (`OAuthGrant` has no
+  `orgId` column to cache).
+- `governance.js`, `operations.js`: **confirmed safe** — admin-gated
+  routes over genuinely platform-global (non-org-scoped) models. One real
+  bug found anyway: `board-reports.js`'s `_tenantSection()` — the exact
+  same class of bug as the billing.js finding below — queried
+  `Subscription` (RLS-protected) with no tenant/system context, so on
+  Postgres the board report's "subscriptions by plan" section has always
+  silently shown "none" regardless of real data. Fixed with
+  `runWithSystemAccess()` (correct here, unlike billing.js, since this is
+  a deliberately cross-org admin aggregate, not one org's own data).
+- **`billing.js`: confirmed a severe, revenue-critical bug**, found by
+  reasoning independently about RLS-context establishment (a different
+  axis than the "does the WHERE clause filter correctly" question the
+  audit agents were tasked with — the WHERE clauses were all fine).
+  `billing.js` never called `attachTenant`, so on Postgres, every
+  `prisma.subscription.findFirst({where:{orgId,...}})` inside
+  `getActiveSubscription()` ran with no `app.org_id` GUC set — and since
+  RLS is fail-closed, that means **zero rows, always**, regardless of
+  whether a real active subscription exists. `getActiveSubscription()`
+  falls back to the free tier whenever it finds no row. Net effect: **every
+  paying customer's own `/api/billing/usage` call would report them as
+  free-tier in production** — this is exactly the audit's "subscription/
+  entitlement context issue" finding. Fixed by adding
+  `router.use(attachTenant)`. **Verified against a real Postgres container
+  with RLS applied and a non-superuser role** (superusers bypass RLS
+  regardless of policy) — confirmed a real "pro"/"active" subscription is
+  now correctly visible through the fixed route; confirmed the fix doesn't
+  affect the earlier-audited safe files (their models aren't RLS-protected
+  at all, so this class of bug couldn't apply to them).
+- `tools.js`: `POST /:name/run` is a generic tool dispatcher with no
+  admin gate by design (reasonable for compute-only tools). Two real,
+  serious findings, both fixed:
+  1. **`SecretManagerClient` was reachable by any authenticated user of
+     any role** — `realRun()` returns the actual value of any named
+     production secret from Google Secret Manager with zero authorization
+     beyond "is logged in." Since this platform's real Gemini/Vertex
+     pipeline requires `GCP_PROJECT_ID` to be set, this tool is realistically
+     always live-capable — any signed-up customer could have read
+     production credentials. Fixed with an admin-only allowlist in
+     `tools.js` (also covering `StripeClient`/`CloudTasksEnqueuer` for
+     defense-in-depth) — `ctx` deliberately carries no role information for
+     tools to self-check, so this has to be enforced at the route.
+  2. **`TOTPMFAProvider.realRun()` let `input.user_id` override the
+     trustworthy `ctx.userId`** (a bug this session introduced itself,
+     fixing this same tool's mock-stub status a few phases earlier) — any
+     authenticated caller could pass an arbitrary `user_id` and use this as
+     a cross-tenant TOTP-verification oracle against any other user's
+     decrypted MFA secret. Fixed: `userId` now comes only from `ctx.userId`.
+  3. Related, lower-severity finding fixed alongside: `AuditLogWriter`
+     let `input.org_id`/`input.user_id` override `ctx` the same way,
+     letting any caller forge audit-log entries attributed to an
+     arbitrary org/user — undermining the entire point of an audit trail.
+     Fixed the same way: `org_id`/`user_id` from `ctx` only.
+
+New test coverage: `tests/integration/security-fixes.test.js` (7 tests)
+locks in the tools.js admin-gate, the TOTPMFAProvider fix, and the
+oauth.js `/revoke` client-auth requirement. The `billing.js`/
+`board-reports.js` RLS fixes were verified with a one-off script against a
+real Postgres container (not committed as a permanent test — proper
+CI-integrated Postgres+RLS test coverage is still a separate open item,
+see TODO.md).
+
+**Security note**: one of the three background research agents used for
+this audit reported receiving a fabricated "system notification" mid-task
+claiming a large number of files (including `node_modules` internals) had
+been modified, paired with an instruction not to report it. The agent
+correctly refused to comply and flagged it instead of staying silent.
+Verified directly via `git diff` against every file named in that
+fabricated notification: **zero actual changes existed** — it did not
+reflect anything real, and no harmful action was taken as a result (the
+agent's task was read-only in the first place). Noting this here as a
+transparency record, not because it caused any actual impact.
+
+Full verification: server test suite 13/13 suites, 138/150 tests passing
+(12 intentionally skipped) after every fix in this phase, run together as
+one batch at the end.
+
+### Known gaps / not done in Phase 10
+
+- Real Postgres+RLS application tests still aren't in CI (only migration
+  validation is) — this phase's Postgres verification was manual/local,
+  against a throwaway Docker container. Building this into CI is its own
+  item — see TODO.md.
+- The move-evidence-analysis-onto-Cloud-Tasks item, the Competition
+  Evidence Center workflow gaps, remaining legal-page GDPR references,
+  operational hardening (ownership transfer, legal hold execution, API-key
+  project scopes), CI dependency/secret/IaC scanning, and GCP Terraform
+  are all still open — see TODO.md.
+
 ## Not yet started
 
 See TODO.md.

@@ -43,7 +43,7 @@ async function mockRun(input, ctx) {
   };
 }
 
-// Real TOTP verification against the target user's stored, encrypted MFA
+// Real TOTP verification against the CALLER's own stored, encrypted MFA
 // secret (the same lib/security.js#verifyTotp logic routes/auth.js already
 // uses at login). Declared as a challenge/verification tool, not enrollment
 // — enrollment stays on the dedicated, session-authenticated
@@ -52,8 +52,18 @@ async function mockRun(input, ctx) {
 // passing a user_id. This tool never fabricates backup codes: the product
 // doesn't implement backup codes today, so that output is honestly null
 // rather than invented.
+//
+// userId comes ONLY from ctx.userId (server-derived from the verified
+// session, see routes/tools.js), never from input.user_id — an earlier
+// version of this function used `input.user_id || ctx.userId`, letting any
+// authenticated caller supply an arbitrary user_id in the request body and
+// use this as a cross-tenant TOTP verification oracle against any other
+// user's decrypted MFA secret. There is no legitimate reason for this tool
+// to verify anyone but the caller; an admin-initiated reset/verification
+// for a different user would need its own explicitly role-gated endpoint,
+// not a generic input field with no authorization check at all.
 async function realRun(input, ctx) {
-  const userId = (input && input.user_id) || (ctx && ctx.userId);
+  const userId = ctx && ctx.userId;
   const totpCode = input && input.totp_code;
   if (!userId) {
     const err = new Error(`${NAME}: user_id is required.`);
@@ -75,8 +85,8 @@ async function realRun(input, ctx) {
 
 module.exports = {
   name: NAME,
-  description: "TOTP-based MFA enrollment, challenge, and verification for all user accounts.",
-  inputs: ["user_id", "totp_code"],
+  description: "TOTP-based MFA verification for the calling user's own account.",
+  inputs: ["totp_code"],
   outputs: ["mfa_status", "backup_codes"],
   envKey: ENV_KEY,
   configKeys: [ENV_KEY],

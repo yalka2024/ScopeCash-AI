@@ -84,9 +84,17 @@ router.post('/token', validate(TokenSchema), asyncHandler(async (req, res) => {
   }
 }));
 
-router.post('/revoke', asyncHandler(async (req, res) => {
-  const token = (req.body && req.body.token) || null;
-  if (token) await oauthApps.revokeToken(token);
+const RevokeSchema = z.object({
+  token: z.string().min(1),
+  client_id: z.string().min(1),
+  client_secret: z.string().min(1),
+});
+router.post('/revoke', validate(RevokeSchema), asyncHandler(async (req, res) => {
+  try {
+    await oauthApps.revokeToken({ token: req.body.token, clientId: req.body.client_id, clientSecret: req.body.client_secret });
+  } catch (err) {
+    return res.status(400).json({ error: err.message || 'invalid_client' });
+  }
   res.json({ revoked: true });
 }));
 

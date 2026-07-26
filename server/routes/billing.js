@@ -1,5 +1,6 @@
 const express = require('express');
 const { authMiddleware } = require('../middleware/auth');
+const attachTenant = require('../middleware/tenant');
 const ent = require('../lib/entitlements');
 const meter = require('../lib/usage-meter');
 const stripe = require('../lib/billing/stripe');
@@ -17,6 +18,15 @@ router.get('/plans/public', (req, res) => {
 });
 
 router.use(authMiddleware);
+// Every handler below reads billing/subscription state for the caller's org.
+// On Postgres, RLS (prisma/rls.sql) is fail-closed — without attachTenant
+// establishing the app.org_id context, prisma.subscription.findFirst() sees
+// ZERO rows regardless of the real data, and ent.getActiveSubscription()
+// silently falls back to the free tier. That meant every paying customer's
+// own /api/billing/usage call would report them as free-tier on Postgres —
+// found via a follow-up audit, verified by tracing attachTenant's own doc
+// comment about exactly this RLS-context requirement.
+router.use(attachTenant);
 
 /* ── Plan catalog (public to authenticated users) ─────────────── */
 router.get('/plans', (req, res) => {
