@@ -58,7 +58,23 @@ is in STATUS.md. Everything below is either in progress or not started.
       *wrappers* were still stubs even though the underlying real
       functionality existed elsewhere in the app.
 - [x] **Phase 8 — Evaluation dataset + six-stage enforcement.** See
-      STATUS.md. No open follow-ups from this phase.
+      STATUS.md. Remaining follow-up, now closed: `eval-gate.js` was never
+      actually invoked by CI at all (a follow-up audit correctly caught
+      this — the "4/4 mock smoke" result it saw wasn't a suite-selection
+      problem, it was that the gate never ran in CI in the first place, so
+      whatever suite it *would* pick was moot). `.github/workflows/ci.yml`
+      now runs `npm run eval` on every push/PR. **Set these repo secrets to
+      activate the real gate** (toxicity/prompt_injection/robustness/
+      bias_fairness/contractor_findings/document_evidence_injection against
+      the pinned Vertex model) — without them it still runs, but only the
+      deterministic 4-case mock smoke suite that validates the harness
+      itself, not model behavior:
+      `GCP_PROJECT_ID`, `GCP_LOCATION` (optional, defaults to
+      `us-central1`), `VERTEX_GEMINI_MODEL` (a pinned, dated model id — see
+      `lib/vertex-ai.js`, never a `-latest` alias), `GCP_SERVICE_ACCOUNT_KEY`
+      (the full JSON key content for a service account with Vertex AI User
+      on that project). **Not verified end-to-end in the session that wired
+      this in — no GCP project was available to test against.**
 
 ## P1 — hardening
 

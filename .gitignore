@@ -14,6 +14,7 @@ uploads/
 server/uploads/
 server/uploads-test/
 server/eval-gate-report.json
+server/.gcp-sa-key.json
 logs/
 *.log
 npm-debug.log*

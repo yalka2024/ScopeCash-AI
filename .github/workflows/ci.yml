@@ -51,6 +51,32 @@ jobs:
       - name: Tests
         working-directory: server
         run: npm test
+      # Release eval gate. Always runs — without GCP secrets configured (e.g.
+      # every fork PR; GitHub Actions never exposes repo secrets to those) it
+      # falls back to the deterministic 4-case mock "smoke" suite, which only
+      # validates the harness itself, not model behavior. With
+      # GCP_SERVICE_ACCOUNT_KEY/GCP_PROJECT_ID/VERTEX_GEMINI_MODEL configured
+      # as repo secrets (pushes to main, and PRs from branches within this
+      # repo), it runs the real thing: toxicity, prompt_injection,
+      # robustness, bias_fairness, contractor_findings, and
+      # document_evidence_injection against the pinned Vertex model —
+      # exactly the gate the audit asked for. This wiring could not be
+      # exercised end-to-end in the session that added it (no GCP project
+      # available) — verify the real-Vertex path once secrets are set.
+      - name: Evaluation gate (Gemini/Vertex — falls back to mock smoke without GCP secrets)
+        working-directory: server
+        env:
+          AI_PROVIDER: gemini
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCP_LOCATION: ${{ secrets.GCP_LOCATION }}
+          VERTEX_GEMINI_MODEL: ${{ secrets.VERTEX_GEMINI_MODEL }}
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ github.workspace }}/server/.gcp-sa-key.json
+        run: |
+          if [ -n "${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}" ]; then
+            echo '${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}' > "$GOOGLE_APPLICATION_CREDENTIALS"
+          fi
+          npm run eval
+          rm -f "$GOOGLE_APPLICATION_CREDENTIALS"
 
   dashboard:
     runs-on: ubuntu-latest
