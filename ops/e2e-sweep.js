@@ -130,53 +130,23 @@ async function check(label, fn) {
   // re-login (the bad-creds test left us authenticated still because cookies are still ours)
   await call('POST', '/api/auth/login', { json: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD } });
 
-  // ── Item 3: EU AI Act classifier ──────────────────────────────────
-  section('EU AI Act classifier + Article 6 lead capture');
-  let enums = null;
-  await check('GET /api/eu-ai-act/enums', async () => {
-    const r = await call('GET', '/api/eu-ai-act/enums');
-    enums = r.body;
-    return { ok: r.status === 200 && Array.isArray(enums.sectors) && enums.sectors.length > 0, detail: `sectors=${enums.sectors.length}` };
+  // ── Item 3: Competition Evidence Center (admin-only revenue/AI-spend report) ──
+  section('Competition Evidence Center');
+  await check('GET /api/competition/report', async () => {
+    const r = await call('GET', '/api/competition/report');
+    const ok = r.status === 200 && r.body && Array.isArray(r.body.revenue) && r.body.customers && Array.isArray(r.body.expense);
+    return { ok, detail: `status=${r.status} revenueMonths=${r.body && r.body.revenue && r.body.revenue.length}` };
   });
-  let verdict = null;
-  await check('POST /api/eu-ai-act/classify', async () => {
-    const r = await call('POST', '/api/eu-ai-act/classify', {
-      json: {
-        description: 'CV-screening transformer for recruitment shortlist.',
-        sector: enums.sectors[0],
-        decisionImpact: enums.decisionImpacts[0],
-        dataSensitive: [],
-        scope: enums.deploymentScopes[0],
-        providerRole: enums.providerRoles[0],
-      },
-    });
-    verdict = r.body && r.body.verdict;
-    return { ok: r.status === 200 && verdict && verdict.risk, detail: `risk=${verdict && verdict.risk} score=${verdict && verdict.score}` };
-  });
-  await check('POST /api/article6/lead', async () => {
-    const r = await call('POST', '/api/article6/lead', {
-      json: {
-        email: 'qa-sweep@example.com', organisation: 'Acme', useCaseDescription: 'CV scoring',
-        marketingConsent: true, verdict, answers: { sector: enums.sectors[0] },
-      },
-    });
-    return { ok: r.status === 200 || r.status === 201, detail: `status=${r.status}` };
+  await check('GET /api/competition/reconcile', async () => {
+    const r = await call('GET', '/api/competition/reconcile');
+    return { ok: r.status === 200 && typeof (r.body && r.body.matched) === 'boolean', detail: `status=${r.status} matched=${r.body && r.body.matched}` };
   });
 
   // ── Item 4-5: AI evaluations ──────────────────────────────────────
   section('AI evaluations (item 22)');
-  let entityPlural = null;
-  await check('GET /api/{entity}/system/eval-suites', async () => {
-    // Find the plural by probing a few common candidates
-    const candidates = ['ai_systems', 'ai_use_cases', 'records'];
-    for (const c of candidates) {
-      const r = await call('GET', `/api/${c}/system/eval-suites`);
-      if (r.status === 200 && r.body && r.body.suites) {
-        entityPlural = c;
-        return { ok: true, detail: `entity=${c} suites=${r.body.suites.length}` };
-      }
-    }
-    return { ok: false, detail: 'no candidate entity matched' };
+  await check('GET /api/projects/system/eval-suites', async () => {
+    const r = await call('GET', '/api/projects/system/eval-suites');
+    return { ok: r.status === 200 && r.body && Array.isArray(r.body.suites), detail: `suites=${r.body && r.body.suites && r.body.suites.length}` };
   });
   await check('GET /api/admin/ai/evals', async () => {
     const r = await call('GET', '/api/admin/ai/evals');

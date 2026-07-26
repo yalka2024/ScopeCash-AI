@@ -1,18 +1,26 @@
 # ScopeCash AI — Record of Processing Activities (Art. 30 GDPR)
 
 > Template Record of Processing Activities ("RoPA") for ScopeCash AI
-> as **controller** for its own corporate processing. Customers should
-> maintain their own RoPA covering their use of the Service as controller
-> and may rely on this document and the DPA when entering ScopeCash AI
-> in their own sub-processor inventory.
+> as **controller** for its own corporate processing. ScopeCash AI is a
+> US-headquartered company; this document exists because GDPR Article 3's
+> extraterritorial scope can still apply if EU-based individuals' personal
+> data is processed (e.g. EU-resident employees, contractors, or a
+> customer's own end-users) — it is not an assertion that the Service is
+> EU-hosted or EU-first. Customers should maintain their own RoPA covering
+> their use of the Service as controller and may rely on this document and
+> the DPA when entering ScopeCash AI in their own sub-processor inventory.
 >
 > Drafted to satisfy GDPR Article 30(1) for controllers and Article 30(2)
 > for processors. Maintain in machine-readable form (this is the source of
 > truth; the trust portal serves it as Markdown for procurement teams).
+> Sub-processor regions below must match the authoritative list at
+> `/trust/documents/subprocessors.json` — correct any drift on review.
 
 **Controller of record:** ScopeCash AI
 **Joint controllers:** None.
-**Last updated:** April 2026.
+**Last updated:** July 2026 (DRAFT — pending counsel review, see the note on
+the public legal pages; corrected from a prior draft that assumed EU-only
+hosting and described a since-removed EU AI Act classification feature).
 
 ---
 
@@ -26,7 +34,8 @@
 | Categories of data subjects            | Customer Authorised Users; prospective users (sign-up flow).       |
 | Categories of personal data            | Name, work email, hashed password, MFA secret, role, IP address.   |
 | Categories of recipients               | Internal engineering and support; hosting sub-processor.           |
-| International transfers                | None outside EU; backups remain in EU region.                      |
+| International transfers                | Hosted in the US by default (region configurable per deployment —   |
+|                                        | see `/trust/documents/subprocessors.json` for the current region). |
 | Retention                              | Until account deletion + 30 days for backup recall.                |
 | Legal basis (Art. 6)                   | Performance of contract (Art. 6(1)(b)).                            |
 | Technical & organisational measures    | TLS 1.3, AES-256 at rest, MFA-enforced admin, RBAC, audit logging. |
@@ -51,7 +60,7 @@
 | Purpose                                | Respond to support requests; troubleshoot incidents.               |
 | Categories of data subjects            | Customer Authorised Users who contact support.                     |
 | Categories of personal data            | Name, email, message content, screenshots, optional attachments.   |
-| Categories of recipients               | Support engineering; ticketing sub-processor (EU-hosted).          |
+| Categories of recipients               | Support engineering; ticketing sub-processor (see subprocessors.json for the current vendor and region). |
 | International transfers                | None.                                                              |
 | Retention                              | 24 months from ticket closure, then aggregated metrics only.       |
 | Legal basis (Art. 6)                   | Performance of contract (Art. 6(1)(b)).                            |
@@ -77,7 +86,7 @@
 | Purpose                                | Aggregate feature usage to prioritise improvements.                |
 | Categories of data subjects            | Authorised Users who have not opted out via cookie banner.         |
 | Categories of personal data            | Pseudonymous user id, page views, feature interactions.            |
-| Categories of recipients               | Internal product team; first-party analytics (no third-party).     |
+| Categories of recipients               | Internal product team; first-party analytics (no third party).     |
 | International transfers                | None.                                                              |
 | Retention                              | 13 months, then aggregated.                                        |
 | Legal basis (Art. 6)                   | Consent (Art. 6(1)(a)) via cookie banner; withdrawable at any time.|
@@ -90,7 +99,7 @@
 | Purpose                                | Send product updates, newsletters, event invites to opt-in list.   |
 | Categories of data subjects            | Subscribers who provided consent.                                  |
 | Categories of personal data            | Email address, name, engagement metrics.                           |
-| Categories of recipients               | Email service (Resend; EU region).                                 |
+| Categories of recipients               | Email service (Resend/SendGrid — see subprocessors.json).          |
 | International transfers                | None.                                                              |
 | Retention                              | Until unsubscribe + 30 days suppression-list retention.            |
 | Legal basis (Art. 6)                   | Consent (Art. 6(1)(a)).                                            |
@@ -103,7 +112,7 @@
 | Purpose                                | Evaluate candidates; manage hiring pipeline.                       |
 | Categories of data subjects            | Job applicants.                                                    |
 | Categories of personal data            | Name, contact, CV, cover letter, interview notes.                  |
-| Categories of recipients               | Internal hiring committee; ATS sub-processor (EU).                 |
+| Categories of recipients               | Internal hiring committee; applicant-tracking sub-processor.       |
 | International transfers                | None.                                                              |
 | Retention                              | 12 months from final decision; longer with consent (talent pool).  |
 | Legal basis (Art. 6)                   | Pre-contractual measures (Art. 6(1)(b)); consent for talent pool.  |
@@ -119,16 +128,20 @@ on behalf of each Customer (Controller).
 
 | Field                                  | Value                                                              |
 |----------------------------------------|--------------------------------------------------------------------|
-| Categories of processing               | Storage, organisation, retrieval, classification, generation of    |
-|                                        | technical documentation (Annex IV), evaluation, audit logging,     |
-|                                        | export, erasure on instruction.                                    |
-| Categories of data subjects            | As determined by the Controller (typically end-users of            |
-|                                        | the Controller's AI systems and the Controller's employees).       |
+| Categories of processing               | Storage, organisation, retrieval of uploaded contracts/estimates/  |
+|                                        | evidence; AI-assisted document text extraction, photo/audio        |
+|                                        | interpretation, and scope-change finding generation (Vertex AI /   |
+|                                        | Gemini, citation-grounded); evidence packet generation; audit      |
+|                                        | logging; export; erasure on instruction.                           |
+| Categories of data subjects            | As determined by the Controller (typically the Controller's own    |
+|                                        | customers, employees, and subcontractors named in uploaded jobsite |
+|                                        | evidence and contract documents).                                  |
 | Categories of personal data            | As uploaded by the Controller; may include any category permitted  |
 |                                        | by the Controller's processing instructions and the DPA.           |
 | Sub-processors                         | See `/trust/documents/subprocessors.json`.                         |
-| International transfers                | None for Customer Content (EU residency); SCCs for any out-of-EU   |
-|                                        | sub-processor metadata, where unavoidable.                         |
+| International transfers                | Hosted in the US by default (region configurable — see             |
+|                                        | subprocessors.json); SCCs applied for any sub-processor located    |
+|                                        | outside the deployment region, where unavoidable.                  |
 | Retention                              | Per Controller's configured retention policy; default 30 days post-|
 |                                        | account-termination for backup recall.                             |
 | Technical & organisational measures    | Per Schedule of TOMs in the DPA; tested via SOC 2 controls.        |
@@ -155,10 +168,12 @@ ScopeCash AI's controller-role processing does not include automated
 decision-making producing legal or similarly significant effects on data
 subjects within the meaning of Art. 22.
 
-The Service performs automated **classification** of AI use cases on behalf
-of Customers (processor role); the legal evaluation of those classifications
-is reviewed by the Customer's qualified personnel before any deployment
-decision.
+The Service performs automated **scope-change finding generation** (comparing
+uploaded contract/estimate baselines against jobsite evidence) on behalf of
+Customers (processor role); every finding is citation-grounded to specific
+source evidence, and no finding is included in a customer-facing evidence
+packet or submitted externally without the Customer's explicit human review
+and approval.
 
 ## F. Data Protection Impact Assessment (Art. 35) trigger log
 

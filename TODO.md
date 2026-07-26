@@ -40,7 +40,11 @@ is in STATUS.md. Everything below is either in progress or not started.
       follow-ups: purpose-built forms for logging deployment/uptime
       evidence and revenue classification (currently generic CRUD only).
 - [x] **Phase 6 — Legal pages + EU AI Act removal.** See STATUS.md.
-      Remaining follow-ups: `ropa-template.md` (GDPR-specific, low priority).
+      Remaining follow-ups: none — `ropa-template.md` turned out to be more
+      than "low priority": it described the deleted EU AI Act Annex IV
+      classifier as still-active processing and asserted EU-only hosting
+      that contradicted the real subprocessor list. Corrected in Phase 10
+      (see STATUS.md) rather than left as a low-priority stub.
       `GovernancePage.js` checked for EU-specific framing in the Final
       phase — clean, no changes needed.
 - [x] **Final — Product-IA nav rewrite.** `App.js` now navigates
@@ -159,11 +163,13 @@ is in STATUS.md. Everything below is either in progress or not started.
       STATUS.md. Only public pages are covered — the authenticated
       dashboard nav now exists (Final phase) but has no committed a11y
       scan yet. Manual AT testing remains a non-code item below.
-- [ ] `GET /api/setup/status` (first-run admin setup check) is called by
-      `AuthPage.js`/`SetupPage.js` but has no server-side route — dead
-      client code, silently caught, no user-visible symptom today. Needs
-      product direction (what "requires setup" means for this multi-tenant
-      self-serve product) before building it — see STATUS.md's Final phase.
+- [x] `GET /api/setup/status` — resolved in Phase 10: the server-side route
+      already existed in full (`routes/setup.js`, a real rate-limited
+      first-run setup wizard), it was just never mounted in `index.js` —
+      the same bug class as `help.js`/`dsar.js` earlier this session, not
+      a missing feature needing product direction. Mounted at
+      `/api/setup`; verified end-to-end (create-first-admin succeeds once,
+      then permanently 409s). See STATUS.md.
 - [ ] Promote the ad hoc Playwright nav-smoke script used to QA the Final
       phase's nav rewrite into a real, committed authenticated-app e2e
       suite (`dashboard/e2e/` or similar) — it registers a user and clicks

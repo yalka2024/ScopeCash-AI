@@ -746,6 +746,59 @@ and — since Express matches routes in registration order — a regression
 guard that `/summary` isn't shadowed by the generic `GET
 /commercialOutcomes/:id` route.
 
+**Legal/ops cleanup**: the audit named "trust controls, subprocessor
+metadata, RoPA template, cookie banner comments and terminology, old API
+helpers and trust-page labels." Checked each:
+`server/trust/security-controls.json` and `subprocessors.json`'s GDPR/CCPA
+framework citations are legitimate (mapping controls to multiple
+compliance frameworks a vendor doc might need, not asserting the product
+is EU-first) — left as-is. `CookieBanner.js`'s "GDPR / ePrivacy" doc
+comment and `LegalPages.js`'s changelog comment are both accurate
+descriptions, not stale leftovers — left as-is. Two real issues found and
+fixed:
+- `server/trust/ropa-template.md` was genuinely broken, not just
+  low-priority: it described the deleted EU AI Act Annex IV classifier as
+  still-active processor-role processing, and asserted "None outside EU"
+  / "EU region" / "EU-hosted" for data residency and multiple vendors —
+  none of which matches the real `subprocessors.json` (US-primary hosting,
+  no EU-only vendors listed). Corrected the processing description to the
+  real evidence pipeline and the residency claims to match the actual
+  subprocessor list.
+- `dashboard/src/api.js` had eight dead client functions
+  (`classifyRecord`, `getEuAiActEnums`, `getAnnexIvJson`,
+  `downloadAnnexIvPdf`, `getConformity`, `startConformity`,
+  `updateConformityItem`, `attestConformity`) calling backend routes
+  deleted in Phase 6 — confirmed unused anywhere in the dashboard, deleted.
+  Their only caller, `dashboard/src/EvaluationsCard.js` (an EU AI Act
+  "Article 15" card, itself confirmed unreferenced by any other
+  component — orphaned since Phase 6, not the active, nav-wired
+  `EvaluationsPage.js`), was deleted too.
+- `fly.toml`'s **live deploy config** defaulted `primary_region` to `fra`
+  (Frankfurt) "for EU AI Act market-surveillance defensibility" — changed
+  to `iad` (Ashburn, VA) as the correct default for a US-first product;
+  `DEPLOY.md`'s matching instructions corrected the same way.
+- `ops/e2e-sweep.js` (a manual operational smoke-test script, not wired
+  into CI) had a whole section testing the deleted
+  `/api/eu-ai-act/enums`, `/api/eu-ai-act/classify`, and
+  `/api/article6/lead` endpoints — replaced with real coverage of the
+  Competition Evidence Center (`/api/competition/report`,
+  `/api/competition/reconcile`), which had no ops-sweep coverage at all
+  before. Also fixed a stale eval-suites entity-probing list
+  (`ai_systems`/`ai_use_cases`/`records`, none of which have been the
+  correct entity name since Phase 1) to call the real
+  `/api/projects/system/eval-suites` directly.
+- Found a **third instance** of the "route file written but never
+  mounted" bug this session already found twice (`help.js`, `dsar.js`):
+  `server/routes/setup.js` — a complete, safe, rate-limited first-run
+  setup wizard (`GET /status`, `POST /complete`, self-limiting to only
+  succeed once before any admin exists) — was never wired into
+  `index.js`. This is exactly the dead client-code gap flagged as a known
+  issue after the Final nav-rewrite phase (`AuthPage.js`/`SetupPage.js`
+  calling `/api/setup/status` with no server-side route to answer it).
+  Mounted at `/api/setup`; verified end-to-end against a live server
+  (first call creates the admin, second call correctly 409s
+  `setup_already_complete`).
+
 ### Known gaps / not done in Phase 10
 
 - Real Postgres+RLS application tests still aren't in CI (only migration

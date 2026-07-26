@@ -33,17 +33,19 @@ start command. Migrations run via `npm run db:postgres:deploy` at boot.
 
 ```
 fly launch --no-deploy --copy-config
-fly postgres create --name scopecash-ai-db --region fra
+fly postgres create --name scopecash-ai-db --region iad
 fly postgres attach scopecash-ai-db          # sets DATABASE_URL
 fly secrets set JWT_SECRET=$(node -e "console.log(require('crypto').randomBytes(48).toString('hex'))")
 fly secrets set CORS_ORIGIN=https://scopecash-ai.fly.dev
 fly deploy
 ```
 
-`primary_region = "fra"` (Frankfurt) keeps EU customer data in-region and is
-useful for EU AI Act market-surveillance defensibility. Change to
-`iad` / `lhr` / `syd` as needed. The `[[mounts]]` block reserves `/data` for
-local uploads; swap `STORAGE_DRIVER=s3` for production-scale storage.
+`primary_region = "iad"` (Ashburn, Virginia) is the default for this
+US-first product — home-services contractors and their customers are
+overwhelmingly US-based. Change to `fra` / `lhr` / `syd` if you have a
+specific need to keep a deployment's data in-region for a particular
+market. The `[[mounts]]` block reserves `/data` for local uploads; swap
+`STORAGE_DRIVER=s3` for production-scale storage.
 
 ## Google Cloud Run
 

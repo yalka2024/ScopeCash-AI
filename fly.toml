@@ -13,7 +13,7 @@
 #   fly secrets set SENTRY_DSN=... RESEND_API_KEY=... STRIPE_SECRET_KEY=...
 
 app       = "scopecash-ai"
-primary_region = "fra"   # Frankfurt — EU data residency for EU AI Act
+primary_region = "iad"   # Ashburn, VA — US-first product (home-services contractors)
 
 [build]
   dockerfile = "Dockerfile"
