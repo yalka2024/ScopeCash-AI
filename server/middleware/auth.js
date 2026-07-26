@@ -29,7 +29,7 @@ async function authMiddleware(req, res, next) {
       if (user.lockedUntil && user.lockedUntil > new Date()) {
         return res.status(423).json({ error: 'Account locked', code: 'auth_locked' });
       }
-      req.user = { id: user.id, email: user.email, role: user.role, orgId: user.orgId, mfaEnabled: user.mfaEnabled };
+      req.user = { id: user.id, email: user.email, role: user.role, orgId: user.orgId, mfaEnabled: user.mfaEnabled, emailVerified: user.emailVerified };
       req.authMode = authMode;
       req.authScopes = ['*']; // user session = full scope
       return next();

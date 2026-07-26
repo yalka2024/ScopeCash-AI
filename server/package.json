@@ -20,7 +20,7 @@
     "db:postgres:check": "node prisma/sync-postgres-schema.js --check",
     "db:postgres:generate": "npm run db:postgres:sync && prisma generate --config prisma.postgres.config.ts",
     "db:postgres:migrate:dev": "npm run db:postgres:sync && prisma migrate dev --config prisma.postgres.config.ts",
-    "db:postgres:deploy": "npm run db:postgres:sync && prisma db push --config prisma.postgres.config.ts --accept-data-loss && npm run db:postgres:rls && node prisma/seed.js",
+    "db:postgres:deploy": "npm run db:postgres:sync && prisma migrate deploy --config prisma.postgres.config.ts && npm run db:postgres:rls && node prisma/seed.js",
     "db:postgres:rls": "node prisma/apply-rls.js",
     "db:postgres:rag": "node prisma/apply-rag.js",
     "db:postgres:setup": "npm run db:postgres:deploy && node prisma/seed.js",

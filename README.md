@@ -20,7 +20,7 @@ cd server
 cp .env.example .env                 # then set JWT_SECRET (required to boot)
 #   generate one: node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 npm install                          # postinstall runs `prisma generate`
-npx prisma db push                   # create the SQLite schema (no migrations dir is shipped)
+npx prisma migrate deploy            # apply the reviewed SQLite migrations (prisma/migrations)
 node index.js                        # API on http://localhost:4000
 
 # 2. Dashboard (separate terminal)
@@ -33,8 +33,10 @@ cd server && npm test
 ```
 
 Defaults to **SQLite** (`file:./dev.db`) so it runs with zero external services.
-For Postgres, set `DATABASE_URL` in `.env` (see comments there) and re-run
-`npx prisma db push`. Redis is optional in dev (in-memory fallbacks are used).
+For Postgres, set `DATABASE_URL`/`DIRECT_URL` in `.env` (see comments there) and run
+`npm run db:postgres:deploy` (syncs `schema.postgres.prisma`, applies
+`prisma/migrations-postgres`, applies Row-Level Security, then seeds). Redis is
+optional in dev (in-memory fallbacks are used).
 
 ---
 

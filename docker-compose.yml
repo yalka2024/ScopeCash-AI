@@ -37,8 +37,8 @@ services:
     build:
       context: ./server
     restart: unless-stopped
-    # Apply the schema to Postgres (idempotent) before starting the API.
-    command: ["sh", "-c", "npx prisma db push --config prisma.postgres.config.ts --accept-data-loss && node index.js"]
+    # Apply reviewed migrations to Postgres (idempotent) before starting the API.
+    command: ["sh", "-c", "npx prisma migrate deploy --config prisma.postgres.config.ts && node index.js"]
     depends_on:
       postgres: { condition: service_healthy }
       redis:    { condition: service_healthy }

@@ -12,6 +12,7 @@ const cost = require('../lib/cost-attribution');
 const { laneForPlan } = require('../lib/lanes');
 const ent = require('../lib/entitlements');
 const { authMiddleware } = require('../middleware/auth');
+const { runWithOrg, runWithSystemAccess } = require('../lib/tenant-context');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -38,7 +39,7 @@ router.get('/', async (req, res, next) => {
         planId = (sub.tier && sub.tier.id) || 'free';
       } catch {}
       const lane = laneForPlan(planId);
-      const c = await cost.getTenantCosts(o.id, period);
+      const c = await runWithOrg(o.id, () => cost.getTenantCosts(o.id, period));
       out.push({
         orgId: o.id,
         name: o.name,
@@ -56,7 +57,9 @@ router.get('/top', async (req, res, next) => {
   try {
     const period = req.query.period || cost.currentPeriodKey();
     const limit = Math.min(parseInt(req.query.limit, 10) || 20, 200);
-    const top = await cost.topTenantsByCost({ period, limit });
+    // Genuinely cross-tenant (ranks all orgs against each other) — an
+    // audited, admin-only exception to per-org scoping, not a default.
+    const top = await runWithSystemAccess(() => cost.topTenantsByCost({ period, limit }));
     res.json({ period, top });
   } catch (err) { next(err); }
 });
@@ -81,7 +84,7 @@ router.get('/lanes', async (req, res, next) => {
 router.get('/:orgId/cost', async (req, res, next) => {
   try {
     const period = req.query.period || cost.currentPeriodKey();
-    const data = await cost.getTenantCosts(req.params.orgId, period);
+    const data = await runWithOrg(req.params.orgId, () => cost.getTenantCosts(req.params.orgId, period));
     res.json(data);
   } catch (err) { next(err); }
 });
@@ -89,7 +92,7 @@ router.get('/:orgId/cost', async (req, res, next) => {
 router.get('/:orgId/margin', async (req, res, next) => {
   try {
     const period = req.query.period || cost.currentPeriodKey();
-    const data = await cost.getTenantMargin(req.params.orgId, period);
+    const data = await runWithOrg(req.params.orgId, () => cost.getTenantMargin(req.params.orgId, period));
     res.json(data);
   } catch (err) { next(err); }
 });

@@ -10,6 +10,8 @@ const {
 const { z, validate, asyncHandler, HttpError } = require('../lib/validate');
 const { audit } = require('../lib/audit');
 const limiters = require('../lib/ratelimit');
+const { encrypt, decrypt } = require('../lib/encryption');
+const { runWithSystemAccess } = require('../lib/tenant-context');
 // Not named `email`: handlers destructure an `email` field off req.body, which
 // would shadow this module and turn sendTemplate into a TypeError at runtime.
 const mailer = require('../lib/email');
@@ -49,7 +51,22 @@ router.post('/register', limiters.auth, validate(RegisterSchema), asyncHandler(a
   if (existing) throw new HttpError(409, 'Email already registered', 'email_taken');
 
   const passwordHash = await hashPassword(password);
-  const user = await prisma.user.create({ data: { email: lower, passwordHash, name: name || null } });
+
+  // Every account gets its own Organization at signup (owner role via
+  // OrgMembership) instead of the old "orgId stays null until you manually
+  // POST /organizations or get invited" flow — that flow let any user create
+  // or silently reassign their org via POST /organizations, and left
+  // ScopeCash domain tables' required orgId with nothing to point at for a
+  // brand-new account. Creating your OWN first org has no tenant yet, so this
+  // runs under the explicit system-access grant (prisma/rls.sql fails closed
+  // otherwise on Postgres) rather than the normal runWithOrg request scoping.
+  const user = await runWithSystemAccess(() => prisma.tenantTransaction(async (tx) => {
+    const org = await tx.organization.create({ data: { name: `${name || lower}'s Organization`, plan: 'free' } });
+    const created = await tx.user.create({ data: { email: lower, passwordHash, name: name || null, orgId: org.id } });
+    await tx.orgMembership.create({ data: { orgId: org.id, userId: created.id, role: 'owner', status: 'active' } });
+    await tx.organizationRecord.create({ data: { orgId: org.id, name: org.name, legal_name: org.name } });
+    return created;
+  }));
 
   // Email verification token
   const raw = crypto.randomBytes(32).toString('base64url');
@@ -102,7 +119,7 @@ router.post('/login', limiters.auth, validate(LoginSchema), asyncHandler(async (
 
   if (user.mfaEnabled) {
     if (!totp) throw new HttpError(401, 'MFA code required', 'mfa_required');
-    if (!verifyTotp(user.mfaSecret, totp)) {
+    if (!verifyTotp(decrypt(user.mfaSecret), totp)) {
       await prisma.user.update({ where: { id: user.id }, data: { failedLogins: user.failedLogins + 1 } });
       await audit(req, 'auth.login.mfa_fail', { userId: user.id, outcome: 'failure' });
       invalid();
@@ -232,17 +249,23 @@ router.post('/reset-password', limiters.auth, validate(ResetSchema), asyncHandle
 }));
 
 // ─── MFA enrollment / verification / disable ─────────
+// Enrollment is gated on a verified email — a sensitive-operation boundary
+// (P1: "Require verified email for sensitive operations"). Login itself
+// isn't gated (that would lock out a user who never finished verifying),
+// but starting to bind a second factor to the account is.
 router.post('/mfa/setup', authMiddleware, asyncHandler(async (req, res) => {
+  if (!req.user.emailVerified) throw new HttpError(403, 'Verify your email before enabling MFA', 'email_unverified');
   const secret = generateMfaSecret();
-  await prisma.user.update({ where: { id: req.user.id }, data: { mfaSecret: secret, mfaEnabled: false } });
+  await prisma.user.update({ where: { id: req.user.id }, data: { mfaSecret: encrypt(secret), mfaEnabled: false } });
   res.json({ secret, otpauth: otpauthUrl(secret, req.user.email) });
 }));
 
 router.post('/mfa/enable', authMiddleware, asyncHandler(async (req, res) => {
+  if (!req.user.emailVerified) throw new HttpError(403, 'Verify your email before enabling MFA', 'email_unverified');
   const { totp } = req.body || {};
   const u = await prisma.user.findUnique({ where: { id: req.user.id } });
   if (!u.mfaSecret) throw new HttpError(400, 'MFA not initialized', 'mfa_not_setup');
-  if (!verifyTotp(u.mfaSecret, totp)) throw new HttpError(400, 'Invalid TOTP', 'mfa_invalid');
+  if (!verifyTotp(decrypt(u.mfaSecret), totp)) throw new HttpError(400, 'Invalid TOTP', 'mfa_invalid');
   await prisma.user.update({ where: { id: u.id }, data: { mfaEnabled: true } });
   await audit(req, 'auth.mfa.enabled', { userId: u.id });
   res.json({ ok: true });

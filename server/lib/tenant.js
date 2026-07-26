@@ -6,13 +6,34 @@
  * the extension prevents accidental cross-tenant reads.
  */
 
+// ScopeCash domain models — every one of these declares a required `orgId`
+// column (server/prisma/schema.prisma) and is the actual product surface
+// (projects, evidence, findings, packets, outcomes, customers, rate sheets).
+// Previously absent from this list entirely: a query against any of them
+// went through Prisma with zero app-level tenant filtering, relying solely on
+// each route's own hand-written `where` clause.
+const DOMAIN_MODELS = [
+  'customer', 'organizationRecord', 'projectRecord', 'sourceDocument',
+  'changeEvent', 'evidenceFinding', 'citation', 'evidencePacket',
+  'commercialOutcome', 'stageTransition', 'outcomeEvidence', 'agentRunRecord',
+  'scopeItem', 'contractProvision', 'costItem', 'rateSheet', 'rateSheetItem',
+  'evidenceItem', 'consentRecord', 'feedback', 'testimonial',
+  'retentionLegalHold', 'competitionEvidence', 'orgMembership', 'invitation',
+];
+
 const SCOPED_MODELS = new Set([
   'project', 'notification', 'apiKey', 'activity',
   'webhook', 'webhookDelivery', 'aiUsage', 'consent',
   'refreshToken', 'emailVerificationToken', 'passwordResetToken',
+  ...DOMAIN_MODELS,
 ]);
 
-const ORG_SCOPED = new Set(['project', 'activity', 'aiUsage']);
+// Org-scoped-only models: every one of these requires orgId at the schema
+// level, so there is no meaningful "just my own rows" personal-scope fallback
+// the way there is for e.g. notifications — an org.id-less context must not
+// silently fall back to filtering by userId (a project manager's org-wide
+// visibility must not collapse to "records I personally created").
+const ORG_SCOPED = new Set(['project', 'activity', 'aiUsage', ...DOMAIN_MODELS]);
 
 function applyScope(args, ctx, model) {
   args = args || {};

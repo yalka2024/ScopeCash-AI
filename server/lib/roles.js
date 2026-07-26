@@ -41,5 +41,21 @@ function requireWrite(req, res, next) {
   return res.status(403).json({ error: 'forbidden', code: 'write_role_required' });
 }
 
-module.exports = { ROLES, roleNames, isKnownRole, isWriteRole, requireRole, requireWrite };
+// Per-entity RBAC using the caller's ORG-scoped role (req.orgRole, resolved by
+// middleware/tenant.js's attachTenant from OrgMembership) rather than the
+// single platform-level req.user.role. This is what actually stops a
+// field_user from writing CommercialOutcome rows or a viewer from creating
+// anything — requireWrite() only checks "is this role write-capable at all,"
+// which every non-viewer role satisfies.
+function requireAnyOrgRole(...allowed) {
+  return (req, res, next) => {
+    if (!req.user) return res.status(401).json({ error: 'unauthenticated', code: 'auth_required' });
+    if (req.user.role === 'admin') return next();
+    const role = req.orgRole || 'viewer';
+    if (allowed.includes(role)) return next();
+    return res.status(403).json({ error: 'forbidden', code: 'role_required', requiredAny: allowed });
+  };
+}
+
+module.exports = { ROLES, roleNames, isKnownRole, isWriteRole, requireRole, requireWrite, requireAnyOrgRole };
 

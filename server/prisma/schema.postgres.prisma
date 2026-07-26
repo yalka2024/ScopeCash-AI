@@ -1,9 +1,10 @@
+// !! AUTO-GENERATED from schema.prisma by sync-postgres-schema.js — do not edit !!
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
 }
 
 // ─── Core Auth & Organization ─────────────────────────

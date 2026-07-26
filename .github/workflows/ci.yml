@@ -22,7 +22,6 @@ jobs:
     env:
       NODE_ENV: test
       JWT_SECRET: ci-jwt-secret-must-be-at-least-32-characters-long-ok
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/scopecash-ai
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -30,12 +29,25 @@ jobs:
       - name: Install
         working-directory: server
         run: npm ci --no-audit --no-fund
-      - name: Prisma generate
+      # Validates the Postgres migration set applies cleanly against a real
+      # Postgres on every PR — no `|| true`: a migration that fails here would
+      # have failed identically in production. This previously pointed
+      # DATABASE_URL at Postgres while `prisma generate`/`migrate deploy` ran
+      # against the default SQLite schema — a provider mismatch that `|| true`
+      # was silently swallowing rather than fixing.
+      - name: Validate Postgres migrations apply cleanly
+        working-directory: server
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/scopecash-ai
+        run: |
+          node prisma/sync-postgres-schema.js
+          npx prisma migrate deploy --config prisma.postgres.config.ts
+      - name: Prisma generate (SQLite — used by the test suite)
         working-directory: server
         run: npx prisma generate
-      - name: Prisma migrate
+      - name: Prisma migrate (SQLite test DB)
         working-directory: server
-        run: npx prisma migrate deploy || true
+        run: npx prisma migrate deploy
       - name: Tests
         working-directory: server
         run: npm test
