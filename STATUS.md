@@ -868,8 +868,71 @@ evidence-packet approval flow).
 ### Known gaps / not done in Phase 10
 
 - The move-evidence-analysis-onto-Cloud-Tasks item and operational
-  hardening (ownership transfer, legal hold execution, API-key project
-  scopes) are still open — see TODO.md.
+  hardening (ownership transfer, account/org deletion execution, API-key
+  project-level scopes, audit coverage + log-redaction tests) were
+  **deliberately not attempted** this phase, not just unstarted by
+  oversight — each is a substantial, multi-part feature in its own right,
+  and rushing partial versions of all four late in an already very long
+  session risked shipping under-verified code in exactly the areas (auth,
+  data deletion, audit) where a mistake matters most. See TODO.md for
+  concrete, actionable scoping on each — written so the next session can
+  start executing immediately rather than re-deriving the plan.
+
+## Updated production-readiness assessment (2026-07-26, end of Phase 10)
+
+A second follow-up audit estimated ~55–65% overall (Generic SaaS
+foundation 70–80%, ScopeCash core product 60–70%, GCP/Vertex integration
+55–65%, Production security and operations 40–50%), and reported a
+failing test suite. That failure could not be reproduced (13-14/13-14
+suites green throughout this phase), and Phase 10 closed a large fraction
+of the audit's own named gaps — see the phase log above for the full,
+itemized list with what's verified vs. what's genuinely deferred. A
+non-exhaustive summary of what changed this phase, by category:
+
+- **Production security and operations** — the category with the most
+  material change. Phase 10 found and fixed a revenue-critical bug
+  (`billing.js` silently free-tiering every paying customer on Postgres),
+  a real secrets-exfiltration vulnerability (any authenticated user could
+  read production secrets via the tools API), a cross-tenant MFA
+  verification oracle, an audit-log forgery vector, an RFC 7009 violation,
+  and three instances of a "route written but never mounted" class of bug
+  (`help.js`, `dsar.js`, `setup.js` — the last two are real, working
+  GDPR-export/erasure and first-run-setup features that were completely
+  unreachable before this). Closed the exact structural gap (no real
+  Postgres+RLS testing) that let the RLS bugs go undetected in the first
+  place. Added CI gates across dependency, container (already existed),
+  secret (already existed), and IaC scanning axes. Real gaps remain —
+  ownership transfer, account deletion execution, API-key project scopes,
+  systematic audit-event coverage — but they're now concretely scoped
+  instead of just named.
+- **GCP/Vertex integration** — closed the Gemini-native document fallback
+  gap (scanned/image-only PDFs previously 422'd outright), added real
+  HEIC/HEIF/WEBP support, wired the eval gate into CI (it never ran there
+  at all before), and added a real GCP Terraform module. The durable-job
+  gap (Cloud Tasks migration) remains the single largest open item —
+  `lib/cloud-tasks.js`/`routes/jobs.js` are real, but the evidence
+  pipeline itself still runs synchronously in the HTTP request.
+- **ScopeCash core product** — the six-stage monetary separation is now
+  verified end-to-end with a real summary endpoint contractors can
+  actually use; the Competition Evidence Center's "generic CRUD only"
+  gap is closed with purpose-built, browser-verified forms. The Cloud
+  Tasks migration (above) is the main remaining core-product gap.
+- **Generic SaaS foundation** — least changed this phase; the foundational
+  work (RLS, RBAC, migrations, domain schema) was already solid from
+  earlier phases, and Phase 10 mostly found and fixed specific instances
+  of routes that didn't correctly plug into that foundation, rather than
+  gaps in the foundation itself.
+
+Given the scale of what changed, a fresh numeric estimate from a new
+outside pass would be more meaningful than this document re-grading
+itself — but qualitatively: production security/operations and GCP/Vertex
+integration both moved up materially; ScopeCash core product moved up
+somewhat (the Cloud Tasks gap keeps it from moving further); generic SaaS
+foundation is roughly where it was. The explicitly-non-agent-achievable
+items (attorney review, business entity formation, a real penetration
+test, signed subprocessor DPAs, a real GCP billing account, physical
+backup-restore drills, manual assistive-technology testing) are unchanged
+and listed below — no amount of further coding session closes these.
 
 ## Not yet started
 

@@ -17,8 +17,43 @@ is in STATUS.md. Everything below is either in progress or not started.
         have 400'd; `gif`/`tiff` are intentionally left unsupported since
         Gemini vision doesn't officially support either format). Covered
         by new tests in `evidence-routes.test.js`.
-  - [ ] Move analysis off the synchronous HTTP request path onto a job queue
-        (BullMQ now, or Cloud Tasks per Phase 3 — don't build both).
+  - [ ] **Move analysis off the synchronous HTTP request path onto Cloud
+        Tasks.** Deliberately NOT attempted in Phase 10 — this is the
+        largest remaining P0 item and touches the core product's most
+        important code path; rushing it late in an already-long session
+        risked introducing a real bug in the most important part of the
+        product with no time left to properly verify it. `lib/cloud-tasks.js`
+        (enqueue) and `routes/jobs.js` (OIDC-verified push receiver) already
+        exist and are real (Phase 3) — this is "wire the existing evidence
+        pipeline through them," not "build Cloud Tasks support from
+        scratch." Concrete scope for whoever picks this up:
+        1. `POST /sourceDocuments/:id/analyze`, `POST /evidenceItems/:id/analyze`,
+           `POST /projects/:id/findings/generate` (all in `routes/evidence.js`)
+           change from "do the work, return 200 with the result" to "enqueue
+           a task via `lib/cloud-tasks.js#enqueueTask`, return 202 with a job
+           reference." The actual `lib/evidence-pipeline.js` calls move into
+           `routes/jobs.js`'s existing `/process-task` handler.
+        2. **Idempotency**: Cloud Tasks can and will redeliver. Each handler
+           must check current state first (e.g. skip if
+           `SourceDocument.extraction_status` is already `'extracted'`)
+           rather than blindly reprocessing and double-writing.
+        3. **Job status**: needs a poll-able status (reuse `AgentRunRecord`,
+           already created per-call by `withAgentRun` — the dashboard can
+           poll `GET /api/agentRunRecords/:id` for `status`/`completed_at`
+           instead of getting a synchronous response body).
+        4. **Dead-lettering**: Cloud Tasks' own `retry_config` (already in
+           `deploy/terraform-gcp/main.tf`'s queue resource) handles retry
+           exhaustion; decide what a permanently-failed task does to
+           `extraction_status` (`'failed'`, presumably) and whether/how to
+           surface that to the user.
+        5. **Dashboard**: `EvidenceItem`/`SourceDocument` analyze buttons
+           need to poll for completion instead of awaiting a synchronous
+           fetch — a real UX change, not just a backend one.
+        6. **Tests**: `evidence-routes.test.js` currently asserts
+           synchronous 200-with-full-result — every one of those
+           assertions needs to change shape (202 + poll) once this lands;
+           don't let the existing tests silently start testing the old
+           synchronous behavior of a route that no longer works that way.
   - [x] Add a real `mimeType` column to `EvidenceItem` instead of guessing
         image/jpeg or audio/mpeg in `routes/evidence.js`. Older pre-migration
         rows still fall back to the guess (no real mime data exists for them).
@@ -159,11 +194,39 @@ is in STATUS.md. Everything below is either in progress or not started.
 - [x] Organization membership records instead of bare `orgId` on `User`;
       secure expiring invitations; can no longer freely create/replace an org
       (Phase 1).
-- [ ] Ownership transfer, account deletion, export, legal hold execution
-      (`RetentionLegalHold` model exists from Phase 1; no execution job yet).
-- [ ] API-key scope matrices / project-level authorization beyond org-level.
-- [ ] Audit coverage for every sensitive event named in the spec; structured
-      log redaction tests.
+- [ ] **Operational hardening — deliberately not attempted in Phase 10**
+      (each of these is its own multi-part feature; scoping honestly here
+      rather than rushing a partial version of all four):
+  - [ ] **Ownership transfer**: no endpoint exists. Scope: an
+        owner-initiated `POST /api/orgs/:id/transfer-ownership` that
+        emails the target user a confirmation token (reuse the
+        `Invitation` model's expiring-token pattern from Phase 1, don't
+        build a second one), and only demotes the current owner /
+        promotes the target after that token is confirmed — never
+        transfer on the initiating request alone.
+  - [ ] **Account/org deletion execution**: `RetentionLegalHold` (Phase 1)
+        and the anonymize-in-place pattern (`routes/dsar.js`'s `/erase`,
+        Phase 6/earlier-this-session) both exist, but nothing executes
+        deletion for a whole ORG past its retention window — only a
+        single user's own DSAR erasure. Needs a scheduled job (cron or
+        Cloud Tasks on a timer) that finds orgs past their configured
+        retention period with no active `RetentionLegalHold`, and
+        anonymizes/deletes per-model in FK-safe order.
+  - [ ] **API-key project-level scopes**: `ApiKey.scopes` (Phase 1) is
+        org-wide (`read`/`write`/etc across every project in the org).
+        Project-level scoping needs either a join table
+        (`ApiKeyProjectGrant`) or a JSON allowlist column, plus every
+        route currently checking `requireScope(...)` to additionally
+        check the target resource's `project_id` against that key's
+        grant — a change to the authorization model, not just the
+        `ApiKey` schema.
+  - [ ] **Audit coverage + log-redaction tests**: no systematic audit of
+        which sensitive actions call `lib/audit.js#audit(...)` and which
+        don't exists yet — this needs a route-by-route pass (similar in
+        shape to the Phase 10 tenant/RBAC audit, could reuse the same
+        "three parallel research agents, verify every finding" approach)
+        plus new tests asserting secrets/PII never reach
+        `console.log`/`console.error`/the structured HTTP access log.
 - [ ] Real backup/restore drills, RPO/RTO — see non-code items, this needs a
       real target environment first.
 - [ ] Cloud Monitoring alert policies, SLOs, on-call — folds into Phase 3.
@@ -235,7 +298,13 @@ These showed up in the audit as P0/P1 items but are not things code can do:
   other subprocessors (contracts, not code).
 - A real GCP billing account / project with production credentials — Phase 2
   and 3 build against the real SDKs and document setup, but can't provision
-  or pay for cloud infrastructure.
+  or pay for cloud infrastructure. This same gap is why several Phase 10
+  items are written-but-unverified rather than verified: the CI eval
+  gate's real-Vertex path (falls back to mock smoke without it), the GCP
+  Terraform module's actual `terraform apply` (also no Terraform CLI was
+  available locally, on top of no project to apply it to), and
+  reconciling AI spend against the real GCP Billing API rather than just
+  internal tracking.
 - Physical backup-restore drills and RPO/RTO evidence against a real deployed
   environment (can write the scripts/runbook; can't run them against
   production that doesn't exist yet).
