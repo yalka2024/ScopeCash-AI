@@ -1198,6 +1198,7 @@ model RateSheetItem {
   unit        String?
   unitRate    Float
   category    String?
+  createdAt   DateTime @default(now())
 
   @@index([orgId, rateSheetId])
 }
@@ -1248,6 +1249,7 @@ model ConsentRecord {
   evidenceUri String?
   grantedAt   DateTime @default(now())
   revokedAt   DateTime?
+  createdAt   DateTime @default(now())
 
   @@index([orgId, project_id])
   @@index([orgId, consentType])

@@ -473,6 +473,106 @@ non-code items.
   scoped to the WCAG item specifically, given how much ground the earlier
   phases already covered. See TODO.md for the itemized remainder.
 
+## Final phase — product-IA nav rewrite + real bugs found via browser QA (DONE, 2026-07-26)
+
+- **Rewrote `dashboard/src/App.js`'s authenticated navigation** from the
+  generic scaffold (Dashboard/AI Assistant/Data/Tools/Trust/Marketplace) to
+  the actual ScopeCash AI workflow: **Projects, Evidence, Findings, Packets,
+  Outcomes, Customers, Agent Activity**, plus AI Assistant. Each is a real
+  tenant-scoped list/create/edit/delete view (`DomainGroupPage.js`, new)
+  over the domain entities that belong to that concept — not a mockup.
+  Admin-only items (Organization, Competition evidence, AI economics,
+  Evaluations, Growth, Data products, Operations, Tenants, Trust portal,
+  Governance, Agent console, Tools, and a raw all-entities fallback) moved
+  under one admin-gated group. "Trust" relabeled "Security" per the audit.
+  The old generic goal-orchestrator page (`DashboardPage.js`) is kept —
+  it's real, working functionality, not scaffold filler — renamed "Agent
+  console" and demoted to the admin section instead of being the app's
+  landing page. Landing page after login is now "Projects".
+- **Found and fixed a real stale-data bug while building this**:
+  `dashboard/src/entities.js` (the manifest driving the old "Data" page)
+  had not been updated since before Phase 1's schema extension — 11 models
+  added in Phase 1 (Customer, Citation, ScopeItem, ContractProvision,
+  CostItem, RateSheet, RateSheetItem, EvidenceItem, ConsentRecord, Feedback,
+  Testimonial, RetentionLegalHold, CompetitionEvidence) were writable via
+  the API but had **no UI at all**. Re-synced to match
+  `server/routes/entities.js`'s real 21-entity list; added `readOnly`
+  support to `EntitySection` (extracted from `EntitiesPage.js`, now shared)
+  so system-generated `AgentRunRecord` rows render without a create/edit
+  form that would 404 against the server's GET-only route for it.
+- **Browser-driven QA, not just a build check**: registered a real user
+  against a locally running server (SQLite, `SERVE_DASHBOARD=1` so the
+  server serves its own built dashboard — sidesteps this repo's `vite dev`
+  entry-point/esbuild JSX-scanning conflict, and avoids cross-origin
+  CORS/cookie complications a separate dev-proxy setup would need) and
+  scripted a Playwright pass clicking every nav item, watching for React
+  error boundaries and failed network requests. This is what caught the
+  next three bugs — none of them were visible from a clean `npm run build`:
+  1. **Two real 500s**: `GET /api/rateSheetItems` and
+     `GET /api/consentRecords` both crashed because `routes/entities.js`'s
+     generic list handler unconditionally sorts by `createdAt`, but
+     `RateSheetItem` had no timestamp column at all and `ConsentRecord`
+     only had `grantedAt`. Never caught before because the stale
+     `entities.js` above meant the dashboard never actually called these
+     two endpoints. Fixed by adding `createdAt DateTime @default(now())`
+     to both models (matching every other domain model's pattern) —
+     new migration `20260726070007_ratesheetitem_consentrecord_createdat`.
+  2. **`server/routes/help.js` was never mounted** in `index.js` — the
+     Phase 6 rewrite of the help-centre content never got wired up, so
+     `/api/help/categories` and `/api/help/articles` 404'd for every
+     visitor, breaking the Help Centre page entirely. Added
+     `app.use('/api/help', helpRoutes)`.
+  3. **A structural route-ordering bug**: `entityRoutes` and
+     `evidenceRoutes` are mounted at the bare `/api` prefix (needed since
+     spec-driven domain CRUD is one route per pluralized model name, not a
+     shared sub-prefix), and their router runs `authMiddleware`
+     unconditionally — which **responds 401 directly rather than falling
+     through** — for every path under `/api`, before Express ever tries a
+     later, more specific mount. Because they were registered early (right
+     after `/api/projects`), they silently shadowed every `/api/*` route
+     registered after them that was meant to be public:
+     `/api/trust/summary` (the public trust-center summary — explicitly
+     fetched with `credentials: 'omit'`), `/api/billing/plans/public` (the
+     **pricing page's plan list — broken for every anonymous visitor**),
+     and the help-centre routes above. Fixed by moving both bare-`/api`
+     mounts to the end of the route table, after every other `/api/*`
+     mount, so specific/public routes get first chance to match; verified
+     anonymous curl requests now get 200s on all three while
+     `/api/customers` (a real entity route) still correctly 401s.
+- Full verification in this session: `server` test suite still 12/12 suites
+  / 131/131 non-skipped tests passing after the schema migration and route
+  reordering; dashboard `vite build` clean; `test:a11y` still 7/7 passing
+  (no public-page regression); the Playwright nav smoke script (not
+  committed — ad hoc QA tool, not a repo test) re-run clean after each fix
+  with zero console errors across all 14 authenticated nav destinations.
+
+### Known gaps / not done in the Final phase
+
+- `AuthPage.js`/`SetupPage.js` both call `GET /api/setup/status` — a
+  first-run "does this deployment need initial admin setup" check — but
+  **no `server/routes/setup.js` was ever built**; the fetch fails and is
+  silently swallowed (`.catch(() => {})`), so today this is simply dead
+  client-side code with no user-visible symptom. Not fixed here: unlike
+  `help.js`, there's no existing server-side implementation to wire up,
+  and guessing the intended semantics (single-admin self-hosted first-run
+  vs. this product's actual self-serve multi-tenant register flow) without
+  product direction risks building the wrong thing.
+- The Playwright nav-smoke script used for this phase's QA was scratch
+  tooling (registered a throwaway user, clicked every nav item, asserted
+  no error boundaries / console errors) — useful enough that a trimmed,
+  deterministic version covering the authenticated app might be worth
+  promoting into `dashboard/a11y/` or a new `dashboard/e2e/` suite in a
+  future pass, but that wasn't done here.
+- The admin-only "All records (raw)" fallback page (old `EntitiesPage.js`,
+  kept for defense-in-depth in case a future entity is added to the server
+  list and forgotten in the `DomainGroupPage` groupings) duplicates every
+  entity also reachable through its dedicated group page — acceptable
+  redundancy for an admin safety net, not surfaced to non-admin roles.
+- Broader P1 items (cross-tenant tests for hand-written routes beyond
+  entities/evidence/competition, durable job dead-lettering, transactional
+  outbox, ownership transfer/deletion execution, API-key scope matrices)
+  remain open — see TODO.md.
+
 ## Not yet started
 
 See TODO.md.

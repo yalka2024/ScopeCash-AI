@@ -1,9 +1,75 @@
 /**
- * Spec-driven domain entities for ScopeCash AI (Phase 6 — domain admin UI).
- *
- * Same manifest the server's routes/entities.js exposes. The Data page renders a
- * real list / create / edit / delete UI over each, wired to /api/<plural>.
- * [] when the spec declared no entities.
+ * Domain entity manifest for ScopeCash AI — MUST mirror the `ENTITIES` array
+ * in server/routes/entities.js (model, plural, fields, fieldTypes, readOnly).
+ * This file drifted out of sync with the server after Phase 1's schema
+ * extension (11 models — customer, citation, scopeItem, contractProvision,
+ * costItem, rateSheet, rateSheetItem, evidenceItem, consentRecord, feedback,
+ * testimonial, retentionLegalHold, competitionEvidence — were addable via
+ * the API but invisible in the Data UI). Re-synced in the Final nav phase.
  */
-export const ENTITIES = [{"model":"organizationRecord","plural":"organizationRecords","fields":["name","legal_name","trade_types","timezone","currency","address","phone","website","billing_plan","default_markup","default_tax_rate","default_retention_policy"],"fieldTypes":{"name":"String","legal_name":"String","trade_types":"String","timezone":"String","currency":"String","address":"String","phone":"String","website":"String","billing_plan":"String","default_markup":"Float","default_tax_rate":"Float","default_retention_policy":"String"}},{"model":"projectRecord","plural":"projectRecords","fields":["customer_id","name","project_number","trade","status","address","start_date","expected_completion_date","contract_value","original_estimate_value","project_manager_id","estimator_id","original_scope_summary","exclusions_summary","audit_tier"],"fieldTypes":{"customer_id":"String","name":"String","project_number":"String","trade":"String","status":"String","address":"String","start_date":"DateTime","expected_completion_date":"DateTime","contract_value":"Float","original_estimate_value":"Float","project_manager_id":"String","estimator_id":"String","original_scope_summary":"String","exclusions_summary":"String","audit_tier":"String"}},{"model":"sourceDocument","plural":"sourceDocuments","fields":["project_id","document_type","original_filename","storage_uri","mime_type","file_size_bytes","sha256_hash","uploaded_by_id","uploaded_at","extraction_status","page_count","document_date","superseded"],"fieldTypes":{"project_id":"String","document_type":"String","original_filename":"String","storage_uri":"String","mime_type":"String","file_size_bytes":"Int","sha256_hash":"String","uploaded_by_id":"String","uploaded_at":"DateTime","extraction_status":"String","page_count":"Int","document_date":"DateTime","superseded":"Boolean"}},{"model":"changeEvent","plural":"changeEvents","fields":["project_id","title","description","event_date","status","reason_category","ai_confidence","risk_level","missing_evidence","contradictions","reviewer_notes","customer_validated_at"],"fieldTypes":{"project_id":"String","title":"String","description":"String","event_date":"DateTime","status":"String","reason_category":"String","ai_confidence":"Float","risk_level":"String","missing_evidence":"String","contradictions":"String","reviewer_notes":"String","customer_validated_at":"DateTime"}},{"model":"evidenceFinding","plural":"evidenceFindings","fields":["project_id","change_event_id","finding_type","assertion","source_citations","contradictory_evidence","confidence","severity","ai_generated","human_decision","reviewer_id","decision_reason"],"fieldTypes":{"project_id":"String","change_event_id":"String","finding_type":"String","assertion":"String","source_citations":"String","contradictory_evidence":"String","confidence":"Float","severity":"String","ai_generated":"Boolean","human_decision":"String","reviewer_id":"String","decision_reason":"String"}},{"model":"evidencePacket","plural":"evidencePackets","fields":["project_id","packet_number","version","status","recipient","executive_summary","total_potential_amount","customer_validated_amount","pdf_storage_uri","content_hash","approved_by_id","approved_at","exported_at","submission_date","submission_method","external_reference"],"fieldTypes":{"project_id":"String","packet_number":"String","version":"Int","status":"String","recipient":"String","executive_summary":"String","total_potential_amount":"Float","customer_validated_amount":"Float","pdf_storage_uri":"String","content_hash":"String","approved_by_id":"String","approved_at":"DateTime","exported_at":"DateTime","submission_date":"DateTime","submission_method":"String","external_reference":"String"}},{"model":"commercialOutcome","plural":"commercialOutcomes","fields":["project_id","change_event_id","packet_id","identified_amount","validated_amount","submitted_amount","approved_amount","invoiced_amount","collected_amount","invoice_number","invoice_date","payment_date","notes"],"fieldTypes":{"project_id":"String","change_event_id":"String","packet_id":"String","identified_amount":"Float","validated_amount":"Float","submitted_amount":"Float","approved_amount":"Float","invoiced_amount":"Float","collected_amount":"Float","invoice_number":"String","invoice_date":"DateTime","payment_date":"DateTime","notes":"String"}},{"model":"agentRunRecord","plural":"agentRunRecords","fields":["project_id","agent_type","status","model_name","model_version","input_refs","output_refs","source_citations","confidence","token_usage","estimated_cost_usd","latency_ms","error_message","human_decision","completed_at"],"fieldTypes":{"project_id":"String","agent_type":"String","status":"String","model_name":"String","model_version":"String","input_refs":"String","output_refs":"String","source_citations":"String","confidence":"Float","token_usage":"Int","estimated_cost_usd":"Float","latency_ms":"Int","error_message":"String","human_decision":"String","completed_at":"DateTime"}}];
+export const ENTITIES = [
+  { model: 'customer', plural: 'customers',
+    fields: ['name', 'companyName', 'email', 'phone', 'address', 'notes'],
+    fieldTypes: { name: 'String', companyName: 'String', email: 'String', phone: 'String', address: 'String', notes: 'String' } },
+  { model: 'organizationRecord', plural: 'organizationRecords',
+    fields: ['name', 'legal_name', 'trade_types', 'timezone', 'currency', 'address', 'phone', 'website', 'billing_plan', 'default_markup', 'default_tax_rate', 'default_retention_policy'],
+    fieldTypes: { name: 'String', legal_name: 'String', trade_types: 'String', timezone: 'String', currency: 'String', address: 'String', phone: 'String', website: 'String', billing_plan: 'String', default_markup: 'Float', default_tax_rate: 'Float', default_retention_policy: 'String' } },
+  { model: 'projectRecord', plural: 'projectRecords',
+    fields: ['customer_id', 'name', 'project_number', 'trade', 'status', 'address', 'start_date', 'expected_completion_date', 'contract_value', 'original_estimate_value', 'project_manager_id', 'estimator_id', 'original_scope_summary', 'exclusions_summary', 'audit_tier'],
+    fieldTypes: { customer_id: 'String', name: 'String', project_number: 'String', trade: 'String', status: 'String', address: 'String', start_date: 'DateTime', expected_completion_date: 'DateTime', contract_value: 'Float', original_estimate_value: 'Float', project_manager_id: 'String', estimator_id: 'String', original_scope_summary: 'String', exclusions_summary: 'String', audit_tier: 'String' } },
+  { model: 'sourceDocument', plural: 'sourceDocuments',
+    fields: ['project_id', 'document_type', 'original_filename', 'storage_uri', 'mime_type', 'file_size_bytes', 'sha256_hash', 'uploaded_by_id', 'uploaded_at', 'extraction_status', 'page_count', 'document_date', 'superseded'],
+    fieldTypes: { project_id: 'String', document_type: 'String', original_filename: 'String', storage_uri: 'String', mime_type: 'String', file_size_bytes: 'Int', sha256_hash: 'String', uploaded_by_id: 'String', uploaded_at: 'DateTime', extraction_status: 'String', page_count: 'Int', document_date: 'DateTime', superseded: 'Boolean' } },
+  { model: 'evidenceItem', plural: 'evidenceItems',
+    fields: ['project_id', 'sourceDocumentId', 'evidenceType', 'storageUri', 'sha256Hash', 'capturedAt', 'gpsLat', 'gpsLng', 'deviceMetadata', 'transcript', 'extractedText', 'uploadedById', 'duplicateOfId', 'quality'],
+    fieldTypes: { project_id: 'String', sourceDocumentId: 'String', evidenceType: 'String', storageUri: 'String', sha256Hash: 'String', capturedAt: 'DateTime', gpsLat: 'Float', gpsLng: 'Float', deviceMetadata: 'String', transcript: 'String', extractedText: 'String', uploadedById: 'String', duplicateOfId: 'String', quality: 'String' } },
+  { model: 'changeEvent', plural: 'changeEvents',
+    fields: ['project_id', 'title', 'description', 'event_date', 'status', 'reason_category', 'ai_confidence', 'risk_level', 'missing_evidence', 'contradictions', 'reviewer_notes', 'customer_validated_at'],
+    fieldTypes: { project_id: 'String', title: 'String', description: 'String', event_date: 'DateTime', status: 'String', reason_category: 'String', ai_confidence: 'Float', risk_level: 'String', missing_evidence: 'String', contradictions: 'String', reviewer_notes: 'String', customer_validated_at: 'DateTime' } },
+  { model: 'evidenceFinding', plural: 'evidenceFindings',
+    fields: ['project_id', 'change_event_id', 'finding_type', 'assertion', 'source_citations', 'contradictory_evidence', 'confidence', 'severity', 'ai_generated', 'human_decision', 'reviewer_id', 'decision_reason'],
+    fieldTypes: { project_id: 'String', change_event_id: 'String', finding_type: 'String', assertion: 'String', source_citations: 'String', contradictory_evidence: 'String', confidence: 'Float', severity: 'String', ai_generated: 'Boolean', human_decision: 'String', reviewer_id: 'String', decision_reason: 'String' } },
+  { model: 'citation', plural: 'citations',
+    fields: ['findingId', 'sourceDocumentId', 'evidenceItemId', 'pageNumber', 'spanStart', 'spanEnd', 'quotedText'],
+    fieldTypes: { findingId: 'String', sourceDocumentId: 'String', evidenceItemId: 'String', pageNumber: 'Int', spanStart: 'Int', spanEnd: 'Int', quotedText: 'String' } },
+  { model: 'scopeItem', plural: 'scopeItems',
+    fields: ['project_id', 'source', 'change_event_id', 'description', 'quantity', 'unit', 'unitRate', 'totalAmount', 'category', 'sourceDocumentId', 'pageReference'],
+    fieldTypes: { project_id: 'String', source: 'String', change_event_id: 'String', description: 'String', quantity: 'Float', unit: 'String', unitRate: 'Float', totalAmount: 'Float', category: 'String', sourceDocumentId: 'String', pageReference: 'String' } },
+  { model: 'contractProvision', plural: 'contractProvisions',
+    fields: ['project_id', 'sourceDocumentId', 'category', 'clauseText', 'pageNumber', 'sectionRef', 'extractedByRunId', 'confidence'],
+    fieldTypes: { project_id: 'String', sourceDocumentId: 'String', category: 'String', clauseText: 'String', pageNumber: 'Int', sectionRef: 'String', extractedByRunId: 'String', confidence: 'Float' } },
+  { model: 'evidencePacket', plural: 'evidencePackets',
+    fields: ['project_id', 'packet_number', 'version', 'status', 'recipient', 'executive_summary', 'total_potential_amount', 'customer_validated_amount', 'pdf_storage_uri', 'content_hash', 'approved_by_id', 'approved_at', 'exported_at', 'submission_date', 'submission_method', 'external_reference'],
+    fieldTypes: { project_id: 'String', packet_number: 'String', version: 'Int', status: 'String', recipient: 'String', executive_summary: 'String', total_potential_amount: 'Float', customer_validated_amount: 'Float', pdf_storage_uri: 'String', content_hash: 'String', approved_by_id: 'String', approved_at: 'DateTime', exported_at: 'DateTime', submission_date: 'DateTime', submission_method: 'String', external_reference: 'String' } },
+  { model: 'costItem', plural: 'costItems',
+    fields: ['project_id', 'change_event_id', 'scopeItemId', 'category', 'description', 'quantity', 'unit', 'unitCost', 'totalCost', 'rateSheetItemId'],
+    fieldTypes: { project_id: 'String', change_event_id: 'String', scopeItemId: 'String', category: 'String', description: 'String', quantity: 'Float', unit: 'String', unitCost: 'Float', totalCost: 'Float', rateSheetItemId: 'String' } },
+  { model: 'commercialOutcome', plural: 'commercialOutcomes',
+    fields: ['project_id', 'change_event_id', 'packet_id', 'identified_amount', 'validated_amount', 'submitted_amount', 'approved_amount', 'invoiced_amount', 'collected_amount', 'invoice_number', 'invoice_date', 'payment_date', 'notes'],
+    fieldTypes: { project_id: 'String', change_event_id: 'String', packet_id: 'String', identified_amount: 'Float', validated_amount: 'Float', submitted_amount: 'Float', approved_amount: 'Float', invoiced_amount: 'Float', collected_amount: 'Float', invoice_number: 'String', invoice_date: 'DateTime', payment_date: 'DateTime', notes: 'String' } },
+  { model: 'rateSheet', plural: 'rateSheets',
+    fields: ['customerId', 'name', 'trade', 'effectiveDate', 'version', 'status'],
+    fieldTypes: { customerId: 'String', name: 'String', trade: 'String', effectiveDate: 'DateTime', version: 'Int', status: 'String' } },
+  { model: 'rateSheetItem', plural: 'rateSheetItems',
+    fields: ['rateSheetId', 'code', 'description', 'unit', 'unitRate', 'category'],
+    fieldTypes: { rateSheetId: 'String', code: 'String', description: 'String', unit: 'String', unitRate: 'Float', category: 'String' } },
+  { model: 'consentRecord', plural: 'consentRecords',
+    fields: ['project_id', 'subjectType', 'subjectName', 'consentType', 'granted', 'grantedById', 'method', 'evidenceUri', 'revokedAt'],
+    fieldTypes: { project_id: 'String', subjectType: 'String', subjectName: 'String', consentType: 'String', granted: 'Boolean', grantedById: 'String', method: 'String', evidenceUri: 'String', revokedAt: 'DateTime' } },
+  { model: 'feedback', plural: 'feedback',
+    fields: ['project_id', 'customerId', 'rating', 'comment', 'consentToShare', 'consentRecordId'],
+    fieldTypes: { project_id: 'String', customerId: 'String', rating: 'Int', comment: 'String', consentToShare: 'Boolean', consentRecordId: 'String' } },
+  { model: 'testimonial', plural: 'testimonials',
+    fields: ['customerId', 'feedbackId', 'quote', 'authorName', 'authorTitle', 'consentRecordId', 'featured', 'status'],
+    fieldTypes: { customerId: 'String', feedbackId: 'String', quote: 'String', authorName: 'String', authorTitle: 'String', consentRecordId: 'String', featured: 'Boolean', status: 'String' } },
+  { model: 'retentionLegalHold', plural: 'retentionLegalHolds',
+    fields: ['resourceType', 'resourceId', 'holdType', 'reason', 'policyDays', 'placedById'],
+    fieldTypes: { resourceType: 'String', resourceId: 'String', holdType: 'String', reason: 'String', policyDays: 'Int', placedById: 'String' } },
+  { model: 'competitionEvidence', plural: 'competitionEvidence',
+    fields: ['category', 'classification', 'period', 'label', 'amountCents', 'quantity', 'sourceType', 'sourceRef', 'isDemoData', 'excludeFromReport', 'notes'],
+    fieldTypes: { category: 'String', classification: 'String', period: 'String', label: 'String', amountCents: 'Int', quantity: 'Int', sourceType: 'String', sourceRef: 'String', isDemoData: 'Boolean', excludeFromReport: 'Boolean', notes: 'String' } },
+  { model: 'agentRunRecord', plural: 'agentRunRecords', readOnly: true,
+    fields: ['project_id', 'agent_type', 'status', 'model_name', 'model_version', 'input_refs', 'output_refs', 'source_citations', 'confidence', 'token_usage', 'estimated_cost_usd', 'latency_ms', 'error_message', 'human_decision', 'completed_at'],
+    fieldTypes: { project_id: 'String', agent_type: 'String', status: 'String', model_name: 'String', model_version: 'String', input_refs: 'String', output_refs: 'String', source_citations: 'String', confidence: 'Float', token_usage: 'Int', estimated_cost_usd: 'Float', latency_ms: 'Int', error_message: 'String', human_decision: 'String', completed_at: 'DateTime' } },
+];
 

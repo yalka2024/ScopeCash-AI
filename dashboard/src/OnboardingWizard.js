@@ -87,7 +87,7 @@ export default function OnboardingWizard({ onNavigate }) {
   }
 
   async function handleAction(step, action) {
-    if (action === 'goto_dashboard') { onNavigate && onNavigate('dashboard'); return; }
+    if (action === 'goto_dashboard') { onNavigate && onNavigate('projects'); return; }
     if (action === 'goto_settings')  { onNavigate && onNavigate('settings');  return; }
     if (action === 'resend_verify') {
       try {

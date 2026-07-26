@@ -47,8 +47,9 @@ function display(type, v) {
   return String(v);
 }
 
-function EntitySection({ entity }) {
+export function EntitySection({ entity }) {
   const types = entity.fieldTypes || {};
+  const readOnly = !!entity.readOnly;
   const [rows, setRows] = useState([]);
   const [form, setForm] = useState({});
   const [editing, setEditing] = useState(null);
@@ -94,14 +95,17 @@ function EntitySection({ entity }) {
         {humanize(entity.plural)} <span className="text-sm font-normal text-muted-foreground">({rows.length})</span>
       </h2>
       {error && <div className="mb-2 text-red-400">{error}</div>}
+      {readOnly && <p className="mb-2 text-xs text-muted-foreground">System-generated — recorded automatically by the AI pipeline, not editable here.</p>}
 
-      <div className="my-3 flex flex-wrap items-center gap-2">
-        {entity.fields.map((f) => (
-          <FieldInput key={f} type={types[f]} field={f} value={form[f]} onChange={(v) => setForm({ ...form, [f]: v })} />
-        ))}
-        <Button size="sm" disabled={busy} onClick={save}>{editing ? 'Update' : 'Add'}</Button>
-        {editing && <Button size="sm" variant="outline" onClick={() => { setEditing(null); setForm({}); }}>Cancel</Button>}
-      </div>
+      {!readOnly && (
+        <div className="my-3 flex flex-wrap items-center gap-2">
+          {entity.fields.map((f) => (
+            <FieldInput key={f} type={types[f]} field={f} value={form[f]} onChange={(v) => setForm({ ...form, [f]: v })} />
+          ))}
+          <Button size="sm" disabled={busy} onClick={save}>{editing ? 'Update' : 'Add'}</Button>
+          {editing && <Button size="sm" variant="outline" onClick={() => { setEditing(null); setForm({}); }}>Cancel</Button>}
+        </div>
+      )}
 
       <Card>
         <CardContent className="overflow-x-auto p-0">
@@ -111,21 +115,25 @@ function EntitySection({ entity }) {
                 {entity.fields.map((f) => (
                   <th key={f} className="border-b border-border p-2 text-left text-xs font-medium text-muted-foreground">{humanize(f)}</th>
                 ))}
-                <th className="border-b border-border" />
+                {!readOnly && <th className="border-b border-border" />}
               </tr>
             </thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id} className="border-b border-border/50">
                   {entity.fields.map((f) => <td key={f} className="p-2 text-sm text-foreground">{display(types[f], r[f])}</td>)}
-                  <td className="whitespace-nowrap p-2 text-right">
-                    <Button size="sm" variant="ghost" onClick={() => startEdit(r)}>Edit</Button>{' '}
-                    <Button size="sm" variant="ghost" className="text-red-400" onClick={() => remove(r.id)}>Delete</Button>
-                  </td>
+                  {!readOnly && (
+                    <td className="whitespace-nowrap p-2 text-right">
+                      <Button size="sm" variant="ghost" onClick={() => startEdit(r)}>Edit</Button>{' '}
+                      <Button size="sm" variant="ghost" className="text-red-400" onClick={() => remove(r.id)}>Delete</Button>
+                    </td>
+                  )}
                 </tr>
               ))}
               {rows.length === 0 && (
-                <tr><td className="p-2 text-sm text-muted-foreground" colSpan={entity.fields.length + 1}>No records yet — add one above.</td></tr>
+                <tr><td className="p-2 text-sm text-muted-foreground" colSpan={entity.fields.length + (readOnly ? 0 : 1)}>
+                  {readOnly ? 'No records yet.' : 'No records yet — add one above.'}
+                </td></tr>
               )}
             </tbody>
           </table>

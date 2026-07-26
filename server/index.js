@@ -81,6 +81,7 @@ const usageAggregator = require('./jobs/usage-aggregator');
 const exportRoutes = require('./routes/export');
 const webhookRoutes = require('./routes/webhook');
 const docsRoutes = require('./routes/docs');
+const helpRoutes = require('./routes/help');
 
 const aiRoutes = require('./routes/ai');
 
@@ -189,8 +190,6 @@ app.use('/api/health', healthRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/projects', projectRoutes);
-app.use('/api', entityRoutes);   // spec-driven domain CRUD (Phase 2)
-app.use('/api', evidenceRoutes); // evidence upload + Gemini analysis (Phase 2)
 app.use('/api/jobs', jobsRoutes); // Cloud Tasks push target (Phase 3)
 app.use('/api/competition', competitionRoutes); // Competition Evidence Center (Phase 5)
 app.use('/api/tools', toolsRoutes);   // list + invoke the platform's real tools
@@ -221,6 +220,7 @@ app.use('/api/governance', governanceRoutes);
 app.use('/api/export', exportRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/docs', docsRoutes);
+app.use('/api/help', helpRoutes);
 
 app.use('/api/ai', aiRoutes);
 
@@ -240,6 +240,18 @@ app.use('/api/knowledge', knowledgeRoutes);
 
 
 app.use('/api/outcomes', outcomesRoutes);
+
+// entityRoutes and evidenceRoutes are mounted at the bare `/api` prefix
+// (spec-driven domain CRUD needs one route per pluralized model name, not
+// a shared sub-prefix) and their router applies authMiddleware
+// unconditionally to every path under that prefix. Mounted LAST so every
+// more specific — and in several cases deliberately public — `/api/*`
+// route above gets first chance to match. Mounting them earlier silently
+// 401'd `/api/help/*`, `/api/trust/summary`, and `/api/billing/plans/public`
+// for anonymous visitors, since entityRoutes' auth check ran before Express
+// ever tried those routes' handlers.
+app.use('/api', entityRoutes);   // spec-driven domain CRUD (Phase 2)
+app.use('/api', evidenceRoutes); // evidence upload + Gemini analysis (Phase 2)
 
 
 

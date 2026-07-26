@@ -31,9 +31,15 @@ is in STATUS.md. Everything below is either in progress or not started.
       follow-ups: purpose-built forms for logging deployment/uptime
       evidence and revenue classification (currently generic CRUD only).
 - [x] **Phase 6 — Legal pages + EU AI Act removal.** See STATUS.md.
-      Remaining follow-ups: `ropa-template.md` (GDPR-specific, low priority),
-      `GovernancePage.js` not yet audited, full nav IA rewrite is the Final
-      phase task.
+      Remaining follow-ups: `ropa-template.md` (GDPR-specific, low priority).
+      `GovernancePage.js` checked for EU-specific framing in the Final
+      phase — clean, no changes needed.
+- [x] **Final — Product-IA nav rewrite.** `App.js` now navigates
+      Projects/Evidence/Findings/Packets/Outcomes/Customers/Agent Activity
+      instead of the generic scaffold. See STATUS.md for the three real
+      bugs (two Prisma 500s, an unmounted route file, and a route-ordering
+      auth-shadowing bug breaking the public pricing/trust/help pages)
+      found and fixed via actual browser-driven QA while building it.
 - [ ] **Phase 7 — Remaining mock tool stubs.** `CloudTasksEnqueuer`,
       `SecretManagerClient` (folds into Phase 3). `EmailNotificationSender`
       already has a real path (Resend/SendGrid); `MalwareScanHook` already
@@ -74,9 +80,19 @@ is in STATUS.md. Everything below is either in progress or not started.
 - [ ] Explicit regional/data-residency configuration.
 - [x] WCAG 2.2 AA — automated scanning (Playwright + axe-core, wired into
       CI) done in Phase 9; found and fixed 4 real contrast bugs, see
-      STATUS.md. Only public pages are covered (no authenticated-dashboard
-      scan yet — folds into the Final nav-rewrite phase). Manual AT testing
-      remains a non-code item below.
+      STATUS.md. Only public pages are covered — the authenticated
+      dashboard nav now exists (Final phase) but has no committed a11y
+      scan yet. Manual AT testing remains a non-code item below.
+- [ ] `GET /api/setup/status` (first-run admin setup check) is called by
+      `AuthPage.js`/`SetupPage.js` but has no server-side route — dead
+      client code, silently caught, no user-visible symptom today. Needs
+      product direction (what "requires setup" means for this multi-tenant
+      self-serve product) before building it — see STATUS.md's Final phase.
+- [ ] Promote the ad hoc Playwright nav-smoke script used to QA the Final
+      phase's nav rewrite into a real, committed authenticated-app e2e
+      suite (`dashboard/e2e/` or similar) — it registers a user and clicks
+      every nav item asserting no error boundaries/console errors; only
+      existed as a throwaway script this session.
 
 ## P2 — maturity (not started, lower priority)
 
