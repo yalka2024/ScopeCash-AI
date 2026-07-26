@@ -15,7 +15,7 @@
 const express = require('express');
 const crypto  = require('crypto');
 const prisma  = require('../lib/prisma');
-const { authMiddleware } = require('../middleware/auth');
+const { authMiddleware, requireScope } = require('../middleware/auth');
 const { audit } = require('../lib/audit');
 let encryption = null;
 try { encryption = require('../lib/encryption'); } catch (e) { /* optional */ }
@@ -57,7 +57,7 @@ router.get('/export', async (req, res, next) => {
 // placeholders, password broken, role demoted. Session is invalidated by
 // clearing the auth cookie. The row stays so foreign-key history (and
 // the audit hash chain) remains intact.
-router.post('/erase', express.json(), async (req, res, next) => {
+router.post('/erase', requireScope('write'), express.json(), async (req, res, next) => {
   try {
     if (!req.body || req.body.confirm !== 'ERASE') {
       return res.status(400).json({ error: 'must_post_confirm_ERASE' });
