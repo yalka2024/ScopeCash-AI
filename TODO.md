@@ -84,17 +84,22 @@ is in STATUS.md. Everything below is either in progress or not started.
 
 - [x] Replace `db push --accept-data-loss` with real migrations (Phase 1).
 - [x] Remove `|| true` masking CI migration failures (Phase 1).
-- [ ] Integration tests against real Postgres + RLS in CI (currently CI runs
-      tests against SQLite; Postgres is only migration-validated — see
-      STATUS.md's RLS section for why this matters and what to watch for).
-      This gap is exactly how the Phase 10 `billing.js`/`board-reports.js`
-      RLS-blackout bugs went undetected — SQLite has no RLS at all, so the
-      existing test suite structurally cannot catch "forgot to establish
-      tenant context" bugs. Phase 10 also found and fixed
-      `prisma.postgres.config.ts` pointing migrations at a separate,
+- [x] Integration tests against real Postgres + RLS in CI — closed in
+      Phase 10. `server/tests/postgres/rls.test.js` (new `jest.postgres.config.js`,
+      `npm run test:postgres-rls`) covers exactly the class of bug that
+      caused the `billing.js`/`board-reports.js` RLS-blackout bugs: a
+      no-context query correctly seeing zero rows, cross-tenant isolation
+      holding even when a query forgets to filter by `orgId` (RLS as
+      defense-in-depth), the billing.js regression scenario specifically,
+      and `runWithSystemAccess`'s legitimate cross-tenant escape hatch.
+      `.github/workflows/ci.yml` creates a dedicated non-superuser Postgres
+      role per run (`prisma/ci-postgres-test-role.js` — superusers bypass
+      RLS regardless of policy, which would make every test pass for the
+      wrong reason) and applies `rls.sql` before running it. Also found and
+      fixed `prisma.postgres.config.ts` pointing migrations at a separate,
       silently-drifted `migrations-postgres/` directory — worth checking
       that stays in sync (`npm run db:postgres:generate` after any schema
-      change) until this is automated in CI too.
+      change).
 - [x] Cross-tenant access audit for the remaining hand-written routes
       (billing, notification, webhook, oauth, apikey, analytics, dsar,
       governance, operations, tools) — done in Phase 10 via three parallel

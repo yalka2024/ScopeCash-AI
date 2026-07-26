@@ -799,17 +799,34 @@ fixed:
   (first call creates the admin, second call correctly 409s
   `setup_already_complete`).
 
+**Real Postgres+RLS tests in CI, closed**: this phase's earlier
+verification (the `billing.js` fix, the migrations-postgres drift) was
+manual/local against a throwaway Docker container — a real gap, since
+nothing caught it automatically. Closed by adding
+`server/tests/postgres/rls.test.js` (a new, separate Jest project —
+`jest.postgres.config.js` / `npm run test:postgres-rls`, gracefully
+skipped when `DATABASE_URL` isn't Postgres so it's harmless inside the
+normal SQLite `npm test` run) and wiring it into `ci.yml` right after the
+existing migration-validation step: creates a dedicated non-superuser
+Postgres role per CI run (`prisma/ci-postgres-test-role.js` — Postgres
+superusers bypass RLS regardless of policy, which would make every test
+pass for the wrong reason), applies `rls.sql`, and runs four tests:
+no-context queries fail closed to zero rows (not an error, not every
+org's rows); `runWithOrg` isolation holds even when a query forgets to
+filter by `orgId` at all (RLS as real defense-in-depth, not just a backup
+for correct app code); the exact `billing.js` regression scenario; and
+`runWithSystemAccess`'s legitimate cross-tenant escape hatch. Authoring
+this file hit the exact "sync callback returns a lazy Prisma promise,
+loses AsyncLocalStorage context" bug documented in Phase 1 — a useful
+confirmation that gotcha is still real and easy to reintroduce even when
+you know about it.
+
 ### Known gaps / not done in Phase 10
 
-- Real Postgres+RLS application tests still aren't in CI (only migration
-  validation is) — this phase's Postgres verification was manual/local,
-  against a throwaway Docker container. Building this into CI is its own
-  item — see TODO.md.
 - The move-evidence-analysis-onto-Cloud-Tasks item, the Competition
-  Evidence Center workflow gaps, remaining legal-page GDPR references,
-  operational hardening (ownership transfer, legal hold execution, API-key
-  project scopes), CI dependency/secret/IaC scanning, and GCP Terraform
-  are all still open — see TODO.md.
+  Evidence Center workflow gaps, and operational hardening (ownership
+  transfer, legal hold execution, API-key project scopes) are all still
+  open — see TODO.md.
 
 ## Not yet started
 

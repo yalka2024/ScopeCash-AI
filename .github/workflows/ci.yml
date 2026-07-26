@@ -42,7 +42,34 @@ jobs:
         run: |
           node prisma/sync-postgres-schema.js
           npx prisma migrate deploy --config prisma.postgres.config.ts
-      - name: Prisma generate (SQLite — used by the test suite)
+      # Real Postgres + RLS application tests — the class of test SQLite
+      # structurally cannot run (no RLS at all). This is exactly how the
+      # billing.js/board-reports.js bugs (a route querying an RLS-protected
+      # table with no tenant context, silently seeing zero rows instead of
+      # an error) went undetected: every prior test ran against SQLite,
+      # where that code path just worked, for the wrong reason. Runs as a
+      # dedicated non-superuser role — Postgres superusers bypass RLS
+      # regardless of policy, which would make every test below pass for
+      # the wrong reason too.
+      - name: Set up non-superuser Postgres role for RLS tests
+        working-directory: server
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/scopecash-ai
+        run: node prisma/ci-postgres-test-role.js scopecash_rls_test ci-rls-test-role-${{ github.run_id }}
+      - name: Apply RLS policies (Postgres)
+        working-directory: server
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/scopecash-ai
+        run: node prisma/apply-rls.js
+      - name: Generate Postgres-flavored Prisma client
+        working-directory: server
+        run: npx prisma generate --config prisma.postgres.config.ts
+      - name: Postgres RLS regression tests
+        working-directory: server
+        env:
+          DATABASE_URL: postgresql://scopecash_rls_test:ci-rls-test-role-${{ github.run_id }}@localhost:5432/scopecash-ai
+        run: npm run test:postgres-rls
+      - name: Prisma generate (SQLite — used by the main test suite)
         working-directory: server
         run: npx prisma generate
       - name: Prisma migrate (SQLite test DB)
