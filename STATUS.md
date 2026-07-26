@@ -284,6 +284,45 @@ non-code items.
   and records duplicateOfId").
 - Full suite: 121 passed, 12 skipped, 0 failed.
 
+## Phase 5 — Competition Evidence Center (DONE, 2026-07-26)
+
+- Recognized and corrected a design assumption from Phase 1: proving "this
+  is a real, running, revenue-generating business" to a competition judge
+  is inherently a **platform-operator** report, not a per-tenant one — a
+  paying customer's invoice lives under *their* orgId, not some special
+  reporting org. `lib/competition-evidence.js`'s quantitative aggregation
+  (revenue, paid customers, GCP/Gemini expense) therefore reads across
+  every tenant via `runWithSystemAccess`, the same pattern
+  `routes/tenants.js` already used for admin cross-tenant cost reporting.
+  `CompetitionEvidence` rows (Phase 1) hold the manually-curated qualitative
+  side (deployment/uptime evidence entries) and are read the same way.
+- `routes/competition.js`: platform-admin-only (`req.user.role === 'admin'`,
+  not per-org role — same gate as `tenants.js`/`ai-admin.js`).
+  `GET /report` (JSON), `/report.csv`, `/report.pdf` (via the existing
+  `PDFPacketRenderer` tool — a real PDF, not a placeholder), `/reconcile`.
+- Every total explicitly excludes `isDemoData`/`excludeFromReport` rows.
+  `/reconcile` cross-checks `CompetitionEvidence` revenue entries against
+  real paid `Invoice` totals for the same months and flags any discrepancy
+  beyond $1 rounding tolerance — a manual-entry error can't silently reach
+  a submission.
+- `dashboard/src/CompetitionEvidencePage.js`: admin nav page — period
+  picker, reconciliation status banner, revenue/customer/expense tiles,
+  monthly breakdown table, approved testimonials, deployment/uptime
+  evidence list, CSV/PDF export buttons. Dashboard build verified clean.
+- 10 new tests (aggregation math, demo-data exclusion, reconciliation
+  match/mismatch, admin-only gating, CSV/PDF export content). Full suite:
+  131 passed, 12 skipped, 0 failed.
+
+### Known gaps / not done in Phase 5
+
+- No dedicated UI for logging deployment/uptime evidence or classifying a
+  revenue row as arms-length vs. related-party — those go through the
+  generic `entities.js` CRUD for `competitionEvidence` (Phase 1), not a
+  purpose-built form.
+- Paid-customer counting assumes one Stripe customer per `Organization`
+  (true today); would need adjustment if billing ever moves to multiple
+  payment sources per org.
+
 ## Not yet started
 
 See TODO.md.

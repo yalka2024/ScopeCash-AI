@@ -27,11 +27,9 @@ is in STATUS.md. Everything below is either in progress or not started.
   - [ ] Cloud Logging structured fields / Cloud Monitoring alert policies.
 - [x] **Phase 4 — Riverside HVAC demo.** See STATUS.md. `npm run
       db:seed:demo`. No open follow-ups from this phase.
-- [ ] **Phase 5 — Competition Evidence Center.** `CompetitionEvidence` model
-      exists (Phase 1); needs aggregation service, admin UI, arms-length vs.
-      related-party classification, monthly breakdown, JSON/CSV/PDF exports,
-      demo-data exclusion, reconciliation against Stripe/AgentRun/outcome
-      records.
+- [x] **Phase 5 — Competition Evidence Center.** See STATUS.md. Remaining
+      follow-ups: purpose-built forms for logging deployment/uptime
+      evidence and revenue classification (currently generic CRUD only).
 - [ ] **Phase 6 — Legal pages.** `dashboard/src/LegalPages.js` and
       `server/trust/*.md` still describe an EU-first AI Act compliance
       product hosted in Frankfurt. Needs US contractor-focused ToS/Privacy/AI

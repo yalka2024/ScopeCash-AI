@@ -7,6 +7,7 @@ import SettingsPage from './SettingsPage';
 import TrustPage from './TrustPage';
 import TenantsPage from './TenantsPage';
 import AiEconomicsPage from './AiEconomicsPage';
+import CompetitionEvidencePage from './CompetitionEvidencePage';
 import GrowthPage from './GrowthPage';
 import DataProductsPage from './DataProductsPage';
 import MarketplacePage from './MarketplacePage';
@@ -121,6 +122,9 @@ export default function App() {
           {user?.role === 'admin' && (
             <li className={authedPage === 'data-products' ? 'active' : ''} onClick={() => setPage('data-products')}>Data products</li>
           )}
+          {user?.role === 'admin' && (
+            <li className={authedPage === 'competition' ? 'active' : ''} onClick={() => setPage('competition')}>Competition evidence</li>
+          )}
           <li className={authedPage === 'marketplace' ? 'active' : ''} onClick={() => setPage('marketplace')}>Marketplace</li>
           {user?.role === 'admin' && (
             <li className={authedPage === 'operations' ? 'active' : ''} onClick={() => setPage('operations')}>Operations</li>
@@ -154,6 +158,7 @@ export default function App() {
         {authedPage === 'evaluations' && user?.role === 'admin' && <EvaluationsPage />}
         {authedPage === 'growth' && user?.role === 'admin' && <GrowthPage />}
         {authedPage === 'data-products' && user?.role === 'admin' && <DataProductsPage />}
+        {authedPage === 'competition' && user?.role === 'admin' && <CompetitionEvidencePage />}
         {authedPage === 'marketplace' && <MarketplacePage user={user} />}
         {authedPage === 'operations' && user?.role === 'admin' && <OperationsPage />}
         {authedPage === 'status' && <StatusPage />}
