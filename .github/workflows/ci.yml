@@ -51,6 +51,22 @@ jobs:
       - name: Tests
         working-directory: server
         run: npm test
+      # Dependency vulnerability report. NOT a blocking gate here: the
+      # current production dependency tree has 18 high-severity transitive
+      # advisories, ALL from @google-cloud/storage's own pinned uuid/
+      # teeny-request/retry-request versions (verified: 7.21.0 is already
+      # the latest published release and still carries them — `npm audit
+      # fix --force` has nothing safe to apply, only a downgrade). Nothing
+      # in this app's own code is unfixable; this is Google's package
+      # waiting on an upstream release. Blocking CI on an issue this repo
+      # cannot currently resolve would just train everyone to ignore red
+      # builds. Re-run `npm audit --omit=dev --audit-level=high` after any
+      # @google-cloud/storage bump to check whether it's finally safe to
+      # make this blocking (`continue-on-error: false` — see TODO.md).
+      - name: Dependency vulnerability scan (report only — see comment above)
+        working-directory: server
+        continue-on-error: true
+        run: npm audit --omit=dev --audit-level=high
       # Release eval gate. Always runs — without GCP secrets configured (e.g.
       # every fork PR; GitHub Actions never exposes repo secrets to those) it
       # falls back to the deterministic 4-case mock "smoke" suite, which only
@@ -90,6 +106,13 @@ jobs:
       - name: Build
         working-directory: dashboard
         run: npm run build --if-present
+      # Blocking (unlike the server job's report-only step): dashboard's
+      # production dependency tree currently has zero known high/critical
+      # advisories, so this locks that in — a newly-introduced high/critical
+      # vulnerability will correctly fail the build, not just get logged.
+      - name: Dependency vulnerability scan
+        working-directory: dashboard
+        run: npm audit --omit=dev --audit-level=high
       # Automated WCAG 2.2 AA scan (axe-core) of the public marketing/legal
       # pages. Catches real color-contrast/semantic-markup regressions;
       # does NOT replace manual assistive-technology testing (screen reader

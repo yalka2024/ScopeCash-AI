@@ -135,7 +135,24 @@ is in STATUS.md. Everything below is either in progress or not started.
 - [ ] Real backup/restore drills, RPO/RTO — see non-code items, this needs a
       real target environment first.
 - [ ] Cloud Monitoring alert policies, SLOs, on-call — folds into Phase 3.
-- [ ] Dependency/container/secret/infra scanning in CI.
+- [x] Dependency/container/secret scanning in CI — mostly already existed
+      before this pass and was more complete than the audit assumed:
+      `.github/workflows/secret-scan.yml` (gitleaks, daily + every push/PR),
+      `codeql.yml` (SAST, weekly + every push/PR),
+      `container-build-sign.yml` (SBOM via syft, vulnerability scan via
+      grype, keyless cosign signing + SBOM attestation on every build).
+      Genuinely missing piece — a dependency-vulnerability gate — added to
+      `ci.yml`: dashboard's is blocking (currently 0 known high/critical
+      vulns, so this locks that in); server's is report-only
+      (`continue-on-error: true`) because production deps currently carry
+      18 real high-severity transitive advisories, **all** from
+      `@google-cloud/storage`'s own pinned `uuid`/`teeny-request`/
+      `retry-request` versions — verified 7.21.0 is already the latest
+      published release and still carries them, so there is currently no
+      safe fix available from this side, only a downgrade. Revisit making
+      it blocking after a future `@google-cloud/storage` bump.
+- [ ] IaC scanning (`tfsec`/`checkov` or similar) — folds into the GCP
+      Terraform item below; nothing to scan until that exists.
 - [ ] Explicit regional/data-residency configuration.
 - [x] WCAG 2.2 AA — automated scanning (Playwright + axe-core, wired into
       CI) done in Phase 9; found and fixed 4 real contrast bugs, see
