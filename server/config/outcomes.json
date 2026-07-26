@@ -1,0 +1,6 @@
+{
+  "_comment": "Outcome-based billing config for ScopeCash AI. billing_model: outcome. Each event is a billable business outcome; only outcomes confirmed successful are metered (see lib/outcomes.js). Map each event to a Stripe metered subscription-item price via env STRIPE_OUTCOME_ITEM_<EVENT_UPPER_SNAKE>.",
+  "billing_model": "outcome",
+  "events": ["pilot_audit_purchased","standard_audit_purchased","starter_subscription_activated","professional_subscription_activated","enterprise_subscription_activated","success_fee_collected"]
+}
+

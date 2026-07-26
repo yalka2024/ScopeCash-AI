@@ -1,0 +1,1364 @@
+{
+  "cta_url": "https://scopecash.ai/start",
+  "api": {
+    "endpoints": [
+      {
+        "method": "POST",
+        "path": "/api/v1/auth/register",
+        "description": "Create user account with email verification"
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/auth/login",
+        "description": "Authenticate and issue session token"
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/auth/mfa/enroll",
+        "description": "Enroll TOTP MFA"
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/auth/mfa/verify",
+        "description": "Verify TOTP code"
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/orgs",
+        "description": "Create organization"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/orgs/{org_id}",
+        "description": "Get organization details"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/orgs/{org_id}/members",
+        "description": "List org members"
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/orgs/{org_id}/members",
+        "description": "Invite member"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/orgs/{org_id}/customers",
+        "description": "List customers"
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/orgs/{org_id}/customers",
+        "description": "Create customer"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/orgs/{org_id}/projects",
+        "description": "List projects with pagination"
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/orgs/{org_id}/projects",
+        "description": "Create project"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/orgs/{org_id}/projects/{project_id}",
+        "description": "Get project detail"
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/orgs/{org_id}/projects/{project_id}/documents",
+        "description": "Initiate upload session"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/orgs/{org_id}/projects/{project_id}/documents",
+        "description": "List source documents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/orgs/{org_id}/projects/{project_id}/evidence",
+        "description": "List evidence items"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/orgs/{org_id}/projects/{project_id}/scope-items",
+        "description": "List scope items"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/orgs/{org_id}/projects/{project_id}/findings",
+        "description": "List evidence findings"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/v1/orgs/{org_id}/projects/{project_id}/findings/{finding_id}",
+        "description": "Record human decision on finding"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/orgs/{org_id}/projects/{project_id}/change-events",
+        "description": "List change events"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/orgs/{org_id}/projects/{project_id}/change-events/{event_id}/cost-items",
+        "description": "List cost items for change event"
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/orgs/{org_id}/projects/{project_id}/packets",
+        "description": "Generate evidence packet"
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/orgs/{org_id}/projects/{project_id}/packets/{packet_id}/approve",
+        "description": "Approve packet with named approver and content hash"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/orgs/{org_id}/projects/{project_id}/outcomes",
+        "description": "Get commercial outcomes with funnel"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/v1/orgs/{org_id}/projects/{project_id}/outcomes",
+        "description": "Update outcome stage amount"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/orgs/{org_id}/agent-runs",
+        "description": "List agent runs with pagination"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/orgs/{org_id}/reports/outcomes",
+        "description": "Financial outcome funnel report"
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/billing/checkout",
+        "description": "Create Stripe Checkout session for audit or subscription"
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/billing/webhook",
+        "description": "Idempotent Stripe webhook handler"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/admin/competition-evidence",
+        "description": "Admin-only competition evidence export (JSON, CSV, PDF)"
+      }
+    ]
+  },
+  "compliance": {
+    "frameworks": [
+      "UPL-disclaimer",
+      "public-adjuster-statutes-TX-CA-FL-NY-IL",
+      "CCPA-CPRA",
+      "SOC2-TypeII-path",
+      "WCAG-2.2-AA",
+      "AIA-A201-S15.1.3-notice-provisions",
+      "ConsensusDocs-200-S8.2-notice-provisions",
+      "multi-tenant-data-isolation",
+      "AI-safety-citation-enforcement",
+      "monetary-stage-integrity"
+    ],
+    "required_clauses": [
+      "Attorney-reviewed disclaimer rendered in every PDF packet",
+      "AI must refuse legal-entitlement assertions and legal advice",
+      "Success fee must not be enabled by default and requires separately accepted written agreement",
+      "Success fee must not be charged against insurance-paid outcomes without legal review confirming non-adjuster characterization",
+      "Identified amount must never be labeled approved, invoiced, or collected in any UI, API, report, or export",
+      "Every AI assertion must have at least one source citation",
+      "Rejected findings must never appear in packets",
+      "Contradictory evidence must never be omitted from risk review",
+      "Prompt injection from uploaded documents must be blocked",
+      "Demo data must be excluded from competition evidence totals",
+      "No evidence may be exposed publicly; all access via signed URLs only",
+      "CCPA deletion and Do Not Sell workflow required"
+    ]
+  },
+  "theme": {
+    "primary": "#1B3A5C",
+    "accent": "#F57C00",
+    "font": "inter",
+    "mode": "light",
+    "secondary": "#2E7D32",
+    "radius": "0.5rem"
+  },
+  "name": "ScopeCash AI",
+  "core_entity_plural": "projects",
+  "billing": {
+    "outcome_events": [
+      "pilot_audit_purchased",
+      "standard_audit_purchased",
+      "starter_subscription_activated",
+      "professional_subscription_activated",
+      "enterprise_subscription_activated",
+      "success_fee_collected"
+    ],
+    "model": "outcome"
+  },
+  "goals": [
+    {
+      "name": "TransformEvidenceToPacket",
+      "description": "Autonomously classify uploads, extract scope baseline, analyze field evidence, identify scope deltas, price change events using org rates, challenge findings for risk, and produce a human-review-ready evidence packet — all without human intervention until the review gate."
+    },
+    {
+      "name": "EnforceMonetaryStageSeparation",
+      "description": "Track and report the six monetary stages (identified, validated, submitted, approved, invoiced, collected) with strict isolation so no stage is ever misrepresented as another in any UI, API, report, or export."
+    },
+    {
+      "name": "ProtectEvidenceIntegrity",
+      "description": "Ensure original evidence is immutable, all assertions are source-cited, contradictions are surfaced, and no unsupported claim reaches an approved packet."
+    },
+    {
+      "name": "MonitorBusinessOperations",
+      "description": "Continuously track revenue by stage and source, Gemini and cloud costs, agent performance, human correction rates, and competition evidence metrics with strict demo-data exclusion."
+    }
+  ],
+  "knowledge_base": true,
+  "core_entity": "project",
+  "cta_label": "Start a project audit",
+  "summary": "AI-operated SaaS platform that helps small specialty contractors document changed scope and unbilled work by comparing original contracts and estimates against jobsite evidence, then producing source-linked, human-reviewed change-order and invoice-support evidence packets with full six-stage monetary outcome tracking.",
+  "entities": [
+    {
+      "fields": [
+        {
+          "unique": true,
+          "name": "id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "legal_name",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "trade_types",
+          "type": "text"
+        },
+        {
+          "name": "timezone",
+          "type": "string"
+        },
+        {
+          "name": "currency",
+          "type": "string"
+        },
+        {
+          "name": "address",
+          "type": "text"
+        },
+        {
+          "name": "phone",
+          "type": "string"
+        },
+        {
+          "name": "website",
+          "type": "string"
+        },
+        {
+          "name": "billing_plan",
+          "type": "string"
+        },
+        {
+          "name": "default_markup",
+          "type": "float"
+        },
+        {
+          "name": "default_tax_rate",
+          "type": "float"
+        },
+        {
+          "name": "default_retention_policy",
+          "type": "string"
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "required": true
+        }
+      ],
+      "name": "Organization"
+    },
+    {
+      "fields": [
+        {
+          "unique": true,
+          "name": "id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "org_id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "customer_id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "project_number",
+          "type": "string"
+        },
+        {
+          "name": "trade",
+          "type": "string"
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "address",
+          "type": "text"
+        },
+        {
+          "name": "start_date",
+          "type": "datetime"
+        },
+        {
+          "name": "expected_completion_date",
+          "type": "datetime"
+        },
+        {
+          "name": "contract_value",
+          "type": "float"
+        },
+        {
+          "name": "original_estimate_value",
+          "type": "float"
+        },
+        {
+          "name": "project_manager_id",
+          "type": "string"
+        },
+        {
+          "name": "estimator_id",
+          "type": "string"
+        },
+        {
+          "name": "original_scope_summary",
+          "type": "text"
+        },
+        {
+          "name": "exclusions_summary",
+          "type": "text"
+        },
+        {
+          "name": "audit_tier",
+          "type": "string"
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "required": true
+        }
+      ],
+      "name": "Project"
+    },
+    {
+      "fields": [
+        {
+          "unique": true,
+          "name": "id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "org_id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "project_id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "document_type",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "original_filename",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "storage_uri",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "mime_type",
+          "type": "string"
+        },
+        {
+          "name": "file_size_bytes",
+          "type": "int"
+        },
+        {
+          "unique": true,
+          "name": "sha256_hash",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "uploaded_by_id",
+          "type": "string"
+        },
+        {
+          "name": "uploaded_at",
+          "type": "datetime",
+          "required": true
+        },
+        {
+          "name": "extraction_status",
+          "type": "string"
+        },
+        {
+          "name": "page_count",
+          "type": "int"
+        },
+        {
+          "name": "document_date",
+          "type": "datetime"
+        },
+        {
+          "name": "superseded",
+          "type": "boolean"
+        }
+      ],
+      "name": "SourceDocument"
+    },
+    {
+      "fields": [
+        {
+          "unique": true,
+          "name": "id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "org_id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "project_id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "title",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "description",
+          "type": "text"
+        },
+        {
+          "name": "event_date",
+          "type": "datetime"
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "reason_category",
+          "type": "string"
+        },
+        {
+          "name": "ai_confidence",
+          "type": "float"
+        },
+        {
+          "name": "risk_level",
+          "type": "string"
+        },
+        {
+          "name": "missing_evidence",
+          "type": "text"
+        },
+        {
+          "name": "contradictions",
+          "type": "text"
+        },
+        {
+          "name": "reviewer_notes",
+          "type": "text"
+        },
+        {
+          "name": "customer_validated_at",
+          "type": "datetime"
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "required": true
+        }
+      ],
+      "name": "ChangeEvent"
+    },
+    {
+      "fields": [
+        {
+          "unique": true,
+          "name": "id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "org_id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "project_id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "change_event_id",
+          "type": "string"
+        },
+        {
+          "name": "finding_type",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "assertion",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "source_citations",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "contradictory_evidence",
+          "type": "text"
+        },
+        {
+          "name": "confidence",
+          "type": "float"
+        },
+        {
+          "name": "severity",
+          "type": "string"
+        },
+        {
+          "name": "ai_generated",
+          "type": "boolean"
+        },
+        {
+          "name": "human_decision",
+          "type": "string"
+        },
+        {
+          "name": "reviewer_id",
+          "type": "string"
+        },
+        {
+          "name": "decision_reason",
+          "type": "text"
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "required": true
+        }
+      ],
+      "name": "EvidenceFinding"
+    },
+    {
+      "fields": [
+        {
+          "unique": true,
+          "name": "id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "org_id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "project_id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "packet_number",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "version",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "recipient",
+          "type": "string"
+        },
+        {
+          "name": "executive_summary",
+          "type": "text"
+        },
+        {
+          "name": "total_potential_amount",
+          "type": "float"
+        },
+        {
+          "name": "customer_validated_amount",
+          "type": "float"
+        },
+        {
+          "name": "pdf_storage_uri",
+          "type": "string"
+        },
+        {
+          "name": "content_hash",
+          "type": "string"
+        },
+        {
+          "name": "approved_by_id",
+          "type": "string"
+        },
+        {
+          "name": "approved_at",
+          "type": "datetime"
+        },
+        {
+          "name": "exported_at",
+          "type": "datetime"
+        },
+        {
+          "name": "submission_date",
+          "type": "datetime"
+        },
+        {
+          "name": "submission_method",
+          "type": "string"
+        },
+        {
+          "name": "external_reference",
+          "type": "string"
+        }
+      ],
+      "name": "EvidencePacket"
+    },
+    {
+      "fields": [
+        {
+          "unique": true,
+          "name": "id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "org_id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "project_id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "change_event_id",
+          "type": "string"
+        },
+        {
+          "name": "packet_id",
+          "type": "string"
+        },
+        {
+          "name": "identified_amount",
+          "type": "float"
+        },
+        {
+          "name": "validated_amount",
+          "type": "float"
+        },
+        {
+          "name": "submitted_amount",
+          "type": "float"
+        },
+        {
+          "name": "approved_amount",
+          "type": "float"
+        },
+        {
+          "name": "invoiced_amount",
+          "type": "float"
+        },
+        {
+          "name": "collected_amount",
+          "type": "float"
+        },
+        {
+          "name": "invoice_number",
+          "type": "string"
+        },
+        {
+          "name": "invoice_date",
+          "type": "datetime"
+        },
+        {
+          "name": "payment_date",
+          "type": "datetime"
+        },
+        {
+          "name": "notes",
+          "type": "text"
+        },
+        {
+          "name": "updated_at",
+          "type": "datetime"
+        }
+      ],
+      "name": "CommercialOutcome"
+    },
+    {
+      "fields": [
+        {
+          "unique": true,
+          "name": "id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "org_id",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "project_id",
+          "type": "string"
+        },
+        {
+          "name": "agent_type",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "model_name",
+          "type": "string"
+        },
+        {
+          "name": "model_version",
+          "type": "string"
+        },
+        {
+          "name": "input_refs",
+          "type": "text"
+        },
+        {
+          "name": "output_refs",
+          "type": "text"
+        },
+        {
+          "name": "source_citations",
+          "type": "text"
+        },
+        {
+          "name": "confidence",
+          "type": "float"
+        },
+        {
+          "name": "token_usage",
+          "type": "int"
+        },
+        {
+          "name": "estimated_cost_usd",
+          "type": "float"
+        },
+        {
+          "name": "latency_ms",
+          "type": "int"
+        },
+        {
+          "name": "error_message",
+          "type": "text"
+        },
+        {
+          "name": "human_decision",
+          "type": "string"
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "required": true
+        },
+        {
+          "name": "completed_at",
+          "type": "datetime"
+        }
+      ],
+      "name": "AgentRun"
+    }
+  ],
+  "autonomy_level": "supervised",
+  "industry": "home-services",
+  "tools": [
+    {
+      "name": "VertexAIGeminiClient",
+      "outputs": [
+        "structured_extraction",
+        "citations",
+        "confidence_score",
+        "usage_metadata"
+      ],
+      "inputs": [
+        "document_refs",
+        "prompt_template",
+        "modality"
+      ],
+      "description": "Multimodal Gemini API wrapper for document extraction, image interpretation, audio transcription, scope comparison, and packet drafting. Records model version, token usage, latency, cost, and citations per call."
+    },
+    {
+      "name": "CloudStorageClient",
+      "outputs": [
+        "signed_upload_url",
+        "signed_download_url",
+        "storage_uri"
+      ],
+      "inputs": [
+        "file_bytes",
+        "object_path",
+        "content_type"
+      ],
+      "description": "Immutable evidence store with signed URL generation, path validation, and no public exposure."
+    },
+    {
+      "name": "CloudTasksEnqueuer",
+      "outputs": [
+        "task_id",
+        "queue_status"
+      ],
+      "inputs": [
+        "task_payload",
+        "queue_name",
+        "schedule_time"
+      ],
+      "description": "Durable async job queue for all agent runs, file processing, PDF rendering, email delivery, and retention jobs."
+    },
+    {
+      "name": "SHA256Hasher",
+      "outputs": "sha256_hex",
+      "inputs": "file_bytes",
+      "description": "Computes SHA-256 hash of uploaded file bytes for duplicate detection and immutability verification."
+    },
+    {
+      "name": "MalwareScanHook",
+      "outputs": [
+        "scan_result",
+        "threat_name"
+      ],
+      "inputs": [
+        "file_bytes",
+        "mime_type"
+      ],
+      "description": "Pre-storage file inspection integration point. Fails upload pipeline if scan result is non-clean."
+    },
+    {
+      "name": "PDFPacketRenderer",
+      "outputs": [
+        "pdf_bytes",
+        "content_hash",
+        "page_count"
+      ],
+      "inputs": [
+        "packet_data_json",
+        "template_id"
+      ],
+      "description": "Server-side PDF generation for evidence packets using WeasyPrint or Puppeteer. Embeds disclaimer, source appendix, and approval record."
+    },
+    {
+      "name": "StripeClient",
+      "outputs": [
+        "checkout_url",
+        "subscription_id",
+        "invoice_id",
+        "webhook_event"
+      ],
+      "inputs": [
+        "plan_id",
+        "customer_email",
+        "idempotency_key"
+      ],
+      "description": "Checkout session creation, subscription management, idempotent webhook handling, invoice retrieval, and billing state sync."
+    },
+    {
+      "name": "AuditLogWriter",
+      "outputs": "audit_event_id",
+      "inputs": [
+        "org_id",
+        "user_id",
+        "action_type",
+        "resource_id",
+        "metadata"
+      ],
+      "description": "Appends immutable structured audit events for every sensitive platform action with org ID, user ID, action type, resource ID, and timestamp."
+    },
+    {
+      "name": "TOTPMFAProvider",
+      "outputs": [
+        "mfa_status",
+        "backup_codes"
+      ],
+      "inputs": [
+        "user_id",
+        "totp_code"
+      ],
+      "description": "TOTP-based MFA enrollment, challenge, and verification for all user accounts."
+    },
+    {
+      "name": "SecretManagerClient",
+      "outputs": "secret_value",
+      "inputs": [
+        "secret_id",
+        "version"
+      ],
+      "description": "Reads all production credentials from Google Secret Manager at runtime. No secrets in environment files or source code."
+    },
+    {
+      "name": "EmailNotificationSender",
+      "outputs": [
+        "message_id",
+        "delivery_status"
+      ],
+      "inputs": [
+        "recipient_email",
+        "template_id",
+        "template_vars",
+        "approved_by"
+      ],
+      "description": "Sends transactional notifications via SES or SendGrid. Human-approved outbound commercial emails only. Supports upload-complete, analysis-complete, finding-review, packet-ready, and payment notifications."
+    },
+    {
+      "name": "OpenAPISpecExporter",
+      "outputs": [
+        "openapi_json",
+        "openapi_yaml"
+      ],
+      "inputs": "route_registry",
+      "description": "Generates and serves self-documenting OpenAPI 3.1 spec for all REST API endpoints with pagination, tenant scoping, and stable error formats."
+    }
+  ],
+  "workflows": [
+    {
+      "name": "OrgOnboarding",
+      "steps": [
+        "Create organization with legal name, trade types, timezone, and address",
+        "Configure default markup, tax rate, currency, and retention policy",
+        "Invite team members and assign roles",
+        "Upload optional rate sheet",
+        "Complete consent and AI-limitations acknowledgment",
+        "Create first project"
+      ],
+      "description": "New contractor organization setup from creation through first project."
+    },
+    {
+      "name": "PaidProjectAudit",
+      "steps": [
+        "Select Pilot ($99) or Standard ($249) audit tier and complete Stripe Checkout",
+        "Create project and record audit tier against project",
+        "Upload original contract, estimate, scope of work, and rate sheet",
+        "Upload field evidence (photos, voice notes, receipts, logs, messages)",
+        "Run IntakeAgent: classify, deduplicate, flag issues",
+        "Run ScopeBaselineAgent: extract scope items and provisions; customer confirms baseline",
+        "Run EvidenceAgent and ScopeDeltaAgent: extract evidence and identify change events",
+        "Run ProofAndRiskAgent: surface contradictions and missing evidence",
+        "Human finding review: accept, edit, or reject each finding with mandatory reason",
+        "Run PricingAgent on accepted change events using org rates",
+        "Run PacketAgent: generate draft PDF and JSON; human preview and approval",
+        "Mark audit delivered; request consented customer feedback and testimonial"
+      ],
+      "description": "End-to-end paid audit from Stripe Checkout through packet delivery and feedback."
+    },
+    {
+      "name": "EvidenceIngestion",
+      "steps": [
+        "Accept drag-drop or mobile camera/voice upload; validate file type, size, and path",
+        "Run malware scan hook before storage",
+        "Compute SHA-256 hash; reject exact duplicates with notice",
+        "Store immutable original in Cloud Storage; generate signed URL",
+        "Extract derivative text previews and thumbnail",
+        "Queue Gemini processing job via Cloud Tasks",
+        "Poll and surface processing status, progress events, and errors to UI"
+      ],
+      "description": "Secure, validated, immutable upload pipeline with async Gemini processing."
+    },
+    {
+      "name": "FindingReview",
+      "steps": [
+        "Display plain-language assertion, why identified, and confidence/risk level",
+        "Show original-scope citation, field-evidence citations, and contract provision reference",
+        "Display contradictions and missing-evidence list from ProofAndRiskAgent",
+        "Show suggested cost items with rate source",
+        "Reviewer selects Accept, Edit, Reject, or Request More Evidence",
+        "Require mandatory decision reason when overriding a high-risk warning",
+        "Record human decision, reviewer ID, timestamp, and any corrections in AgentRun"
+      ],
+      "description": "Structured human review of every AI-generated evidence finding."
+    },
+    {
+      "name": "PacketApproval",
+      "steps": [
+        "Select accepted change events and review cost calculations",
+        "Review recipient details, project information, and executive summary",
+        "Preview generated PDF including disclaimer and unresolved risks",
+        "Display approval checklist: approver confirms accuracy and accepts documented risks",
+        "Record approver name, role, timestamp, packet version, and content hash",
+        "Export PDF and JSON packet to Cloud Storage with signed download URL",
+        "User manually marks packet submitted and records submission method and external reference"
+      ],
+      "description": "Controlled human approval and export of the evidence packet."
+    },
+    {
+      "name": "OutcomeTracking",
+      "steps": [
+        "Record customer-validated amount with evidence upload",
+        "Record submitted amount and submission date",
+        "Record approved or partially approved amount with approval evidence",
+        "Record invoice number, invoice date, and invoiced amount",
+        "Record payment date and collected amount with payment evidence",
+        "Display conversion funnel showing all six stages; preserve full change history"
+      ],
+      "description": "Six-stage monetary outcome recording with funnel visualization."
+    },
+    {
+      "name": "CustomerFeedback",
+      "steps": [
+        "Request post-delivery rating after packet is marked delivered",
+        "Ask whether the packet saved time, identified undocumented work, and was submitted",
+        "Request testimonial consent separately with explicit opt-in",
+        "Store feedback linked to project; never publish name or evidence without consent"
+      ],
+      "description": "Post-delivery feedback and consented testimonial collection."
+    }
+  ],
+  "integrations": [
+    "stripe",
+    "email",
+    "postgres",
+    "s3",
+    "webhook",
+    "twilio",
+    "sendgrid",
+    "quickbooks",
+    "google-maps"
+  ],
+  "deployment": {
+    "mode": "cloud"
+  },
+  "archetype": "agent-orchestrator",
+  "spec_version": "0.3.0",
+  "roles": [
+    {
+      "name": "owner",
+      "can_write": true,
+      "description": "Full org control: billing, members, settings, deletion, exports, legal hold, and API keys."
+    },
+    {
+      "name": "admin",
+      "can_write": true,
+      "description": "Manages projects, customers, rates, templates, members, and reporting."
+    },
+    {
+      "name": "project_manager",
+      "can_write": true,
+      "description": "Creates projects, uploads evidence, reviews findings, and approves packets."
+    },
+    {
+      "name": "estimator",
+      "can_write": true,
+      "description": "Edits scope items, quantities, rates, and proposed pricing."
+    },
+    {
+      "name": "field_user",
+      "can_write": true,
+      "description": "Uploads photographs, voice notes, receipts, and daily logs from the field."
+    },
+    {
+      "name": "viewer",
+      "can_write": false,
+      "description": "Read-only access to projects, findings, and packets. Cannot create or modify any record."
+    }
+  ],
+  "ui": {
+    "upload": {
+      "accepted_formats": [
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "image/jpeg",
+        "image/png",
+        "image/heic",
+        "audio/mpeg",
+        "audio/mp4",
+        "audio/wav",
+        "text/csv",
+        "text/plain",
+        "message/rfc822",
+        "application/zip"
+      ]
+    },
+    "dashboard": {
+      "nav": [
+        "Overview",
+        "Projects",
+        "Evidence Inbox",
+        "Findings",
+        "Packets",
+        "Outcomes",
+        "Agent Activity",
+        "Customers",
+        "Reports",
+        "Organization",
+        "Billing",
+        "Security",
+        "Help"
+      ],
+      "project_tabs": [
+        "Overview",
+        "Original Scope",
+        "Evidence",
+        "Findings",
+        "Change Events",
+        "Pricing",
+        "Packet",
+        "Outcomes",
+        "Activity"
+      ],
+      "metrics": [
+        "active_projects",
+        "evidence_awaiting_processing",
+        "findings_awaiting_review",
+        "packets_ready_for_approval",
+        "potential_amount_identified",
+        "customer_validated_amount",
+        "submitted_amount",
+        "approved_amount",
+        "invoiced_amount",
+        "collected_amount",
+        "average_packet_turnaround_hours",
+        "human_acceptance_rate",
+        "human_edit_rate",
+        "human_rejection_rate",
+        "ai_cloud_cost_usd",
+        "revenue_paid_audits_usd",
+        "revenue_subscriptions_usd"
+      ]
+    }
+  },
+  "agents": [
+    {
+      "outputs": [
+        "document_type_classification",
+        "duplicate_flag",
+        "extraction_status",
+        "metadata_suggestions"
+      ],
+      "description": "Identifies document and evidence types, detects duplicate files by SHA-256, flags corrupt, password-protected, or unsupported files, extracts project metadata, and recommends file organization. Never deletes or overwrites original evidence.",
+      "inputs": [
+        "source_document_id",
+        "file_bytes",
+        "sha256_hash",
+        "mime_type"
+      ],
+      "name": "IntakeAgent",
+      "role": "Upload classifier and duplicate detector"
+    },
+    {
+      "outputs": [
+        "scope_items",
+        "contract_provisions",
+        "exclusions_summary",
+        "ambiguity_flags"
+      ],
+      "description": "Extracts scope items, exclusions, quantities, units, rates, alternates, allowances, change-order procedures, and notice provisions from contracts and estimates. Cites exact page, section, or line for every fact. Flags ambiguity for human review.",
+      "inputs": [
+        "source_document_ids",
+        "project_id"
+      ],
+      "name": "ScopeBaselineAgent",
+      "role": "Contract and estimate scope extractor"
+    },
+    {
+      "outputs": [
+        "extracted_facts",
+        "evidence_items",
+        "duplicate_flags",
+        "missing_metadata_flags"
+      ],
+      "description": "Analyzes photographs, audio, PDFs, messages, emails, receipts, and logs using Vertex AI Gemini. Extracts dates, authors, locations, materials, quantities, work descriptions, and directives. Detects duplicate or near-duplicate images. Flags missing timestamp or location metadata. Never infers work occurred solely from object presence.",
+      "inputs": [
+        "evidence_item_ids",
+        "project_id"
+      ],
+      "name": "EvidenceAgent",
+      "role": "Multimodal field evidence analyzer"
+    },
+    {
+      "outputs": [
+        "change_events",
+        "evidence_findings",
+        "delta_summary",
+        "uncertainty_flags"
+      ],
+      "description": "Compares validated field evidence against the original-scope baseline to identify possible added, omitted, substituted, accelerated, or repeated work. Cites both baseline and field evidence. Presents uncertainty. Avoids any legal-entitlement conclusions.",
+      "inputs": [
+        "scope_items",
+        "evidence_items",
+        "project_id"
+      ],
+      "name": "ScopeDeltaAgent",
+      "role": "Scope comparison and change identification engine"
+    },
+    {
+      "outputs": [
+        "cost_items",
+        "pricing_summary",
+        "missing_price_flags",
+        "markup_breakdown"
+      ],
+      "description": "Calculates cost items using only organization rate sheets, contract rates, uploaded supplier invoices, validated labor records, or reviewer-entered rates. Shows every calculation. Applies configured markup and tax transparently. Never invents market rates. Flags missing prices instead of estimating without authorization.",
+      "inputs": [
+        "change_event_id",
+        "rate_sheet_ids",
+        "labor_records",
+        "receipts"
+      ],
+      "name": "PricingAgent",
+      "role": "Cost calculator using org-supplied rates only"
+    },
+    {
+      "outputs": [
+        "risk_flags",
+        "contradiction_report",
+        "missing_evidence_list",
+        "approval_gate_status"
+      ],
+      "description": "Challenges every proposed finding, surfaces contradictory documents, identifies missing dates, directives, quantities, prices, signatures, and causal links. Detects unsupported or duplicated charges. Marks high-risk assertions. Blocks packet approval when critical evidence is missing unless an authorized reviewer explicitly accepts and documents the risk.",
+      "inputs": [
+        "evidence_findings",
+        "change_event_ids",
+        "source_document_ids"
+      ],
+      "name": "ProofAndRiskAgent",
+      "role": "Finding challenger and risk assessor"
+    },
+    {
+      "outputs": [
+        "evidence_packet_pdf",
+        "evidence_packet_json",
+        "packet_id",
+        "content_hash"
+      ],
+      "description": "Generates versioned, professional evidence packets containing cover page, project info, executive summary, baseline, change event descriptions, timeline, cost breakdown, source-linked evidence, provision references, photographic appendix, document appendix, assumptions, unresolved questions, human approval record, and attorney-reviewed disclaimer. Requires human approval before finalization.",
+      "inputs": [
+        "change_event_ids",
+        "approved_findings",
+        "project_id",
+        "approver_id"
+      ],
+      "name": "PacketAgent",
+      "role": "Evidence packet generator (PDF and JSON)"
+    },
+    {
+      "outputs": [
+        "competition_evidence_report",
+        "revenue_summary",
+        "cost_breakdown",
+        "funnel_metrics"
+      ],
+      "description": "Monitors leads, onboarding, paid audits, subscriptions, agent usage, and Gemini and infrastructure costs. Produces competition evidence reports. Strictly separates the six monetary stages: identified, validated, submitted, approved, invoiced, collected. Never inflates or merges these figures. Distinguishes arms-length from related-party revenue.",
+      "inputs": [
+        "commercial_outcomes",
+        "agent_runs",
+        "billing_events",
+        "date_range"
+      ],
+      "name": "BusinessOperationsAgent",
+      "role": "Revenue, cost, and competition evidence monitor"
+    }
+  ],
+  "version": "1.0.0",
+  "kpis": [
+    "first_time_fix_rate",
+    "technician_utilization_pct",
+    "average_ticket_value",
+    "response_time_hours",
+    "membership_renewal_rate"
+  ],
+  "data_model_extensions": [
+    {
+      "model": "Job",
+      "fields": [
+        "customerId:String",
+        "trade:String",
+        "status:String",
+        "scheduledAt:DateTime?",
+        "technicianId:String?"
+      ]
+    },
+    {
+      "model": "Technician",
+      "fields": [
+        "name:String",
+        "skills:Json",
+        "homeBase:String?",
+        "active:Boolean"
+      ]
+    },
+    {
+      "model": "Estimate",
+      "fields": [
+        "jobId:String",
+        "lineItems:Json",
+        "amountCents:Int",
+        "approved:Boolean"
+      ]
+    }
+  ]
+}

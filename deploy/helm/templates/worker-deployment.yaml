@@ -1,0 +1,40 @@
+{{- if .Values.worker.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scopecash-ai-worker
+  labels: { app: scopecash-ai, component: worker }
+spec:
+  replicas: {{ .Values.worker.replicaCount }}
+  selector:
+    matchLabels: { app: scopecash-ai, component: worker }
+  template:
+    metadata:
+      labels: { app: scopecash-ai, component: worker }
+    spec:
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: 120
+      containers:
+        - name: worker
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          command: ["node", "worker.js"]
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.server.envFromSecret }}
+          env:
+            - name: WORKER_CONCURRENCY
+              value: "{{ .Values.worker.concurrency }}"
+
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+
+      volumes:
+        - { name: tmp, emptyDir: {} }
+
+{{- end }}
+

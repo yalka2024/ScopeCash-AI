@@ -1,0 +1,61 @@
+# Fly.io deploy config — ScopeCash AI
+#
+# Quickstart:
+#   1. fly launch --no-deploy --copy-config       # creates the app
+#   2. fly postgres create --name scopecash-ai-db
+#   3. fly postgres attach scopecash-ai-db     # sets DATABASE_URL
+#   4. fly secrets set JWT_SECRET=$(node -e "console.log(require('crypto').randomBytes(48).toString('hex'))")
+#   5. fly secrets set CORS_ORIGIN=https://scopecash-ai.fly.dev
+#   6. fly deploy
+#
+# Optional secrets:
+#   fly secrets set DIRECT_URL=... (unpooled connection if using PgBouncer)
+#   fly secrets set SENTRY_DSN=... RESEND_API_KEY=... STRIPE_SECRET_KEY=...
+
+app       = "scopecash-ai"
+primary_region = "fra"   # Frankfurt — EU data residency for EU AI Act
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV         = "production"
+  PORT             = "8080"
+  SERVE_DASHBOARD  = "1"
+  STORAGE_DRIVER   = "local"
+  STORAGE_LOCAL_DIR = "/data/uploads"
+
+[[mounts]]
+  source      = "scopecash-ai_data"
+  destination = "/data"
+
+[http_service]
+  internal_port       = 8080
+  force_https         = true
+  auto_stop_machines  = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes           = ["app"]
+
+  [http_service.concurrency]
+    type       = "requests"
+    soft_limit = 200
+    hard_limit = 250
+
+  [[http_service.checks]]
+    grace_period  = "20s"
+    interval      = "30s"
+    method        = "GET"
+    timeout       = "5s"
+    path          = "/api/health/ready"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus     = 1
+  memory   = "512mb"
+
+[deploy]
+  # Migrations run inside the container on boot (see Dockerfile CMD),
+  # but running them as a release_command is more robust for rollbacks.
+  release_command = "npm run db:postgres:deploy"
+

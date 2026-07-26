@@ -1,0 +1,114 @@
+{
+  "generated": "2026-07-26T03:48:09.878Z",
+  "results": [
+    {
+      "name": "validate-agents-tools",
+      "status": "ok",
+      "exit_code": 0
+    },
+    {
+      "name": "validate-ai-economics",
+      "status": "ok",
+      "exit_code": 0
+    },
+    {
+      "name": "validate-compliance-vertical",
+      "status": "ok",
+      "exit_code": 0
+    },
+    {
+      "name": "validate-data-products",
+      "status": "ok",
+      "exit_code": 0
+    },
+    {
+      "name": "validate-framework-coverage",
+      "status": "skipped",
+      "reason": "not applicable"
+    },
+    {
+      "name": "validate-governance",
+      "status": "ok",
+      "exit_code": 0
+    },
+    {
+      "name": "validate-growth",
+      "status": "ok",
+      "exit_code": 0
+    },
+    {
+      "name": "validate-marketplace",
+      "status": "ok",
+      "exit_code": 0
+    },
+    {
+      "name": "validate-operations",
+      "status": "ok",
+      "exit_code": 0
+    },
+    {
+      "name": "validate-pricing",
+      "status": "ok",
+      "exit_code": 0
+    },
+    {
+      "name": "validate-prisma",
+      "status": "ok",
+      "exit_code": 0
+    },
+    {
+      "name": "validate-required-clauses",
+      "status": "skipped",
+      "reason": "not applicable"
+    },
+    {
+      "name": "validate-schema",
+      "status": "ok",
+      "exit_code": 0
+    },
+    {
+      "name": "validate-security",
+      "status": "ok",
+      "exit_code": 0
+    },
+    {
+      "name": "validate-tenancy",
+      "status": "ok",
+      "exit_code": 0
+    },
+    {
+      "name": "validate-trust",
+      "status": "ok",
+      "exit_code": 0
+    },
+    {
+      "name": "validate-trust-portal",
+      "status": "ok",
+      "exit_code": 0
+    },
+    {
+      "name": "validate-vertical-pack",
+      "status": "ok",
+      "exit_code": 0
+    },
+    {
+      "name": "validate-workflows",
+      "status": "ok",
+      "exit_code": 0
+    },
+    {
+      "name": "validate-connectors",
+      "status": "ok",
+      "exit_code": 0
+    },
+    {
+      "name": "build-gate",
+      "status": "skipped",
+      "reason": "-SkipBuild"
+    }
+  ],
+  "summary": {
+    "total": 21,
+    "failures": 0
+  }
+}

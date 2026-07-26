@@ -1,0 +1,1826 @@
+{
+  "dry_run": false,
+  "files": [
+    {
+      "path": ".dockerignore",
+      "sha256": "909ff2fa49d71a925bd25a27149c53e488cc0443883d9bb903259acccabca9cf",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": ".github/dependabot.yml",
+      "sha256": "a090720060d7e3f24e4033c01fcdac78b8f0229cd85986f7f23ed10b26fa6a71",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "c8cdc37a2161f6a14f3f4de0f358c637d66a010b25e3ea98fa7dfc70ddbf02fe",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": ".github/workflows/codeql.yml",
+      "sha256": "5bd223388cd36efdc496223c5145185c51a43062759c2a3443a19b8dc1a75442",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": ".github/workflows/container-build-sign.yml",
+      "sha256": "b154445ff19489e46dbbc951a073a37ce0007bb39246f6205e9e44cfa844acca",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": ".github/workflows/secret-scan.yml",
+      "sha256": "9ae1300d6e45d7a5afd870b2a85aa5fbbfba705bc3c85a1feaaafe1f867def2c",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "config/.gitignore",
+      "sha256": "091c2e71e0d59d42644e62c0f7369a0656c152775f32086badf634056f5d0520",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "config/vercel.json",
+      "sha256": "a991317ab3beac0adb7e07fb55eda7edab9dfc86497373e55e1416d83aec8b51",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/.dockerignore",
+      "sha256": "95fd7a36523748aeaab60c9258e0c473c285697b445c9cab397c2ebc2c463390",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/Dockerfile",
+      "sha256": "2f4ec642177268af4cdc83a6586f07ed27e98475fefe580feff03487fce95577",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/index.html",
+      "sha256": "70dddd331fb60c4104cce5d7e271f1f7404f336b0fb6542deaba807c16b9312b",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/nginx.conf",
+      "sha256": "b6e3ee8ec31ebe69b8858348a021a8bc5d2d9eedfdd852ac562c28a4fdf9495b",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/package.json",
+      "sha256": "d479ff994baeac5ad85ea27f11045330ffd49197068b88241b688200dcab1143",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/postcss.config.js",
+      "sha256": "08910ce1d5cd87d2167e9c78b77262bf985b3f07dc5037ff745ecd6a759fd0c0",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/a11y.css",
+      "sha256": "6a39a6296f48af27ad8936d11588e809f1585b07a8267942f149e9fe63ce5b69",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/AiEconomicsPage.js",
+      "sha256": "2d6e6752e2a8cbd48d24191d709e02f2d6d287ef064b16ab5fd5d5ecba960609",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/api.js",
+      "sha256": "13fcfb8e8a1e6cad196152adbbd36ed71150a385899baf532108deaf9aa4b346",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/App.js",
+      "sha256": "d3be44699a4abd26ee7f5b928afbc217d80876d9debeb43a80bfbc6ff612082c",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/Article6WizardPage.js",
+      "sha256": "db2b6918572133c335bab06370e5a61f64706d390a58849483cea41e5ef0a515",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/AssistantPage.js",
+      "sha256": "fda583920ca2488fb71f60391004b41a060676e61746653b1c9d6d108a9304db",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/AuthPage.js",
+      "sha256": "9577aebee7d6a0673f69ca099514a8c70c4d057a6b7d4fd72a290724552e60fb",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/components/ReasoningTrace.js",
+      "sha256": "fb873621a735961a525c042924f325d091cc458c075c3d2d1e9389a2061ebcbc",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/components/StreamingMessage.js",
+      "sha256": "b78866b6b25d33d977186d6600b4fed3374129779512c9f1707259492ac0aceb",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/components/ui/accordion.js",
+      "sha256": "da206abf3e304bd75d8791f46bee91faa9173a3ef115a42cf2c63269d62caf5a",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/components/ui/button.js",
+      "sha256": "ad4fbf280cfd43c77e2a312735944f40e5991f9a6dd038f9331cd005ddfd4ad2",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/components/ui/card.js",
+      "sha256": "11d499d3b057f5aeb19692f43458c0736b35e24e80a74e8180f15de304b183b7",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/components/ui/input.js",
+      "sha256": "1f5b052f32d14b7ca5bb7d428bdaf89f8d9067fc69d41a3c661a6d314299e355",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/components/ui/label.js",
+      "sha256": "720f2f8a8d528c0649b2215bf66577ad834c907d38e28d868f1d31e65e1ee777",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/ConformityCard.js",
+      "sha256": "b2e52a5afb14af651fd375cc3154f6853c59002e8646a9ebab34622f140e7297",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/CookieBanner.js",
+      "sha256": "6fa4639c0d9c43a9afad7a2ae6749fffe644fc96f17881b630f71340b5638f0d",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/Dashboard.css",
+      "sha256": "f2862bcf3a26392c46bf87da0083428b03bcd1f65997a0aa7b8de86ca0bca1c8",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/DashboardPage.js",
+      "sha256": "46c409317c102f5017109e4a4e17ba67212f10743670fff4785152ee2ea95f4d",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/DataProductsPage.js",
+      "sha256": "2c18320ab4e21ae5de86ab164064c4226383a0e90c93b922a03c835e2ed1ba33",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/entities.js",
+      "sha256": "1bab320b81ccd7915b50fb9fed420b51a72d4ec7fc885274c7e6cae8cd322f81",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/EntitiesPage.js",
+      "sha256": "1332434f5e4ac88b2fe6d08e7e4654fec7b7399ea59fac879de3b4a635271358",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/EvaluationsCard.js",
+      "sha256": "f364e1eeb85b5d76a47576859f31e6cd8f2e5736eff408b47552858e3015eb69",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/EvaluationsPage.js",
+      "sha256": "0f32cfb1d7a8223ed99083601d72a382bef44de444db1080fc48185b31c110cd",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/GovernancePage.js",
+      "sha256": "d180028d7fadb85192ab47337bf784d7c714c2cc194ef9376c4e45c253b5c047",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/GrowthPage.js",
+      "sha256": "9b02a1dbc632e409237fc5e817c0ecb65ceea3c985c2ba06c06471527c756e2b",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/HelpCenterPage.js",
+      "sha256": "6a21934881e087bbcc5b852c672820f14abfaa57772b83caf13e94719d9750f0",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/i18n/en.json",
+      "sha256": "1d32cd474d24c377b517ef71407a631bf1b1f09aa59addc808533529331f9ed9",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/i18n/es.json",
+      "sha256": "ba5587420a628d0ee139f4dff75d1c18af190962942f7bdb085e6b0f211b9b4a",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/i18n/fr.json",
+      "sha256": "21b8307a82eb3e69254f9ae0aaf01494fb1eaca87a43d74e1325b5ac6eb3030f",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/i18n/index.js",
+      "sha256": "4fd9a768d288feddaff435e0d317432a261a4b9b8bbc8ca7b89572b1bb8588cd",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/index.css",
+      "sha256": "62c1d3598891c978c7738dd4322b185c5615ce29898466b24d66e047bb09c371",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/index.js",
+      "sha256": "624365fc865eb10bf8b6504ba01389699e4e6af1d14bd74712f28237bfd894d3",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/IntegrationsPage.js",
+      "sha256": "bc8d9337cfcd90c5a89b416c95e5b501f10e6243823c3b66e743e51ab56e32f2",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/LandingPage.js",
+      "sha256": "7a048f0217a4d43edf3f3c779faf4d6687b6b9364c9bea2c72fd180b08d9d24e",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/LegalPages.js",
+      "sha256": "3acc7497f49f6b3700333ece95c908b7d958244d2f0da3e9f59f00e026f2ff4d",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/lib/utils.js",
+      "sha256": "892a0ea4b10f40fe11938e6c0452d4557ddd4d57e6320c0696bfcd54ee839c56",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/MarketplacePage.js",
+      "sha256": "abdca45fc7b1886b3d8d20fe259eff6bd187ed91380d31227a5a59b145459098",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/OnboardingWizard.js",
+      "sha256": "260092c3a730a6d6dd94d86976e1f9cb96e1b471555246b8ff14c0e35985d1df",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/OperationsPage.js",
+      "sha256": "0419e798b12fc87160ab4791fae8abadbff84e294d868a2c83f3620ee531c032",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/PricingPage.js",
+      "sha256": "9ca4220d325f4ec1d989bcdc6bfebdff28914a1f29c41c8c79a9ab7a18a0c4b3",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/safety.js",
+      "sha256": "78b60e69afa64f0688b637fc3a9ee80900b2b0cf33c8d000fb77b5821de08e46",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/SafetyBanner.js",
+      "sha256": "6a43b737a47bc56263d5cea65215bdd7e0372d84f7f092c5bf425429aa07f10d",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/sentry.js",
+      "sha256": "eb0c16be35cf4fb239af2c4482044a54ade81a0abd937eda37035e9a0bc1dfdd",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/SettingsPage.js",
+      "sha256": "d7958aadfaf9b4b7401b6c2535150cdeac32226734de4299c81727cd590b5ee0",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/SetupPage.js",
+      "sha256": "50d1d3cd32a9b244a6297386f5583c52b1140471f03aaa427bf77d40010b9c28",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/StatusPage.js",
+      "sha256": "e2ea082ef42fb284e1355882b979adb008d1129b3e0a98901a575d7a1e002d0b",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/TenantsPage.js",
+      "sha256": "40120df6ddd430b20226bef1e6ee8ba0e5667fa6d534707813f51d29a4212513",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/theme.css",
+      "sha256": "ac5c4885a65553313928b551ec6dc2b3ecffb84b6db6cdf4cbbba7c1f35f42dd",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/ToolsPage.js",
+      "sha256": "8d7fc94c2ce5255756693ee234f9c9218f13c0c6e7c062a4005067b6afa643f5",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/TrustPage.js",
+      "sha256": "3ca2e4090a2a36c49e155cdc3d343bd1399f6e4d334bedbc3de2b6152db6139f",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/TrustPortalPage.js",
+      "sha256": "7a13077020c9af5c285352a51c72a706559ab0d8c909d3b041a34dfdb8308386",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/src/VerdictCard.js",
+      "sha256": "8a4a1a82b926acebddfb998f75fadc1787d435e2c73a468f17a69f03e4ecf011",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/tailwind.config.js",
+      "sha256": "3a9f201b0811a62ec8099f495be7e78eabc2054e9062771d5677251b71b22a51",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "dashboard/vite.config.js",
+      "sha256": "ed451bcaae1952364c666f9a749c3ce786228bec071a25c4c45062d24a11cd54",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "deploy/helm/Chart.yaml",
+      "sha256": "1e94ddc18082f283a1fc46a9d9e03de9fbb59ceeb04258a023c5f5740d9cd2c3",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "deploy/helm/templates/backup-cronjob.yaml",
+      "sha256": "97665034d277480161bb735517412ca95bc7415f809a71f174931c220f6e67b4",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "deploy/helm/templates/dashboard-deployment.yaml",
+      "sha256": "0cb5c5306dc5a61c071c534abe28c207206e8bb06a698cee87a40619ee57b663",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "deploy/helm/templates/hpa.yaml",
+      "sha256": "b2163444b71a300dfa91604f29b92f55233344bf04708953be2b2c0b4a5e2108",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "deploy/helm/templates/ingress.yaml",
+      "sha256": "36873b74391ecf471ebed8745081a1e7a67ef10523a09967b1b4a47dbe044923",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "deploy/helm/templates/networkpolicy.yaml",
+      "sha256": "63aef5e459252da0d710240d4b3961bd6d3bc9f4e6f742169810d2be484eb730",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "deploy/helm/templates/poddisruptionbudget.yaml",
+      "sha256": "2657c12aab29aba5987f3eac63ed209d5b685c4db837539a16f6d58b6fd105bd",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "deploy/helm/templates/prometheusrule.yaml",
+      "sha256": "81aba70d43725f0208ef7f8cf955efd7c41ab7d34a880dd4e9dabf57488e663d",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "deploy/helm/templates/server-deployment.yaml",
+      "sha256": "17c317e085e7467d74cf7245598db1e5d04d2d5c0de98dc7415be02b39084a91",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "deploy/helm/templates/serviceaccount.yaml",
+      "sha256": "9ce3e2a57eb314cb65ee7e3a33e46da4d4008604af057279799560b9829a8ba3",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "deploy/helm/templates/worker-deployment.yaml",
+      "sha256": "8d9403498aee72d097cb863e1189e0810501840b3c18f739427c3a44e5842d57",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "deploy/helm/values.yaml",
+      "sha256": "320028f3186055bc3fcfc57b2e8828c135bfcae0114d61281dc9d32e559e1950",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "deploy/terraform/main.tf",
+      "sha256": "fff82aed65a5bc2e947fc563f23b2563adaa489367481a370800a9a55879d599",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "DEPLOY.md",
+      "sha256": "f79be45357c174c81eae20896408ba238b0588da3a063564276767b86fbc634f",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "docker-compose.yml",
+      "sha256": "57b7c27215630426bc2c47ffd5335c89b23d0afe7c8f909fbb0df9aa1056e48e",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "Dockerfile",
+      "sha256": "f53ac070d49e2065cb1ec6bdb66562f3d9b4c1dceaac474231ba550d54015cd3",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "fly.toml",
+      "sha256": "249a54fcbd22d33e305cb2baefaff8d3d5afa697a63257a4247928934eb30420",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "L4-CHECKLIST.md",
+      "sha256": "70b7f996b5f9060c289eab74b2f100437aca27b93d585e4b7956ccf93f49d553",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "ops/backup/pg-backup.sh",
+      "sha256": "1bf1198d316b7f2fa4d2787a1089f7acd529f9b60079bcb00212eb106dd6b53d",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "ops/backup/pg-restore.sh",
+      "sha256": "a0220fd629bdf2c439dc28e29ab94cffec740388315750548e3f376060b01294",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "ops/e2e-sweep.js",
+      "sha256": "31ddf84aafd4ef19b83459711f8b88ca1e686a47801fbbf6fe1bf1377e029c0d",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "ops/ENV-VARS.md",
+      "sha256": "6568e4bd5b534a4f9d5fd9fecd32fc99937167ae7f1da2e909a0d9d14f958bd7",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "ops/l4-audit.ps1",
+      "sha256": "35c9aa4e1d23aa0710f99c3d0ecd200b0c7dce0ddd7f46ef431fbd87ea96c7a0",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "ops/prometheus.yml",
+      "sha256": "4e2a96cf4f3f85b0e01b567a1798d5686c0ce714d79036158339ec53fb58101e",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "ops/SECRETS-ROTATION.md",
+      "sha256": "b77ac58e1c3b02b7f67ac118ac58e8a07de84b523ec94ca044ad1a6a7ddea74c",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "railway.json",
+      "sha256": "2038891a14bb1b8c949cb674134b5131d6612c77a22d8e82ccbc3bb56d725916",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "README.md",
+      "sha256": "499767c86d8be537daf87e7ed50cc053bbef0117af0b2458580b900f831c8d4b",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "SECURITY.md",
+      "sha256": "a3aa7c381e6d5999f45961b6c568f1d54ff21f78c7e0043983e58744aec78c07",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/.dockerignore",
+      "sha256": "19630b428def7deeae71efdc39549777777750b7a2f25c50d3fc9280e7e45e3b",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/.env.example",
+      "sha256": "d09c60e3e5ba2d1d889d28183af7520abf468696fe9ffa6fc17de12bc20c4d0a",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/config/models.json",
+      "sha256": "03f0502b8ff8b501e4caee9671ac7d2a08c2e3293f26f1e56ac9f9cbc6e2aa89",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/config/outcomes.json",
+      "sha256": "29c1f288d4dc461b54a03e068df8a2903410469c61771619cc72173c85a95f86",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/Dockerfile",
+      "sha256": "2754d8c5fbaf3e15df0846382090a9738e462d5559a3e8f23169dcc74fef7e67",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/evals/bias_fairness.json",
+      "sha256": "1de3294c37301e7688dbd3cdd71f7501c62c83be397aaa587ed55c3575b4a2b6",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/evals/prompt_injection.json",
+      "sha256": "a147128ec11e0a71cd13d43185a266b1f28b192c6e9bf018c67183578257399f",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/evals/robustness.json",
+      "sha256": "99f57faf9c8c88475d0782a9deaf749582f828485bc1cf0cc77394bf12f49b4f",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/evals/smoke.json",
+      "sha256": "b8907d95479a5b88cae2089273c738f5e46ea77492ee122b0db81b4fa53b5731",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/evals/toxicity.json",
+      "sha256": "fd5115f5e028a4e72a7ac8102fcf4d45570bcb311d5c5f91dafebdc8129709ac",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/index.js",
+      "sha256": "f8dc5e9c92ff022c36901f1405e4b8fabb9f74f7f9ab2e5f3b799b2f8264b202",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/jest.config.js",
+      "sha256": "72ef43f87c31a384307afb3628544851409c77c45124cf9b346ad5e4f304d089",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/jobs/usage-aggregator.js",
+      "sha256": "97e85f777b137c6d6b9d5b723b2a16b3dc93ce983ae4a8c1b3aea230c91e78db",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/jobs/warehouse-export.js",
+      "sha256": "d86d415d9704945f24bb32ce5090b20f5112f6693db09b4e40419f5afdeade13",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/agent-memory.js",
+      "sha256": "94019302b5c57662822e605827a9bc32da7e7ff3160aa13f9ceca7a94e7be0cc",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/agent-registry.js",
+      "sha256": "dacf706d57e8a35bc165d4a8c6c3b89ee3c4641516b9361391e32f4341759854",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/agent-runtime.js",
+      "sha256": "df821514b9e38f1e8b460548179904ba1bfeee1d42e16df000838d8c2e90693a",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/ai-budget.js",
+      "sha256": "aeb1ce097c2a09e57f3c0b39522395c13d27077df154bdf1b79a0cc9873e670f",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/ai-evals.js",
+      "sha256": "b2e1a60579a6673d3d83d0a7856da2307c9eb54899cf4ad0fda5940688137901",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/ai-guardrails.js",
+      "sha256": "aabeccda9a91b53d5f6cbdd8e9beb2b62ecfa45f8a2d2a2a0a2baffff03ac6de",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/algorithms.js",
+      "sha256": "536b3ff2b2e18f2d31be947729b2ccee092812a44d71c9e926c19d5d86dce9c8",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/annex-iv-generator.js",
+      "sha256": "3340ef868119a6aabd562a150ef07898dadc257b53ae3c9a69317b9e2b061e3b",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/async-runner.js",
+      "sha256": "4debc32f70e851a12f7fc58b4d30db2ce4844ee25c42bf4308c0289cc0f07e9f",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/audit.js",
+      "sha256": "97ac57c64ac2861ba155ba6c09c858b35981c8b168b6840c3c51194df46882f6",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/billing/dunning.js",
+      "sha256": "a332e55c23279b10fe94fa03ada653a1092770c574397f82bdce2adb4e76370c",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/billing/stripe.js",
+      "sha256": "e1e04d249a1efbd26254c4ed27f3f74c582aaba1c4447b5e790f44af8be0f977",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/board-reports.js",
+      "sha256": "abf8d162c739032c926f8853e3bb8476b5847fd9855223fabef9f5fc2aa3e242",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/cache.js",
+      "sha256": "1f4ea9d9b2ab77459d832253128fafafb631d8c78d3aa8c6b27de6c12672d2c5",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/capabilities.js",
+      "sha256": "033d8bc660977f5c9410431432f42d22979cb5de50d423e5cebcdb6698952ceb",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/conformity.js",
+      "sha256": "a0a9551d6dac5e816e553bc78f9e0064d8ca71b7a4dbd1330d87dcd782bfb042",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/cost-attribution.js",
+      "sha256": "5e04d748fdfc113b0c6e43ec470815676f6baaa1d3bc62e6aa7d3cd408a1a48f",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/csrf.js",
+      "sha256": "e2ae4c55489278e2d5401d5492b816c3f115d1240a118cd641e9c4fccffa9417",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/email-templates.js",
+      "sha256": "823b8551121aa57ce456a186345d25fd5aa634f7b256a5c0d0f44fe63645f5e8",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/email.js",
+      "sha256": "8ee5e3bae5b1f3eb282f18ba2fde42e1b4bdde2573126d66551e0c7849f7ac39",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/encryption.js",
+      "sha256": "1266a36f2c4d9762ebc6ca48dab04a46e6e9a7835d4fff129e507bc9ec8eef1a",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/entitlements.js",
+      "sha256": "be09bb4bd9acbf91d6cb618024b8a89746ba1d2194af8d1e167ed28df5e473c9",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/eu-ai-act-classifier.js",
+      "sha256": "cd73ad8fedb08ed0d77c4fd89894216bf915dbc99e4039dc6b75d205e5412bf7",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/eval-scorers.js",
+      "sha256": "dc51b7fdbeef6a6f41ce2473b5c8d66e95516165902164bbc04b16e077d07eb4",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/feature-flags.js",
+      "sha256": "8084b4cd8db0e8849f5c8520b336557bf6ba55b053238deac27625c38bf8db50",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/growth-events.js",
+      "sha256": "b8421a41ab359c13fc06bb4475edfc41ab84875fafacbf9c26f0bf2ce9087f68",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/incidents.js",
+      "sha256": "35b78935211df4b69793897334f0b90324ef381c23fadfd98e2d8890d153c7bf",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/integrations.js",
+      "sha256": "f8af3b0203737d59fa046d3d51c1630c7e0e79089cf6ce81b377f51705f90b59",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/lanes.js",
+      "sha256": "7f2ab7947ddc63df808d2c1910fa853d6d957b723779d364ef56ab299969c8ee",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/lifecycle-triggers.js",
+      "sha256": "f7b38170dbeb17112e60b662a7a78862773c2bf18b49f6b06a6e8ac2be1b1af0",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/lifecycle.js",
+      "sha256": "91edd96f6121c571f3decbe1a19875269ac5dd689b720410ac3d3b444413fc09",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/metrics.js",
+      "sha256": "884f7bad86350887f1ee9d98be8beec26ce985d77bccaf37eba570a12dc96bbc",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/model-registry.js",
+      "sha256": "5de92d9451c67851ac9cc963dc3cafd46972bcea20834513aa0099f72bc50f66",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/model-router.js",
+      "sha256": "4c0f82efa2bce335fd9138827424491ef688d213649311ab3cbf8f27f2e0f12c",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/oauth-apps.js",
+      "sha256": "180facea16e5b8e4e891bf36afe295cdc9704f202f6eb2cfcc87ba59fa5f546f",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/observability/tracing.js",
+      "sha256": "2920ae178496951a1de2d834d4ca7c2f77f7023bb7fa6b5923d813a3aa1687a8",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/onboarding.js",
+      "sha256": "3b2e1b8bedd230b624d7c2f7e0dc8616a1b5c4b02c3a2b14960411b4aeb53393",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/openapi.js",
+      "sha256": "7094f2ed55e6930d09b6161a37dfc34a1689f6e72ef46b030e18a8fffac978f2",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/outcomes.js",
+      "sha256": "bfbea983046fab6e2f99f53cd11b7b3efddc15a807c6ce45c3ef3541469e98b5",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/pagination.js",
+      "sha256": "1f7da62bc020380135443d1e624b23c69a1c57a756a3b4a8ca6c9949ba513cdd",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/policy-library.js",
+      "sha256": "6eb1e5bf320fbcfda1923c3c7d1c9d50c80fa077885ad0b7ff82f0e8b426b20f",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/prisma.js",
+      "sha256": "3f8ed1a817214d60b86f5ab00770e32ad0d2ff974682e743454c3a6566871da9",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/questionnaire-bank.js",
+      "sha256": "5c4c9564d76f166bc1b543f0b6cd81ba8c6a4a46726dbdd103a24ac74e14e654",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/rag/_score.js",
+      "sha256": "5a35496ae3985eecf47c8f02ecd79cbf44ab15e718b087746cae2a95ac4b0147",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/rag/embeddings.js",
+      "sha256": "3f3abf0ebd0d50922aafd3b783d32ea7a93e09838d08ea87968d2ea250347e0f",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/rag/ingest.js",
+      "sha256": "fd645fcd2e098d24f49fca9a1704f7fa53748e04666835f5e0e8c76b80101f3d",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/rag/reranker.js",
+      "sha256": "3e41ea3a2540f76d475efa6f2ece7d736ee215e293278330e4f94802b833b8ff",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/rag/vector-store.js",
+      "sha256": "773bd4bffa94c9f84b5cb990425dcb28da6f57ba68324f1248653b7334dc41cb",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/rag/vector-store.pg.js",
+      "sha256": "0d784a981160f03ce47dcd7899369694a8e6c75ac5df7cb306c4d7849b8ca9bf",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/ratelimit.js",
+      "sha256": "988331f72a4f432d4dcc36f9a85c52978202359f49eb2ff5f11b60c98bd11f42",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/request-sampler.js",
+      "sha256": "dbe82e44629a19d203167b5c8d7787e674461c59ba9652fab2260bd5251a4102",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/roles.js",
+      "sha256": "08e1ffbd567d1c4a45377eda7ede0c4006fae0929e3d034064c3f10fe9fd97a9",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/run-store.js",
+      "sha256": "e239c25d62a6d976cb6489693bac3dbbe3cff59ff3ec8ba3a83edcc895ffce7c",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/safety.js",
+      "sha256": "2ee147ab1cc7dde4f74f470c4aa2fd17ee7911e3152428899abc3eee22c1f7c1",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/security.js",
+      "sha256": "1f715d3bdca465ed6d782be517dbad28d4cada03add43b2745fc7e077d670837",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/sentry.js",
+      "sha256": "aaf1230825fe66dc8b6fa95830073b529eb875646231dac42e1b4005a4f28dca",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/session.js",
+      "sha256": "cd8dba2d323a82b792203c843405ee674abc0e17b83a3f9cd765915dab7b7e82",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/slo.js",
+      "sha256": "1a57884c7b4ceef663c7bf454c7afe3609e564b87002beec048dc75182d705ba",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/storage.js",
+      "sha256": "d47a52d9fd8df7f57936f7e85907a215435f7ef6ff12a1ec563dacbcb03e0989",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/telemetry.js",
+      "sha256": "86f9960b042af12bfcf58de922b36b82734bfe356fa2f6284e509f049ef794fc",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/tenant-context.js",
+      "sha256": "7a6cf2ef4fbfe3b93c8b1d88eacaad697186f3d3bff4d0859bcee7c1c4832252",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/tenant.js",
+      "sha256": "e18e30053a50359c62f2715dd21b90ce7621ad98205a3be1053b0787a316cc75",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/tool-registry.js",
+      "sha256": "7a31092ba5946aeefb2e365909e145f7c8e8661a69aaa8121b3fbc9e245b4b4e",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/tools/anomaly-detector.js",
+      "sha256": "d264324322f03d899854eee5216ff6a57b9d8720dcaeecb547b05cb11e6a551d",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/tools/forecast.js",
+      "sha256": "8b53a9c44d377c02acd610f2464a9f9d15430faf8964c9a55d11773f175666ee",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/tools/scorer.js",
+      "sha256": "8da97dc0be2a6f0ef4687dff316294b795d9647e46fd31400b15169c9562bb2b",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/trust-pack.js",
+      "sha256": "1c69d5158b672014ae7c7658a6d59651f88892dd1fd860aca6fd03fbe16a265d",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/usage-meter.js",
+      "sha256": "28a296e38cf3545656de3bde89a87042a347978a3558e0b42a6e59183f94c61b",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/validate.js",
+      "sha256": "4d040bcaaa91f20b3fc8acfdf6aacc20d0d349eff184d8a8232e105af95a434f",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/vendor-kits.js",
+      "sha256": "754779be51055c1bfcc9ca6bf5ad84c1fb62857dd91ae5148aa3ea67e94bd0e2",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/warehouse.js",
+      "sha256": "d61be87ffe3abcc149e2fbc958f29e9f44d6b5d8c3f3a670d44e7885dcd10b74",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/webhook-delivery.js",
+      "sha256": "05190790991636b037f4b5e95ae8e1e49ba132ffadb260708fb2acdc5e3e7d9d",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/worker.js",
+      "sha256": "2ad58e05a3650dcfca59e916d185beae2c74f8a5174d576caa3f8cbda2bc37aa",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/workflow-registry.js",
+      "sha256": "2cab7220069aa0ac27d0a55089067e9abba2b71604863e8e0b2b9815a156bccd",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/lib/workflow-runtime.js",
+      "sha256": "de6c7e7266ab63da63852921bca2f653b120f45287b7b1dff9bfa7fcfea91963",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/middleware/auth.js",
+      "sha256": "07d009c46bfcf353735c1b415670d26134487fe044d25038add00f3c78f06874",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/middleware/entitlements.js",
+      "sha256": "a7203cd39a8af8153b19e6ba0f31c6b93d08eba9abddfe4c82bd8cd71821042f",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/middleware/tenant.js",
+      "sha256": "bb45931433185793635882248a2b20f2ed95b4c2a8449d5ecca41be93cec8b81",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/package.json",
+      "sha256": "0748f8a4fc4af9da839c999c0dfff54e0e3023139a67b8dfb560dd701f8e5d2d",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/prisma/apply-rag.js",
+      "sha256": "bafa0579b682e0bb926660146f043942cb3a1037d05da384ce327f9f6cdae20f",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/prisma/apply-rls.js",
+      "sha256": "ed2d997cee49a908e10ea38e57bed8971ca597e215c3b810b2d8ed0eec69a7ec",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/prisma/rag-pgvector.sql",
+      "sha256": "22064cd20782e3059db8ecf5002566924ebc94679a127f31cfb06d41d96de76c",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/prisma/rls.sql",
+      "sha256": "bd62fd55df88237a0c13451ac40a12164379d7697e04a89b1153afc9b7c6a745",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/prisma/schema.prisma",
+      "sha256": "14f6ded9afb7801b489fe1d840d35947a140d10e4a2e5a8cee1eb70abbcd3a8a",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/prisma/seed.js",
+      "sha256": "50b9d573d6b600320128387b44d95d84fac7a9f4f00f4e4d825681a76d9ac6d3",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/prisma/sync-postgres-schema.js",
+      "sha256": "91047908752b94977e564e093e40f5f96100013892c89a391a97f7d9e5e0bd3d",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/prisma.config.ts",
+      "sha256": "fb6d0853fbf5679449b35c1e6c4457ce03ec61deed44b2a999e363a54baf6b5f",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/prisma.postgres.config.ts",
+      "sha256": "d6681f486e35039cec3d48315e6a18976585fd10a8262b6189449e72840555d5",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/admin.js",
+      "sha256": "9e3aa229d6b1a10eda7893a2d8e4df3378bd56ef31dc21f5b3bb6764e616e9c1",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/agents.js",
+      "sha256": "41df6eacfc59bfeac2da4ba6048bd0e860e939ec09ca07a88e8e8cb8e9553ef7",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/ai-admin.js",
+      "sha256": "a03e86d2f3abaa04ec498ecdf8beb7e573bf4d1c4ef7636465bd393c15015a89",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/ai.js",
+      "sha256": "c6b93db57f5703fb1095bcd43c893d3008c511aedc326ced63eb23e9f6dda759",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/analytics.js",
+      "sha256": "51dd521213ffe7bb2fde680bf631f8f6d579a43ebd0127e606195c87932b3425",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/apikey.js",
+      "sha256": "feaa3a9c740f4e686dda0676f95b1e188b8cfe8f91eaf485ce3121ba8e28abe8",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/article6-lead.js",
+      "sha256": "cbf2dcb5648cb803fc036fbbc8516c925b4ca5929e5f93b213f40e10930f9980",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/auth.js",
+      "sha256": "d843345ec9a497cb7a4e107df2f2a94cb8f1e4c77b7b29fe96f7bb67482183b3",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/billing.js",
+      "sha256": "3245bc407aac4dfce78939fc44b4e4ec8cc43b8fc57b6e6b3c3c73def3e07fae",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/project.js",
+      "sha256": "389b90f12657f20ddb053b3ece358018b80d79af175ea17e8918302962f6fba8",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/data-products.js",
+      "sha256": "84fd9395b06e261e5e418139ea89e72d3642268266c9b8b94a06e6f208b6e00c",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/docs.js",
+      "sha256": "7f62ef724d229c6f4be0e75539cfc80e865b9524e57dff2db38a7cefc9dcdc49",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/dsar.js",
+      "sha256": "7e427eabb123107b05ef1b148bb6310f6886f24cf5129188e0a018a9af023034",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/entities.js",
+      "sha256": "2bfa5060657764796383e2aba0f3eba293a45ff85de096fc4a80e9d79e6346df",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/eu-ai-act.js",
+      "sha256": "99d20e468242d2ad65be015dbc79e2bd1c0b292fb1f158974bc2bcb480e34c2e",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/export.js",
+      "sha256": "5de284bc6cb6da24fbb57263eb9a1fec195ac029f441000dcf3dd991379e6507",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/governance.js",
+      "sha256": "b6100771e469a3cf8a0e044998fdfa3349b31554b81edf3e1ae6ee82e93fb949",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/growth.js",
+      "sha256": "a240be7d42fcf422e1538ec74547b94f59bb49115fa4fe2ce48a3cd70fbd755d",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/health.js",
+      "sha256": "8152313f379353cfdd997974ff7d193b3d9ddb25880feb8a50efcfeb6a78bba4",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/help.js",
+      "sha256": "52c7c98e4529ed979b7fcd17a51b72457ed52cfbaa28e780be52c2de0d397f3a",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/knowledge.js",
+      "sha256": "8a7b03837b9e645c9051b8331ba75f8ea740686c560a9a10313d1c5091688439",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/marketplace.js",
+      "sha256": "6648cbfcb56bada3d1e1b73ce65d60696b456a7e6228b844f4f713aae9b8f684",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/notification.js",
+      "sha256": "b1662a70c098c6fca7d3c67689e300e28d102f56bb053eaf01fd554b52806d97",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/oauth.js",
+      "sha256": "7e66a44b8728f40d9f5870471f6866263a8fb60abe8aa8f2b3a44dcc8d3ad3bf",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/operations.js",
+      "sha256": "15801b308683fbfa90b0302d78743e2e428f1fb68e01fdf004fad0e7ece3a45a",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/organization.js",
+      "sha256": "72ca2e6fde96399e2b597d3a69c799194656927f8f03f3dc8858a94ea85f39f3",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/outcomes.js",
+      "sha256": "e72c2366e05a7ff49aaed81d8b41012a2f10cd62c2397adeb627df231ac25fb5",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/setup.js",
+      "sha256": "c6e7b4a9429a824dc2e2c97ed4cfb9d402e046f5dc1cfbcda53ee2915f46f21c",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/status.js",
+      "sha256": "b93e4ee08f06122199c8ed597c74a07a635858b38dac765defbcd9829059c577",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/stripe-webhook.js",
+      "sha256": "f42f5b5e98913ed6353485e1be684b79c42ff42a287b1a8a3a86c43112c5f7ba",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/tenants.js",
+      "sha256": "010437b89f74cc50c0aafbded4f8d93d38632c1fc4a8604d6198081efaa71bc4",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/tools.js",
+      "sha256": "97eaf3bacb658ef8433fd340831eb060fffe754c3a96db79eb9aae15e4b0c380",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/trust-portal.js",
+      "sha256": "d062877e2993caa78cb89132b84cc7077dc34cbc913816ebeb2b5a4dff5b4b1c",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/trust.js",
+      "sha256": "bf80110b521bd521e31d09e30b1c9a0f2909fa9901a321e26685759accd63fa6",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/webhook.js",
+      "sha256": "679695171c4904580d1f9880d98c86f1c88f8581e15121db8e66ac144a4b28fc",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/routes/workflows.js",
+      "sha256": "7477430159b397ad491c461309eec89ebc724ab27ad77db9a77da8059416e767",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/scripts/db-backup.js",
+      "sha256": "b0184aad345624b2d0753c24931678371f392fe202778dd865a177d01aa6ae8c",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/scripts/db-restore.js",
+      "sha256": "2d2d605f970c734843c485bf6d2246d695b4511778365eab3e0a9be2da1e4f0e",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/scripts/eval-gate.js",
+      "sha256": "4dec6b925e6d068d26e9ad6faf5a9b01c87dc8b841e4d4789b9f082250488e78",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/scripts/stripe-setup.js",
+      "sha256": "feb818b37c9b1eb7bb450af4c8605e82a4f24c25ac071b44327169b0f6f05988",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/tests/factories.js",
+      "sha256": "204ff9b3f699aa328fd3701a7e4b7352986f79c3058b1f5d57fcf28b98328bea",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/tests/integration/health.test.js",
+      "sha256": "5e6ac1391b343ee9453505008a9ba4faedae741d04c73a6ee5a7f618d484b438",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/tests/setup-env.js",
+      "sha256": "0d4cc13d22ebf2d5734669d75ef47d795213e626f7eac0575e8c425cf635009e",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/tests/unit/ai-guardrails.test.js",
+      "sha256": "a56c6497cfc4bd940ad4fb708b78800bd6e5fadc9683c814ca1ce0f80f2663b4",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/tests/unit/algorithms.test.js",
+      "sha256": "f735b674974c31f640718aadab96ba076e9816f31341c782ac12e2b9098ed1ff",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/tests/unit/cache.test.js",
+      "sha256": "3a574ba3c771dace61d932c19f7f17f35e9f37600a4ad5a2296e5acec4f78771",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/tests/unit/pagination.test.js",
+      "sha256": "5d088334949efdc3c42e2f3f79f21fa611d9ebf5ca7a279b6de6d68f2d94da9f",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/tests/unit/roles.test.js",
+      "sha256": "7e54e955001c865dcfda852d065fec82c32773b72f3ed0212bd39e5e6e8fef3f",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/tests/unit/tool-adapters.test.js",
+      "sha256": "4b66b4b58e3e54f5ed971bb5702a6cb12145d7f403ce15e1ce834f2f7ea70d87",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/trust/compliance.json",
+      "sha256": "afb17c0d092d701f2705117d372fccfbd8b2abba1f5d7e07d6c76a983bb2421c",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/trust/dpa-template.md",
+      "sha256": "019403d736e6fbd80a1eba6c4b0c15c903732824d4c2ce4ca7c79e9b0ac4187d",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/trust/privacy-template.md",
+      "sha256": "c17c92fd0d98d58f87470c8a8c9b70685110331b68c0472bea0a7f71c5ca8f6e",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/trust/retention-schedule.json",
+      "sha256": "d3ec3db7da6fcae6ebc009f484beba4040f9659a942c1d40affc9af008b3c682",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/trust/ropa-template.md",
+      "sha256": "d1f0959b94e5622f6425d4db119932f271f3ce2efa74b86644984a1e132092e5",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/trust/security-controls.json",
+      "sha256": "b949b0182fa0e0e50ae955dd6f60a08e8d5760256a294f79b6a40cc6ae98724f",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/trust/security-overview.md",
+      "sha256": "c808f6a171d975c594234cf510285ff05cd0d077386e5d53b3f3aa7211c8eed0",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/trust/subprocessors.json",
+      "sha256": "d473315b501c68704b011f35c6a5c4dbcf6fcedf7703d43f1d8371a78a33079e",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/trust/tos-template.md",
+      "sha256": "b8a4e0069127fd01d56c06058fc7fc87cc8119f9b7b87ea1632c0cb65051f2ba",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "server/worker.js",
+      "sha256": "e3ec44091aa4de2876eacc48f69638eec818d57ed166b96c992732d9b495356a",
+      "action": "create",
+      "plugin": "saas-platform-core"
+    },
+    {
+      "path": "SECURITY.md",
+      "sha256": "fe834bb74d2e3f3436264fc127c90fa4a96ae57c5d1d6b305bca3e04a935fcb1",
+      "action": "update",
+      "plugin": "example-security-docs"
+    },
+    {
+      "path": "dashboard/src/DashboardPage.js",
+      "sha256": "aa7efe0019c4a2d33a910b4f14bf34e9b6e464ec1c4fb33c7af06b6638e5e7bf",
+      "action": "update",
+      "plugin": "agent-orchestrator-core"
+    },
+    {
+      "path": "server/lib/orchestrator.js",
+      "sha256": "a1bf2b3a6cd5dd672bcbea4404b51c3270c965dbc23ce4eca3a696038bc1a61f",
+      "action": "create",
+      "plugin": "agent-orchestrator-core"
+    },
+    {
+      "path": "server/routes/goals.js",
+      "sha256": "b03ba097d69d786ca1c26e8e0331ce8ec18bcd0a40ebf736c84b79fc27c67726",
+      "action": "create",
+      "plugin": "agent-orchestrator-core"
+    },
+    {
+      "path": "server/lib/tools/knowledge-search.js",
+      "sha256": "349c64569356004197d01c3f32c77a6794f62b04ad374c2c992e40c7e0389777",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/tools/vertexaigeminiclient.js",
+      "sha256": "b7dc9fdb71c2a8c195dfe98fb55de1e2e49df6f25a2fb70709a0e852f82bd561",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/tools/cloudstorageclient.js",
+      "sha256": "0b752d2e00710f9097cc283b68f6943dce4a8a28b3c32c46f4f8e334d7815f5a",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/tools/cloudtasksenqueuer.js",
+      "sha256": "3aa55829f4e7447e1d733c691155cdd0d7bb44312f789fb9e7b4efcb996a7b78",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/tools/sha256hasher.js",
+      "sha256": "652040af47fc0f58a2a50ecd592ae994d4f0652d547b88ca10451e70652439b9",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/tools/malwarescanhook.js",
+      "sha256": "988940bebff3fb2e96380ba14d2ae87b4c7b6e2c044ddbd0cc97f3c81e7149f7",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/tools/pdfpacketrenderer.js",
+      "sha256": "70ce15c838c6e508ba81557f4d473e90f3b2f10f18a5f7ce01242c235078c717",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/tools/stripeclient.js",
+      "sha256": "26ba3dcf11f396badfa89d1f677be29c05044d8db20d01a52becfddbdda7ca5e",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/tools/auditlogwriter.js",
+      "sha256": "bb52be975e3ae61e46830540db4130df40c694d56a9e2d95d48e074a73209b34",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/tools/totpmfaprovider.js",
+      "sha256": "919f08aade91fc6ef18d6a1ca9b77e00d676abd8f0b7423da65519bce2360fc2",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/tools/secretmanagerclient.js",
+      "sha256": "5d8fa55358dc48b91266487f93c6287f8cd599c71cb99f3776e1e5624696eadd",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/tools/emailnotificationsender.js",
+      "sha256": "cca9889c64ea78dd6e5f13118ce2b2c2afff3383b069ff71971c7046fac1699b",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/tools/openapispecexporter.js",
+      "sha256": "d81449d7fec5de0cee45e68c267ad56ef2014b617daddbe28d744b5889a6b125",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/agents/intakeagent.js",
+      "sha256": "0a80861c0a4f440f0212e6760df60c0c0adf155f4a8e24e4c729e81a710c725b",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/agents/scopebaselineagent.js",
+      "sha256": "c41ecaaefffdbc1ce2364df296e93a7364adc3dee61056c935a6a0a03ac56cd1",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/agents/evidenceagent.js",
+      "sha256": "138bc4b2967e5ed875967762c757ce2938ea7f683a6852c369d0cc2850fc0c1e",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/agents/scopedeltaagent.js",
+      "sha256": "e616546f2790c748af67f948e1f195c0c83fc05b0d74d8a1243a9b7941e6242c",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/agents/pricingagent.js",
+      "sha256": "f6dbf2e4a114179d98bbb25f4adf9cbe50c45e85b8bb202077b461779f10e254",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/agents/proofandriskagent.js",
+      "sha256": "153eefd08c32e7295ec5fa71c8048e074aa0b65d44ec199537cae7f4a1282db0",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/agents/packetagent.js",
+      "sha256": "4ba72a5dabbcdbaa028fb040f5eb419465017f65e95fd4733373b298a7066067",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/agents/businessoperationsagent.js",
+      "sha256": "893703e656fc7b8eae293b2c64d74390374a52e6fe2b079d2106ce772ff1e724",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/workflows/orgonboarding.js",
+      "sha256": "586a2d992a89c209036c82ea4be854ff198aeef9623036c9909a68d00c2e7115",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/workflows/impl/orgonboarding.js",
+      "sha256": "b9325e6489933ceddb82797fa5eec2a6be98255fb95c8b4c4774e372400fbc79",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/workflows/paidprojectaudit.js",
+      "sha256": "8d128b56103283837a0010005fd35e869f5debfb9ed5644b91550f63c0672ede",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/workflows/impl/paidprojectaudit.js",
+      "sha256": "398a798641b8a356ac07e1bb8d410603ff9f2798a42773bbc93909114de5a771",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/workflows/evidenceingestion.js",
+      "sha256": "fa68e77a209392fa40b3ae9e7b67c0cbbdca981bd80ade3ca3f47e22d84230a4",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/workflows/impl/evidenceingestion.js",
+      "sha256": "6e602cfb6e6e1f9c8ae336d99c3348abf52cb0cb9ef4cb970996924b5d8ebed1",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/workflows/findingreview.js",
+      "sha256": "390245b752e7e0ed4c6e1a93b2dd452f4bd77982bf827469be6d1baa66ed7103",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/workflows/impl/findingreview.js",
+      "sha256": "eb9e744ddfe0358605eec613b7533858b119ca8933738f907935d348e0a090a5",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/workflows/packetapproval.js",
+      "sha256": "80ea997679a5e48ab7222d2420b3b7e302bdb09241b562557f4c00d4f0743c65",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/workflows/impl/packetapproval.js",
+      "sha256": "fedd4bca32a255081308cf8d0db58d30654c7324e3f672010880f200307df9b5",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/workflows/outcometracking.js",
+      "sha256": "8d196bb49f50aaebcb79c273e3be100ba0cf1f6862173b2772429f2b91379dd8",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/workflows/impl/outcometracking.js",
+      "sha256": "f7b71656b65263b3e6aa08c1417bdcc59f27cba3dbe816dd7748803135f022b8",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/workflows/customerfeedback.js",
+      "sha256": "e7e06e372994e98d8d38f3886e08a6137e8a1b4f36124316a3ea4bde5c8951c4",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/workflows/impl/customerfeedback.js",
+      "sha256": "d84db7720a160ba6baa5c8967a63aa431ff40c68ae1256c404ba918e7bfc47c8",
+      "action": "create",
+      "plugin": "codegen"
+    },
+    {
+      "path": "server/lib/connectors/email.js",
+      "sha256": "f896baa9092227cce1fff3f9efab11713eb9a0519f42a283b73c09d32c53ff43",
+      "action": "create",
+      "plugin": "connector:email"
+    },
+    {
+      "path": "server/lib/connectors/s3.js",
+      "sha256": "ee9582b7e73222baf8e7b9262b8ae601287aea742ee47c40aa0c42560e70b4e0",
+      "action": "create",
+      "plugin": "connector:s3"
+    },
+    {
+      "path": "server/lib/connectors/webhook.js",
+      "sha256": "75d43ca2d8d1c110f1a5432dd584588228f040886611f5a202be4656dea8f4b9",
+      "action": "create",
+      "plugin": "connector:webhook"
+    },
+    {
+      "path": "server/lib/connectors/twilio.js",
+      "sha256": "47ad042f4f1328331cf849d3828201f6e7ff766092ebefa6f40f6f1a94cc0216",
+      "action": "create",
+      "plugin": "connector:twilio"
+    },
+    {
+      "path": "server/lib/connectors/index.js",
+      "sha256": "66b9fbed4a80d7d5a51864ca2da45926a6e6875e66d5dbbe97fd25938b7506f3",
+      "action": "create",
+      "plugin": "connector:index"
+    },
+    {
+      "path": ".env.connectors.example",
+      "sha256": "e1ff0f3475b91e40bc39dffeb7ec5c776dd6bbb958a89210fd0b79119b736f54",
+      "action": "create",
+      "plugin": "connector:env"
+    },
+    {
+      "path": "CONNECTORS.md",
+      "sha256": "bb08bb639a146c299f269f086a1c4181769d4b306d0809abd77adef127e77397",
+      "action": "create",
+      "plugin": "connector:docs"
+    }
+  ],
+  "generator_version": "0.2.0",
+  "spec_version": "0.3.0",
+  "generated": "2026-07-26T03:48:09.874Z"
+}

@@ -1,0 +1,966 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ─── Core Auth & Organization ─────────────────────────
+
+model User {
+  id              String   @id @default(uuid())
+  email           String   @unique
+  passwordHash    String
+  name            String?
+  role            String   @default("user")
+  orgId           String?
+  org             Organization? @relation(fields: [orgId], references: [id])
+  emailVerified   Boolean  @default(false)
+  mfaEnabled      Boolean  @default(false)
+  mfaSecret       String?
+  failedLogins    Int      @default(0)
+  lockedUntil     DateTime?
+  lastLoginAt     DateTime?
+  passwordChangedAt DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  records         Project[]
+  notifications   Notification[]
+  apiKeys         ApiKey[]
+  activities      Activity[]
+  refreshTokens   RefreshToken[]
+  emailTokens     EmailVerificationToken[]
+  pwResetTokens   PasswordResetToken[]
+  consents        Consent[]
+  onboarding      OnboardingState?
+
+  @@index([orgId])
+}
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  plan      String   @default("free")
+  createdAt DateTime @default(now())
+  users     User[]
+}
+
+// ─── Core Domain: Project ─────────────────
+
+model Project {
+  id              String   @id @default(uuid())
+  projectName   String
+  projectPath   String?
+  storageKey      String?
+  storageProvider String?
+  contentType     String?
+  fileSize        Int?
+  status          String   @default("pending")
+  riskScore       Int?
+  overallRisk     String?
+  reportJson      String?
+  conformityJson  String?   // EU AI Act Article 43 self-assessment state
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+  orgId           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([orgId, createdAt])
+  @@index([status])
+}
+
+// ─── Notifications ────────────────────────────────────
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  type      String
+  title     String
+  message   String
+  read      Boolean  @default(false)
+  metadata  String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, read])
+}
+
+// ─── API Keys ─────────────────────────────────────────
+
+model ApiKey {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  name        String
+  keyHash     String   @unique
+  prefix      String
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  scopes      String   @default("read")
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+}
+
+// ─── Activity Log (append-only audit trail) ───────────
+
+model Activity {
+  id         String   @id @default(uuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  orgId      String?
+  action     String
+  resource   String?
+  resourceId String?
+  details    String?
+  ipAddress  String?
+  userAgent  String?
+  outcome    String   @default("success")
+  createdAt  DateTime @default(now())
+
+  // Tamper-evident hash chain (OBS-005). prevHash is unique so racing writers
+  // collide on the unique constraint and retry rather than forking the chain.
+  prevHash   String?  @unique
+  hash       String?
+
+  @@index([userId, createdAt])
+  @@index([orgId, createdAt])
+  @@index([action])
+}
+
+// ─── Webhooks ─────────────────────────────────────────
+
+model Webhook {
+  id           String   @id @default(uuid())
+  userId       String
+  url          String
+  events       String
+  secret       String
+  active       Boolean  @default(true)
+  failureCount Int      @default(0)
+  disabledAt   DateTime?
+  createdAt    DateTime @default(now())
+
+  deliveries   WebhookDelivery[]
+}
+
+model WebhookDelivery {
+  id            String   @id @default(uuid())
+  webhookId     String
+  webhook       Webhook  @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  event         String
+  payload       String
+  status        String   @default("pending") // pending|delivered|failed|dead
+  attemptCount  Int      @default(0)
+  lastError     String?
+  nextAttemptAt DateTime?
+  deliveredAt   DateTime?
+  createdAt     DateTime @default(now())
+
+  @@index([status, nextAttemptAt])
+  @@index([webhookId, createdAt])
+}
+
+// ─── Refresh tokens & revocation ──────────────────────
+
+model RefreshToken {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash   String   @unique
+  family      String   // rotation family id; reuse of a revoked one in family => force-logout
+  revokedAt   DateTime?
+  replacedBy  String?
+  expiresAt   DateTime
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([family])
+}
+
+// ─── Email verification & password reset ──────────────
+
+model EmailVerificationToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+}
+
+// ─── AI usage / quotas ────────────────────────────────
+
+model AiUsage {
+  id          String   @id @default(uuid())
+  userId      String
+  orgId       String?
+  provider    String
+  model       String?
+  promptTokens Int     @default(0)
+  completionTokens Int @default(0)
+  totalTokens Int      @default(0)
+  costUsd     Float    @default(0)
+  promptHash  String?
+  outcome     String   @default("success")
+  createdAt   DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([orgId, createdAt])
+}
+
+// ─── Consent / ToS / DPA acceptance ───────────────────
+
+model Consent {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  policy    String   // "tos" | "privacy" | "dpa" | "marketing"
+  version   String
+  acceptedAt DateTime @default(now())
+  ipAddress String?
+
+  @@index([userId, policy])
+}
+
+// ─── Billing & entitlements (Tier 10) ─────────────────
+
+model Subscription {
+  id                 String    @id @default(uuid())
+  orgId              String    @unique
+  planId             String    // matches plans.json tier id (free|starter|pro|enterprise|...)
+  status             String    @default("trialing") // trialing|active|past_due|grace|suspended|canceled|none
+  stripeCustomerId   String?
+  stripeSubId        String?   @unique
+  trialEndsAt        DateTime?
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  cancelAt           DateTime?
+  canceledAt         DateTime?
+  pastDueSince       DateTime?
+  graceUntil         DateTime?
+  suspendedAt        DateTime?
+  metadata           String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([status])
+  @@index([trialEndsAt])
+  @@index([graceUntil])
+}
+
+model UsageEvent {
+  id        String   @id @default(uuid())
+  orgId     String
+  userId    String?
+  meter     String   // records_per_month | api_calls_per_month | ai_tokens_per_month | ...
+  quantity  Int
+  period    String   // "YYYY-MM"
+  metadata  String?
+  createdAt DateTime @default(now())
+
+  @@index([orgId, meter, period])
+  @@index([period, createdAt])
+}
+
+model UsageCounter {
+  id      String  @id @default(uuid())
+  orgId   String
+  meter   String
+  period  String   // "YYYY-MM"
+  value   BigInt   @default(0)
+
+  @@unique([orgId, meter, period])
+  @@index([orgId, period])
+}
+
+model Invoice {
+  id              String   @id @default(uuid())
+  stripeInvoiceId String   @unique
+  orgId           String
+  amountCents     Int
+  currency        String   @default("usd")
+  status          String   // paid|open|void|uncollectible
+  periodStart     DateTime
+  periodEnd       DateTime
+  hostedUrl       String?
+  createdAt       DateTime @default(now())
+
+  @@index([orgId, createdAt])
+}
+
+model StripeEvent {
+  id         String   @id        // Stripe event id, idempotency key
+  type       String
+  receivedAt DateTime @default(now())
+
+  @@index([type, receivedAt])
+}
+
+// ─── Multi-tenant economics (Tier 12) ─────────────────
+
+model TenantCostEvent {
+  id        String   @id @default(uuid())
+  orgId     String
+  resource  String   // http_compute_ms | db_query_ms | storage_bytes | ai_tokens | egress_bytes
+  quantity  Int      // resource units consumed (rounded)
+  ucents    Int      // attributed cost in micro-cents (1/1000 of a cent)
+  period    String   // "YYYY-MM"
+  metadata  String?
+  createdAt DateTime @default(now())
+
+  @@index([orgId, period])
+  @@index([orgId, resource, period])
+  @@index([period, createdAt])
+}
+
+// ─── AI economics (Tier 13) ───────────────────────────
+
+model AiSpendEvent {
+  id               String   @id @default(uuid())
+  orgId            String
+  userId           String?
+  provider         String?
+  model            String?
+  promptTokens     Int      @default(0)
+  completionTokens Int      @default(0)
+  totalTokens      Int      @default(0)
+  ucents           Int      @default(0)   // micro-cents (1/1000 cent)
+  period           String   // "YYYY-MM"
+  outcome          String   @default("success")
+  createdAt        DateTime @default(now())
+
+  @@index([orgId, period])
+  @@index([orgId, model, period])
+  @@index([period, createdAt])
+}
+
+model EvalRun {
+  id           String   @id @default(uuid())
+  suite        String
+  model        String
+  provider     String?
+  score        Float
+  passed       Int
+  total        Int
+  durationMs   Int
+  ucents       Int      @default(0)
+  totalTokens  Int      @default(0)
+  recordId     String?
+  userId       String?
+  createdAt    DateTime @default(now())
+  results      EvalResult[]
+
+  @@index([suite, createdAt])
+  @@index([model, createdAt])
+  @@index([recordId, createdAt])
+}
+
+model EvalResult {
+  id              String   @id @default(uuid())
+  runId           String
+  run             EvalRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  caseId          String
+  passed          Boolean
+  durationMs      Int      @default(0)
+  promptTokens    Int      @default(0)
+  completionTokens Int     @default(0)
+  ucents          Int      @default(0)
+  failures        String?
+  output          String?
+  createdAt       DateTime @default(now())
+
+  @@index([runId, passed])
+}
+
+// ─── Durable agent / workflow / goal runs ─────────────
+model AgentRun {
+  id        String   @id @default(uuid())
+  orgId     String?
+  userId    String?
+  kind      String   // 'agent' | 'workflow' | 'goal'
+  name      String
+  status    String   // running | completed | failed | awaiting_approval | truncated
+  input     String?
+  output    String?
+  steps     String?  // JSON: per-step trace
+  error     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId, kind, createdAt])
+  @@index([kind, status])
+}
+
+// ─── Durable behavior-flow sessions (guided intake / portal) ──
+// A completed FSM conversation, persisted so leads survive restarts and the
+// owner console / audit view can list and replay them. `slots` is the captured
+// lead data; `trace` the full decision path.
+model BehaviorSession {
+  id          String   @id
+  orgId       String?
+  packId      String
+  source      String   @default("authed") // authed | public
+  outcome     String?
+  guardsFired String?  // JSON array
+  slots       String?  // JSON: captured fields (the lead)
+  trace       String?  // JSON: full decision trace
+  notifiedAt  DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([orgId, createdAt])
+  @@index([packId, outcome])
+}
+
+// ─── Growth (Tier 14) ─────────────────────────────
+
+model GrowthEvent {
+  id         String   @id @default(uuid())
+  name       String   // canonical event name e.g. signup.completed
+  userId     String?
+  orgId      String?
+  source     String   @default("server") // server | client | system | webhook
+  properties String?
+  createdAt  DateTime @default(now())
+
+  @@index([name, createdAt])
+  @@index([userId, createdAt])
+  @@index([orgId, createdAt])
+}
+
+model OnboardingState {
+  userId         String   @id
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  completedSteps String   @default("[]")  // JSON array of step ids
+  completedAt    DateTime?
+  updatedAt      DateTime @default(now()) @updatedAt
+}
+
+model LifecycleSent {
+  id         String   @id @default(uuid())
+  userId     String
+  kind       String
+  properties String?
+  sentAt     DateTime @default(now())
+
+  @@unique([userId, kind])
+  @@index([kind, sentAt])
+}
+
+model FeatureFlag {
+  key            String   @id
+  enabled        Boolean  @default(false)
+  rolloutPercent Int      @default(0)
+  planAllowList  String?
+  orgAllowList   String?
+  orgDenyList    String?
+  description    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @default(now()) @updatedAt
+}
+
+// ─── Data products (Tier 15) ────────────────────────────
+model DataExport {
+  id           String    @id @default(uuid())
+  runId        String    @unique
+  status       String    @default("running") // running | success | partial | failed
+  requestedBy  String?
+  sinceMs      Int?
+  manifest     String?
+  sizeBytes    Int       @default(0)
+  rowCount     Int       @default(0)
+  startedAt    DateTime  @default(now())
+  finishedAt   DateTime?
+
+  @@index([status, startedAt])
+}
+
+// ─── Marketplace (Tier 16) ──────────────────────────────
+model OAuthApp {
+  id               String   @id @default(uuid())
+  clientId         String   @unique
+  clientSecretHash String
+  name             String
+  description      String?
+  redirectUris     String   // newline-separated
+  scopes           String   @default("read")
+  orgId            String?
+  ownerUserId      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @default(now()) @updatedAt
+
+  @@index([orgId])
+}
+
+model OAuthGrant {
+  id                  String    @id @default(uuid())
+  grantType           String    // code | access | refresh
+  tokenHash           String
+  clientId            String
+  userId              String
+  scopes              String    @default("read")
+  redirectUri         String?
+  codeChallenge       String?
+  codeChallengeMethod String?
+  expiresAt           DateTime?
+  consumedAt          DateTime?
+  createdAt           DateTime  @default(now())
+
+  @@index([tokenHash])
+  @@index([clientId, grantType])
+  @@index([expiresAt])
+}
+
+model IntegrationInstallation {
+  id            String   @id @default(uuid())
+  orgId         String
+  integrationId String
+  status        String   @default("active")
+  installedBy   String?
+  config        String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now()) @updatedAt
+
+  @@unique([orgId, integrationId])
+  @@index([orgId])
+}
+
+// ─── Operations (Tier 17) ──────────────────────────────
+model RequestSample {
+  id         String   @id @default(uuid())
+  kind       String   // http | job
+  bucketAt   DateTime
+  count      Int      @default(0)
+  errorCount Int      @default(0)
+  p95Ms      Int      @default(0)
+  maxMs      Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  @@index([kind, bucketAt])
+  @@index([bucketAt])
+}
+
+model Incident {
+  id         String    @id @default(uuid())
+  title      String
+  status     String    @default("open")    // open|investigating|identified|monitoring|resolved
+  severity   String    @default("sev3")    // sev1..sev4
+  component  String?
+  publish    Boolean   @default(true)
+  openedBy   String?
+  resolvedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+
+  updates    IncidentUpdate[]
+
+  @@index([status, createdAt])
+  @@index([publish, createdAt])
+}
+
+model IncidentUpdate {
+  id         String   @id @default(uuid())
+  incidentId String
+  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  status     String
+  message    String
+  authorId   String?
+  createdAt  DateTime @default(now())
+
+  @@index([incidentId, createdAt])
+}
+
+// ---- Tier 18: Trust-to-revenue ----
+
+model ProspectKit {
+  id              String    @id @default(uuid())
+  prospectName    String?
+  prospectCompany String?
+  prospectEmail   String
+  message         String?
+  status          String    @default("requested") // requested | approved | rejected
+  tokenHash       String?
+  expiresAt       DateTime?
+  maxDownloads    Int?
+  downloadCount   Int       @default(0)
+  lastDownloadedAt DateTime?
+  requestedBy     String?
+  approvedBy      String?
+  approvedAt      DateTime?
+  rejectedBy      String?
+  rejectedAt      DateTime?
+  rejectionReason String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @default(now()) @updatedAt
+
+  @@index([status, createdAt])
+  @@index([prospectEmail])
+  @@index([tokenHash])
+}
+
+model QuestionnaireOverride {
+  id         String   @id @default(uuid())
+  orgId      String
+  questionId String
+  answer     String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @default(now()) @updatedAt
+
+  @@unique([orgId, questionId])
+  @@index([orgId])
+}
+
+// ---- Tier 19: Governance ----
+
+model ModelRegistration {
+  id              String    @id @default(uuid())
+  name            String
+  provider        String
+  modelId         String
+  version         String?
+  purpose         String?
+  riskTier        String    @default("limited")
+  status          String    @default("draft")
+  dataInputs      String    @default("[]")
+  dataOutputs     String    @default("[]")
+  ownerId         String?
+  registeredBy    String?
+  statusUpdatedAt DateTime?
+  statusUpdatedBy String?
+  statusComment   String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @default(now()) @updatedAt
+
+  evaluations ModelEvaluation[]
+
+  @@index([status, createdAt])
+  @@index([riskTier, status])
+  @@index([provider, modelId])
+}
+
+model ModelEvaluation {
+  id      String   @id @default(uuid())
+  modelId String
+  model   ModelRegistration @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  suite   String
+  metric  String
+  score   Float
+  passed  Boolean  @default(false)
+  notes   String?
+  runBy   String?
+  runAt   DateTime @default(now())
+
+  @@index([modelId, runAt])
+  @@index([suite, metric])
+}
+
+model Policy {
+  id             String   @id @default(uuid())
+  slug           String   @unique
+  title          String
+  summary        String?
+  currentVersion String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @default(now()) @updatedAt
+
+  versions PolicyVersion[]
+}
+
+model PolicyVersion {
+  id          String   @id @default(uuid())
+  policyId    String
+  policy      Policy   @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  version     String
+  body        String
+  bodyHash    String
+  requiresAck Boolean  @default(true)
+  publishedBy String?
+  publishedAt DateTime @default(now())
+
+  @@unique([policyId, version])
+  @@index([policyId, publishedAt])
+}
+
+model PolicyAcknowledgement {
+  id             String   @id @default(uuid())
+  userId         String
+  slug           String
+  version        String
+  acknowledgedAt DateTime @default(now())
+
+  @@unique([userId, slug, version])
+  @@index([slug, version])
+  @@index([userId])
+}
+
+model BoardReport {
+  id          String   @id
+  period      String
+  generatedAt DateTime @default(now())
+  requestedBy String?
+  path        String
+  summary     String?
+
+  @@index([period, generatedAt])
+  @@index([generatedAt])
+}
+
+// ─── Vertical-OS Operations Hub (scheduling / invoicing / messaging) ─────────
+// Durable store for the vertical-os ops hub (server/lib/ops-hub.js). Present in
+// the base schema (superset) but only queried when the ops routes are mounted
+// (has_vertical_os). Tenant-scoped by orgId.
+
+model OpsAppointment {
+  id          String    @id @default(uuid())
+  orgId       String    @default("default")
+  customer    String
+  service     String
+  startsAt    String
+  durationMin Int       @default(30)
+  notes       String    @default("")
+  status      String    @default("booked")
+  createdAt   DateTime  @default(now())
+  cancelledAt DateTime?
+
+  @@index([orgId, createdAt])
+  @@index([orgId, status])
+}
+
+model OpsInvoice {
+  id         String    @id @default(uuid())
+  orgId      String    @default("default")
+  customer   String
+  currency   String    @default("usd")
+  amountCents Int      @default(0)
+  items      String    @default("[]")
+  status     String    @default("open")
+  createdAt  DateTime  @default(now())
+  paidAt     DateTime?
+
+  @@index([orgId, createdAt])
+  @@index([orgId, status])
+}
+
+model OpsMessage {
+  id        String   @id @default(uuid())
+  orgId     String   @default("default")
+  to        String
+  channel   String   @default("email")
+  subject   String   @default("")
+  body      String
+  status    String   @default("queued")
+  error     String?
+  createdAt DateTime @default(now())
+
+  @@index([orgId, createdAt])
+}
+
+// ─── Spec-driven domain models (Phase 2) ──────────────
+model OrganizationRecord {
+  id               String   @id @default(uuid())
+  name             String
+  legal_name       String
+  trade_types      String?
+  timezone         String?
+  currency         String?
+  address          String?
+  phone            String?
+  website          String?
+  billing_plan     String?
+  default_markup   Float?
+  default_tax_rate Float?
+  default_retention_policy String?
+  orgId            String?
+  userId           String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([orgId, createdAt])
+}
+
+model ProjectRecord {
+  id               String   @id @default(uuid())
+  customer_id      String
+  name             String
+  project_number   String?
+  trade            String?
+  status           String
+  address          String?
+  start_date       DateTime?
+  expected_completion_date DateTime?
+  contract_value   Float?
+  original_estimate_value Float?
+  project_manager_id String?
+  estimator_id     String?
+  original_scope_summary String?
+  exclusions_summary String?
+  audit_tier       String?
+  orgId            String?
+  userId           String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([orgId, createdAt])
+}
+
+model SourceDocument {
+  id               String   @id @default(uuid())
+  project_id       String
+  document_type    String
+  original_filename String
+  storage_uri      String
+  mime_type        String?
+  file_size_bytes  Int?
+  sha256_hash      String @unique
+  uploaded_by_id   String?
+  uploaded_at      DateTime
+  extraction_status String?
+  page_count       Int?
+  document_date    DateTime?
+  superseded       Boolean?
+  orgId            String?
+  userId           String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([orgId, createdAt])
+}
+
+model ChangeEvent {
+  id               String   @id @default(uuid())
+  project_id       String
+  title            String
+  description      String?
+  event_date       DateTime?
+  status           String
+  reason_category  String?
+  ai_confidence    Float?
+  risk_level       String?
+  missing_evidence String?
+  contradictions   String?
+  reviewer_notes   String?
+  customer_validated_at DateTime?
+  orgId            String?
+  userId           String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([orgId, createdAt])
+}
+
+model EvidenceFinding {
+  id               String   @id @default(uuid())
+  project_id       String
+  change_event_id  String?
+  finding_type     String
+  assertion        String
+  source_citations String
+  contradictory_evidence String?
+  confidence       Float?
+  severity         String?
+  ai_generated     Boolean?
+  human_decision   String?
+  reviewer_id      String?
+  decision_reason  String?
+  orgId            String?
+  userId           String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([orgId, createdAt])
+}
+
+model EvidencePacket {
+  id               String   @id @default(uuid())
+  project_id       String
+  packet_number    String
+  version          Int
+  status           String
+  recipient        String?
+  executive_summary String?
+  total_potential_amount Float?
+  customer_validated_amount Float?
+  pdf_storage_uri  String?
+  content_hash     String?
+  approved_by_id   String?
+  approved_at      DateTime?
+  exported_at      DateTime?
+  submission_date  DateTime?
+  submission_method String?
+  external_reference String?
+  orgId            String?
+  userId           String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([orgId, createdAt])
+}
+
+model CommercialOutcome {
+  id               String   @id @default(uuid())
+  project_id       String
+  change_event_id  String?
+  packet_id        String?
+  identified_amount Float?
+  validated_amount Float?
+  submitted_amount Float?
+  approved_amount  Float?
+  invoiced_amount  Float?
+  collected_amount Float?
+  invoice_number   String?
+  invoice_date     DateTime?
+  payment_date     DateTime?
+  notes            String?
+  orgId            String?
+  userId           String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([orgId, createdAt])
+}
+
+model AgentRunRecord {
+  id               String   @id @default(uuid())
+  project_id       String?
+  agent_type       String
+  status           String
+  model_name       String?
+  model_version    String?
+  input_refs       String?
+  output_refs      String?
+  source_citations String?
+  confidence       Float?
+  token_usage      Int?
+  estimated_cost_usd Float?
+  latency_ms       Int?
+  error_message    String?
+  human_decision   String?
+  completed_at     DateTime?
+  orgId            String?
+  userId           String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([orgId, createdAt])
+}
+
+
+

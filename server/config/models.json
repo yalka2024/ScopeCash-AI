@@ -1,0 +1,17 @@
+{
+  "_comment": "Model catalog for ScopeCash AI. Prices are USD per 1M tokens. Override per deployment via env: AI_PRICE_<MODEL_ID_UPPER_SNAKE>_INPUT_USD_PER_M / _OUTPUT_USD_PER_M. Refresh from platform.claude.com/docs/en/about-claude/models/overview when models change.",
+  "models": {
+    "claude-haiku-4-5":  { "provider": "anthropic", "quality": 1, "ctx": 200000,  "maxOut": 64000,  "inUsdPerM": 1.00,  "outUsdPerM": 5.00 },
+    "claude-sonnet-4-6": { "provider": "anthropic", "quality": 2, "ctx": 1000000, "maxOut": 64000,  "inUsdPerM": 3.00,  "outUsdPerM": 15.00 },
+    "claude-opus-4-8":   { "provider": "anthropic", "quality": 3, "ctx": 1000000, "maxOut": 128000, "inUsdPerM": 5.00,  "outUsdPerM": 25.00 },
+    "claude-fable-5":    { "provider": "anthropic", "quality": 3, "ctx": 1000000, "maxOut": 128000, "inUsdPerM": 10.00, "outUsdPerM": 50.00 },
+    "gpt-4o-mini":       { "provider": "openai",    "quality": 1, "ctx": 128000,  "maxOut": 16000,  "inUsdPerM": 0.15,  "outUsdPerM": 0.60 },
+    "gpt-4o":            { "provider": "openai",    "quality": 2, "ctx": 128000,  "maxOut": 16000,  "inUsdPerM": 2.50,  "outUsdPerM": 10.00 },
+    "gemini-flash-latest": { "provider": "gemini",  "quality": 1, "ctx": 1000000, "maxOut": 65000,  "inUsdPerM": 0.30,  "outUsdPerM": 2.50 },
+    "gemini-pro-latest": { "provider": "gemini",    "quality": 2, "ctx": 1000000, "maxOut": 65000,  "inUsdPerM": 1.25,  "outUsdPerM": 10.00 },
+    "llama3.1":          { "provider": "ollama",    "quality": 1, "ctx": 128000,  "maxOut": 8000,   "inUsdPerM": 0,     "outUsdPerM": 0 },
+    "local-mock":        { "provider": "mock",      "quality": 0, "ctx": 32000,   "maxOut": 4000,   "inUsdPerM": 0,     "outUsdPerM": 0 }
+  },
+  "planQualityCeiling": { "free": 1, "starter": 2, "pro": 3, "enterprise": 3 }
+}
+

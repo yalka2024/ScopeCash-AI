@@ -1,0 +1,96 @@
+{{- if .Values.networkPolicy.enabled }}
+# Default-deny ingress + selective egress for the scopecash-ai namespace.
+# This is the L4 zero-trust baseline. Everything not explicitly allowed
+# is dropped.
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: scopecash-ai-default-deny
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+# API server: ingress only from the ingress controller; egress to DNS,
+# Postgres, Redis, and the wider internet (for AI/Stripe/email APIs).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: scopecash-ai-server
+spec:
+  podSelector:
+    matchLabels: { app: scopecash-ai, component: server }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { name: {{ .Values.networkPolicy.ingressNamespace }} }
+      ports:
+        - { protocol: TCP, port: 4000 }
+    # Allow Prometheus scraping
+    - from:
+        - namespaceSelector:
+            matchLabels: { name: {{ .Values.networkPolicy.monitoringNamespace }} }
+      ports:
+        - { protocol: TCP, port: 4000 }
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    {{- range .Values.networkPolicy.egressCidrs }}
+    - to:
+        - ipBlock: { cidr: {{ . | quote }} }
+    {{- end }}
+---
+# Worker: no ingress (not externally reachable); egress same as server.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: scopecash-ai-worker
+spec:
+  podSelector:
+    matchLabels: { app: scopecash-ai, component: worker }
+  policyTypes: [Ingress, Egress]
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    {{- range .Values.networkPolicy.egressCidrs }}
+    - to:
+        - ipBlock: { cidr: {{ . | quote }} }
+    {{- end }}
+---
+# Dashboard (nginx): ingress only from ingress controller, no egress
+# beyond DNS (it's static content).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: scopecash-ai-dashboard
+spec:
+  podSelector:
+    matchLabels: { app: scopecash-ai, component: dashboard }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { name: {{ .Values.networkPolicy.ingressNamespace }} }
+      ports:
+        - { protocol: TCP, port: 8080 }
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+{{- end }}
+

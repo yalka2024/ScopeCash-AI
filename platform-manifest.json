@@ -1,0 +1,57 @@
+{
+  "name": "ScopeCash AI",
+  "version": "1.0.0",
+  "industry": "home-services",
+  "archetype": "agent-orchestrator",
+  "compliance": {
+    "frameworks": [
+      "UPL-disclaimer",
+      "public-adjuster-statutes-TX-CA-FL-NY-IL",
+      "CCPA-CPRA",
+      "SOC2-TypeII-path",
+      "WCAG-2.2-AA",
+      "AIA-A201-S15.1.3-notice-provisions",
+      "ConsensusDocs-200-S8.2-notice-provisions",
+      "multi-tenant-data-isolation",
+      "AI-safety-citation-enforcement",
+      "monetary-stage-integrity"
+    ],
+    "required_clauses": [
+      "Attorney-reviewed disclaimer rendered in every PDF packet",
+      "AI must refuse legal-entitlement assertions and legal advice",
+      "Success fee must not be enabled by default and requires separately accepted written agreement",
+      "Success fee must not be charged against insurance-paid outcomes without legal review confirming non-adjuster characterization",
+      "Identified amount must never be labeled approved, invoiced, or collected in any UI, API, report, or export",
+      "Every AI assertion must have at least one source citation",
+      "Rejected findings must never appear in packets",
+      "Contradictory evidence must never be omitted from risk review",
+      "Prompt injection from uploaded documents must be blocked",
+      "Demo data must be excluded from competition evidence totals",
+      "No evidence may be exposed publicly; all access via signed URLs only",
+      "CCPA deletion and Do Not Sell workflow required"
+    ]
+  },
+  "components": {
+    "agents": 8,
+    "workflows": 7,
+    "tools": 12,
+    "ui": true,
+    "api": true
+  },
+  "generator": {
+    "version": "0.2.0",
+    "git_sha": "da394cf",
+    "spec_sha256": "241a824a8a128c5dbb89929f113f1775674bf6680f9d6edace9fad083c3a3990"
+  },
+  "generated": "2026-07-26T03:48:09.868Z",
+  "plugins": {
+    "id": "agent-orchestrator-core",
+    "version": "builtin",
+    "priority": 0,
+    "source": "builtin",
+    "description": "Built-in agent-orchestrator archetype",
+    "applies_to_industries": [
+      null
+    ]
+  }
+}

@@ -1,0 +1,55 @@
+name: ci
+
+on:
+  push: { branches: [main] }
+  pull_request: { branches: [main] }
+
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: scopecash-ai
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      NODE_ENV: test
+      JWT_SECRET: ci-jwt-secret-must-be-at-least-32-characters-long-ok
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/scopecash-ai
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20.11', cache: 'npm', cache-dependency-path: server/package-lock.json }
+      - name: Install
+        working-directory: server
+        run: npm ci --no-audit --no-fund
+      - name: Prisma generate
+        working-directory: server
+        run: npx prisma generate
+      - name: Prisma migrate
+        working-directory: server
+        run: npx prisma migrate deploy || true
+      - name: Tests
+        working-directory: server
+        run: npm test
+
+  dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20.11', cache: 'npm', cache-dependency-path: dashboard/package-lock.json }
+      - name: Install
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: Build
+        working-directory: dashboard
+        run: npm run build --if-present
+

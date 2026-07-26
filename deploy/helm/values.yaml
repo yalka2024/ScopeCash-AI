@@ -1,0 +1,99 @@
+image:
+  repository: ghcr.io/your-org/scopecash-ai-server
+  tag: ""           # defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+
+dashboard:
+  image:
+    repository: ghcr.io/your-org/scopecash-ai-dashboard
+    tag: ""
+    pullPolicy: IfNotPresent
+  replicaCount: 2
+
+server:
+  replicaCount: 2
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits:   { cpu: 1,    memory: 1Gi }
+  env:
+    PORT: "4000"
+    NODE_ENV: production
+
+    STORAGE_DRIVER: s3
+
+  envFromSecret: scopecash-ai-server      # JWT_SECRET, DATABASE_URL, REDIS_URL, S3 creds, etc.
+
+
+
+worker:
+  enabled: true
+  replicaCount: 1
+  concurrency: 4
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits:   { cpu: 2,    memory: 2Gi }
+
+ingress:
+  enabled: true
+  className: nginx
+  host: scopecash-ai.example.com
+  tls: true
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+
+postgresql:
+  enabled: false                # use a managed DB in production
+redis:
+  enabled: false                # use a managed Redis in production
+
+probes:
+  liveness:  { path: /api/health/live,  initialDelaySeconds: 10, periodSeconds: 10 }
+  readiness: { path: /api/health/ready, initialDelaySeconds: 5,  periodSeconds: 5 }
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  fsGroup: 1001
+  seccompProfile: { type: RuntimeDefault }
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities: { drop: ["ALL"] }
+
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  path: /metrics
+  alertRules: true       # generate PrometheusRule with built-in SLO alerts
+  labels: {}
+
+# ── L4 production-readiness extras ────────────────────────────────
+serviceAccount:
+  annotations: {}        # e.g. eks.amazonaws.com/role-arn for IRSA
+
+podDisruptionBudget:
+  enabled: true
+  server:    { minAvailable: 1 }
+  dashboard: { minAvailable: 1 }
+  worker:    { minAvailable: 1 }
+
+autoscaling:
+  enabled: true
+  server:
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPU: 70
+    targetMemory: 80
+  dashboard:
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPU: 70
+
+networkPolicy:
+  enabled: true
+  ingressNamespace: ingress-nginx       # name label of the ingress controller's ns
+  monitoringNamespace: monitoring       # for Prometheus scrapes
+  egressCidrs:                          # allow-list for outbound (AI, Stripe, email, etc.)
+    - "0.0.0.0/0"                       # tighten in prod (private subnets + provider CIDRs only)
+

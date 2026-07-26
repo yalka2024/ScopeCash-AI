@@ -1,0 +1,114 @@
+# ScopeCash AI — local stack
+# Usage:
+#   docker compose up --build
+# Profiles:
+#   --profile observability  → adds Jaeger + Prometheus + Grafana
+
+name: scopecash-ai
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: scopecash-ai
+      POSTGRES_PASSWORD: scopecash-ai
+      POSTGRES_DB: scopecash-ai
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scopecash-ai -d scopecash-ai"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+
+  server:
+    build:
+      context: ./server
+    restart: unless-stopped
+    # Apply the schema to Postgres (idempotent) before starting the API.
+    command: ["sh", "-c", "npx prisma db push --config prisma.postgres.config.ts --accept-data-loss && node index.js"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required (32-byte base64)}
+      ENCRYPTION_SEARCH_KEY: ${ENCRYPTION_SEARCH_KEY:?ENCRYPTION_SEARCH_KEY is required (32-byte base64)}
+      DATABASE_URL: postgresql://scopecash-ai:scopecash-ai@postgres:5432/scopecash-ai
+      REDIS_URL: redis://redis:6379
+      CORS_ORIGIN: http://localhost:3000,http://dashboard:8080
+      STORAGE_DRIVER: local
+      STORAGE_LOCAL_DIR: /data/uploads
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+
+    volumes: [uploads:/data/uploads]
+    ports: ["4000:4000"]
+
+  worker:
+    build:
+      context: ./server
+    restart: unless-stopped
+    command: ["node", "worker.js"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    environment:
+      NODE_ENV: production
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required (32-byte base64)}
+      ENCRYPTION_SEARCH_KEY: ${ENCRYPTION_SEARCH_KEY:?ENCRYPTION_SEARCH_KEY is required (32-byte base64)}
+      DATABASE_URL: postgresql://scopecash-ai:scopecash-ai@postgres:5432/scopecash-ai
+      REDIS_URL: redis://redis:6379
+      STORAGE_DRIVER: local
+      STORAGE_LOCAL_DIR: /data/uploads
+      WORKER_CONCURRENCY: 4
+    volumes: [uploads:/data/uploads]
+
+  dashboard:
+    build:
+      context: ./dashboard
+      args:
+        REACT_APP_API_URL: http://localhost:4000/api
+    restart: unless-stopped
+    depends_on: [server]
+    ports: ["3000:8080"]
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.60
+    profiles: ["observability"]
+    ports: ["16686:16686", "4318:4318"]
+
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    profiles: ["observability"]
+    ports: ["9090:9090"]
+    volumes: ["./ops/prometheus.yml:/etc/prometheus/prometheus.yml:ro"]
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    profiles: ["observability"]
+    ports: ["3001:3000"]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+
+volumes:
+  pgdata:
+  uploads:
+
+

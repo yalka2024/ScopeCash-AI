@@ -1,0 +1,26 @@
+/* Design tokens — generated from spec.theme (P7). This is the SINGLE visual
+   token file the app consumes: component styles reference these CSS custom
+   properties, never literal brand values, so a theme-only spec change
+   re-renders only this file. Edit via the Theme panel, not by hand. */
+:root {
+  --color-primary: #1B3A5C;
+  --color-secondary: #2E7D32;
+  --color-accent: #F57C00;
+  --font-heading: Inter, system-ui, sans-serif;
+  --font-body: Inter, system-ui, sans-serif;
+  --radius: 0.5rem;
+  --logo-url: url("");
+  color-scheme: light;
+}
+
+:root { --app-bg: #ffffff; --app-fg: #111827; }
+
+
+/* Apply the tokens to base surfaces so the brand shows app-wide. */
+body { font-family: var(--font-body); background: var(--app-bg); color: var(--app-fg); }
+h1, h2, h3, h4, .heading { font-family: var(--font-heading); }
+a, .link { color: var(--color-primary); }
+.btn-primary, button.primary, [type="submit"] { background: var(--color-primary); color: #fff; border-radius: var(--radius); }
+.accent { color: var(--color-accent); }
+.brand-logo { background-image: var(--logo-url); }
+

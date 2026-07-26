@@ -1,0 +1,25 @@
+{
+  "_comment": "Mapped baseline controls. Cross-references to SOC 2 / ISO 27001 / NIST CSF kept short for vendor questionnaires.",
+  "version": "1.0.0",
+  "controls": [
+    { "id": "AC-01", "name": "Role-based access control",            "frameworks": ["SOC 2 CC6.1", "ISO 27001 A.9.2", "NIST CSF PR.AC-1"] },
+    { "id": "AC-02", "name": "MFA enforced for admin users",         "frameworks": ["SOC 2 CC6.6", "NIST CSF PR.AC-7"] },
+    { "id": "AC-03", "name": "Session timeout + idle re-auth",       "frameworks": ["SOC 2 CC6.6"] },
+    { "id": "CR-01", "name": "TLS 1.2+ in transit, AES-256 at rest", "frameworks": ["SOC 2 CC6.7", "ISO 27001 A.10.1", "NIST CSF PR.DS-1"] },
+    { "id": "CR-02", "name": "Secrets in env vars / KMS, never in code", "frameworks": ["SOC 2 CC6.1"] },
+    { "id": "AU-01", "name": "Append-only audit log for security events", "frameworks": ["SOC 2 CC7.2", "ISO 27001 A.12.4"] },
+    { "id": "AU-02", "name": "Tamper-evident immutable logging",     "frameworks": ["SOC 2 CC7.2"] },
+    { "id": "VM-01", "name": "Daily dependency vulnerability scan",  "frameworks": ["SOC 2 CC7.1", "NIST CSF DE.CM-8"] },
+    { "id": "VM-02", "name": "Container image SBOM + cosign signing","frameworks": ["NIST SSDF PW.4.1", "SLSA Build L3"] },
+    { "id": "BC-01", "name": "Automated daily backups, restore tested quarterly", "frameworks": ["SOC 2 A1.2", "ISO 27001 A.17"] },
+    { "id": "IR-01", "name": "Incident response runbook + 24h paging","frameworks": ["SOC 2 CC7.3", "ISO 27001 A.16"] },
+    { "id": "IR-02", "name": "Customer notification within 72h of confirmed breach", "frameworks": ["GDPR Art.33", "SOC 2 CC7.4"] },
+    { "id": "DP-01", "name": "DSR (access/erasure/portability) endpoints", "frameworks": ["GDPR Art.15-20", "CCPA §1798.105"] },
+    { "id": "DP-02", "name": "Configurable retention windows per tenant",  "frameworks": ["GDPR Art.5(1)(e)"] },
+    { "id": "SD-01", "name": "Code review required on all merges",   "frameworks": ["SOC 2 CC8.1", "NIST SSDF PO.4"] },
+    { "id": "SD-02", "name": "Static analysis on every PR",          "frameworks": ["NIST SSDF PW.5"] },
+    { "id": "OP-01", "name": "Drain mode + graceful shutdown",       "frameworks": ["SOC 2 A1.2"] },
+    { "id": "OP-02", "name": "Rate limiting + CSRF + helmet headers","frameworks": ["OWASP ASVS V3, V4"] }
+  ]
+}
+

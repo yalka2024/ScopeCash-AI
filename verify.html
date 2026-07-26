@@ -1,0 +1,51 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Attestation — verify this build</title>
+<style>
+  :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, sans-serif; }
+  body { max-width: 720px; margin: 3rem auto; padding: 0 1.25rem; line-height: 1.55; }
+  h1 { font-size: 1.4rem; } code { word-break: break-all; }
+  .card { border: 1px solid color-mix(in srgb, currentColor 25%, transparent); border-radius: 10px; padding: 1rem 1.25rem; margin: 1rem 0; }
+  .ok { color: #16a34a; font-weight: 600; } .bad { color: #dc2626; font-weight: 600; }
+  .muted { opacity: .7; font-size: .9rem; }
+  a { color: inherit; }
+</style>
+<h1>Build attestation</h1>
+<div class="card" id="out">Loading attestation…</div>
+<p class="muted">The Ed25519 signature is verified in your browser (WebCrypto) against the
+manifest in <code>attestation.json</code>. Signature validity proves the manifest is exactly
+what the generator signed; to additionally re-hash every file on disk, run
+<code>platformgen verify-attestation &lt;dir&gt;</code>. Authenticity of the SIGNER comes from
+comparing the public key with one you received out-of-band.</p>
+<p class="muted">Generated with <a href="https://github.com/Kryst-Investments-LLC/platform-generator" rel="noreferrer">Kubild</a> — deterministic, validated, attestable platform generation.</p>
+<script>
+(async () => {
+  const out = document.getElementById('out');
+  try {
+    const doc = await (await fetch('./attestation.json')).json();
+    const payload = new TextEncoder().encode(JSON.stringify({
+      version: doc.version,
+      subject: { name: doc.subject.name, root: doc.subject.root, file_count: doc.subject.file_count },
+      generator: doc.generator,
+      at: doc.at,
+    }));
+    const der = Uint8Array.from(atob(doc.public_key.replace(/-----[^-]+-----/g, '').replace(/\s+/g, '')), c => c.charCodeAt(0));
+    const sig = Uint8Array.from(atob(doc.signature), c => c.charCodeAt(0));
+    let verdict = '<span class="muted">signature: not checked (this browser lacks WebCrypto Ed25519)</span>';
+    try {
+      const key = await crypto.subtle.importKey('spki', der, { name: 'Ed25519' }, false, ['verify']);
+      const ok = await crypto.subtle.verify({ name: 'Ed25519' }, key, sig, payload);
+      verdict = ok ? '<span class="ok">signature VALID</span>' : '<span class="bad">signature INVALID</span>';
+    } catch (e) { /* keep the not-checked verdict */ }
+    out.innerHTML =
+      '<b>' + doc.subject.name + '</b><br>' + verdict +
+      '<br><span class="muted">tree root</span> <code>' + doc.subject.root + '</code>' +
+      '<br><span class="muted">files</span> ' + doc.subject.file_count +
+      ' · <span class="muted">attested</span> ' + doc.at +
+      ' · <span class="muted">generator</span> ' + doc.generator.name + ' ' + doc.generator.version;
+  } catch (e) {
+    out.innerHTML = '<span class="bad">attestation.json not found next to this page</span>';
+  }
+})();
+</script>

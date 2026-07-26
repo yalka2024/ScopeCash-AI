@@ -1,0 +1,37 @@
+{
+  "app": {
+    "title": "ScopeCash AI",
+    "skipToContent": "Aller au contenu principal",
+    "loading": "Chargement…",
+    "error": "Une erreur est survenue",
+    "retry": "Réessayer"
+  },
+  "auth": {
+    "signIn": "Se connecter",
+    "signOut": "Se déconnecter",
+    "register": "Créer un compte",
+    "email": "E-mail",
+    "password": "Mot de passe",
+    "mfaCode": "Code à double facteur",
+    "forgotPassword": "Mot de passe oublié ?"
+  },
+  "nav": {
+    "dashboard": "Tableau de bord",
+    "settings": "Paramètres",
+    "apiKeys": "Clés d'API",
+    "billing": "Facturation"
+  },
+  "actions": {
+    "create": "Créer",
+    "save": "Enregistrer",
+    "cancel": "Annuler",
+    "delete": "Supprimer",
+    "confirmDelete": "Voulez-vous vraiment supprimer cet élément ?"
+  },
+  "table": {
+    "empty": "Aucun élément",
+    "loading": "Chargement des lignes…",
+    "loadMore": "Charger plus"
+  }
+}
+

@@ -1,0 +1,88 @@
+{{- if .Values.serviceMonitor.alertRules }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: scopecash-ai-alerts
+  labels:
+    app: scopecash-ai
+    role: alert-rules
+    {{- with .Values.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: scopecash-ai.rules
+      interval: 30s
+      rules:
+        # ───── HTTP error budget ─────
+        - alert: {{platform_id | replace "-" "_"}}_HighErrorRate
+          expr: |
+            sum(rate(http_requests_total{job="scopecash-ai-server",status=~"5.."}[5m]))
+              /
+            sum(rate(http_requests_total{job="scopecash-ai-server"}[5m]))
+              > 0.02
+          for: 10m
+          labels: { severity: critical, slo: error_rate }
+          annotations:
+            summary: "5xx rate >2% for 10m"
+            runbook: "https://runbooks.example.com/scopecash-ai/error-rate"
+
+        - alert: {{platform_id | replace "-" "_"}}_HighLatencyP95
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(http_request_duration_seconds_bucket{job="scopecash-ai-server"}[5m]))
+              by (le)
+            ) > 1.0
+          for: 10m
+          labels: { severity: warning, slo: latency_p95 }
+          annotations:
+            summary: "API p95 latency >1s for 10m"
+
+        # ───── Worker / queue health ─────
+        - alert: {{platform_id | replace "-" "_"}}_QueueDepthHigh
+          expr: bullmq_queue_waiting{job="scopecash-ai-server"} > 1000
+          for: 5m
+          labels: { severity: warning }
+          annotations:
+            summary: "BullMQ queue >1000 waiting jobs"
+
+        - alert: {{platform_id | replace "-" "_"}}_QueueStalled
+          expr: bullmq_queue_active{job="scopecash-ai-server"} == 0
+              and on() bullmq_queue_waiting{job="scopecash-ai-server"} > 0
+          for: 10m
+          labels: { severity: critical }
+          annotations:
+            summary: "Jobs waiting but no active workers"
+
+        # ───── Process health ─────
+        - alert: {{platform_id | replace "-" "_"}}_PodCrashLoop
+          expr: increase(kube_pod_container_status_restarts_total{namespace="scopecash-ai"}[15m]) > 3
+          for: 10m
+          labels: { severity: critical }
+          annotations:
+            summary: "Pod restarting >3 times in 15m"
+
+        - alert: {{platform_id | replace "-" "_"}}_HighEventLoopLag
+          expr: nodejs_eventloop_lag_seconds{job="scopecash-ai-server"} > 0.2
+          for: 10m
+          labels: { severity: warning }
+          annotations:
+            summary: "Node event loop lag >200ms — saturation likely"
+
+        # ───── Auth / abuse signals ─────
+        - alert: {{platform_id | replace "-" "_"}}_AuthFailureSpike
+          expr: increase(auth_login_failures_total{job="scopecash-ai-server"}[5m]) > 100
+          for: 5m
+          labels: { severity: warning, signal: abuse }
+          annotations:
+            summary: "Sustained login failures — possible credential stuffing"
+
+        # ───── DB ─────
+        - alert: {{platform_id | replace "-" "_"}}_DbConnectionsExhausted
+          expr: db_pool_in_use{job="scopecash-ai-server"} / db_pool_size{job="scopecash-ai-server"} > 0.9
+          for: 5m
+          labels: { severity: warning }
+          annotations:
+            summary: "DB pool >90% utilised"
+{{- end }}
+

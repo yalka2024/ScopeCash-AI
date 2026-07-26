@@ -1,0 +1,17 @@
+{
+  "_comment": "Default retention windows per data class. Tenant overrides may extend (never reduce below regulatory floor).",
+  "version": "1.0.0",
+  "retention": [
+    { "data_class": "User account",            "default_days": 2555, "regulatory_floor_days": 0,    "deletion_method": "soft+hard after grace" },
+    { "data_class": "Authentication logs",     "default_days": 365,  "regulatory_floor_days": 90,   "deletion_method": "rotate" },
+    { "data_class": "Application audit log",   "default_days": 365,  "regulatory_floor_days": 365,  "deletion_method": "rotate (immutable for window)" },
+    { "data_class": "Backups",                 "default_days": 30,   "regulatory_floor_days": 0,    "deletion_method": "rolling" },
+    { "data_class": "Customer-uploaded files", "default_days": 2555, "regulatory_floor_days": 0,    "deletion_method": "tenant-controlled, hard-delete on request" },
+    { "data_class": "Telemetry / metrics",     "default_days": 90,   "regulatory_floor_days": 0,    "deletion_method": "rotate" },
+    { "data_class": "Marketing email lists",   "default_days": 730,  "regulatory_floor_days": 0,    "deletion_method": "double-opt-in, hard-delete on unsubscribe" }
+  ],
+  "deletion_sla_days": 30,
+  "tenant_overrides_supported": true,
+  "_industry_note": "Industry overrides applied via plans.json `industry_overrides`. Inspect /api/billing/usage for the active tier's retention limit."
+}
+

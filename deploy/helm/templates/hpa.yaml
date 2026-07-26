@@ -1,0 +1,51 @@
+{{- if .Values.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: scopecash-ai-server
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: scopecash-ai-server
+  minReplicas: {{ .Values.autoscaling.server.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.server.maxReplicas }}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - { type: Percent, value: 100, periodSeconds: 30 }
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - { type: Percent, value: 25, periodSeconds: 60 }
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: {{ .Values.autoscaling.server.targetCPU }} }
+    - type: Resource
+      resource:
+        name: memory
+        target: { type: Utilization, averageUtilization: {{ .Values.autoscaling.server.targetMemory }} }
+{{- if .Values.dashboard }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: scopecash-ai-dashboard
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: scopecash-ai-dashboard
+  minReplicas: {{ .Values.autoscaling.dashboard.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.dashboard.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: {{ .Values.autoscaling.dashboard.targetCPU }} }
+{{- end }}
+{{- end }}
+

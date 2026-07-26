@@ -1,0 +1,23 @@
+/* P7 — brand design tokens (single source; edited via the Theme panel). */
+@import './theme.css';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Design tokens for the modern (shadcn-style) surfaces. Dark by default to match
+   the existing dashboard theme; legacy pages keep their own inline styles. */
+:root {
+  --background: 222 47% 11%;
+  --foreground: 210 40% 98%;
+  --card: 222 47% 13%;
+  --card-foreground: 210 40% 98%;
+  --primary: 263 70% 60%;
+  --primary-foreground: 210 40% 98%;
+  --muted: 217 33% 17%;
+  --muted-foreground: 215 20% 65%;
+  --accent: 217 33% 24%;
+  --accent-foreground: 210 40% 98%;
+  --border: 217 33% 24%;
+  --radius: 0.75rem;
+}
+

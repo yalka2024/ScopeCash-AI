@@ -1,0 +1,41 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /server
+    schedule: { interval: weekly, day: monday, time: "06:00" }
+    open-pull-requests-limit: 10
+    groups:
+      prisma: { patterns: ["@prisma/*", "prisma"] }
+      sentry: { patterns: ["@sentry/*"] }
+      otel:   { patterns: ["@opentelemetry/*"] }
+      aws-sdk: { patterns: ["@aws-sdk/*"] }
+    ignore:
+      # Major bumps require a manual review (breaking-change risk)
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: npm
+    directory: /dashboard
+    schedule: { interval: weekly, day: monday, time: "06:00" }
+    open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "react-scripts"   # CRA upgrade is a project
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: docker
+    directory: /
+    schedule: { interval: weekly, day: monday, time: "06:00" }
+
+  - package-ecosystem: docker
+    directory: /server
+    schedule: { interval: weekly, day: monday, time: "06:00" }
+
+  - package-ecosystem: docker
+    directory: /dashboard
+    schedule: { interval: weekly, day: monday, time: "06:00" }
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly, day: monday, time: "06:00" }
+

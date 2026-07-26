@@ -1,0 +1,40 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: scopecash-ai-pg-backup
+spec:
+  schedule: "17 2 * * *"      # daily 02:17 UTC
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            seccompProfile: { type: RuntimeDefault }
+          containers:
+            - name: pg-backup
+              image: ghcr.io/your-org/scopecash-ai-ops:latest
+              command: ["/usr/local/bin/pg-backup.sh"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: ["ALL"] }
+              envFrom:
+                - secretRef: { name: scopecash-ai-server }       # DATABASE_URL
+                - secretRef: { name: scopecash-ai-backup }       # BACKUP_DESTINATION, AWS_*, BACKUP_GPG_RECIPIENT
+              env:
+                - { name: BACKUP_RETENTION_DAYS, value: "30" }
+              resources:
+                requests: { cpu: 100m, memory: 256Mi }
+                limits:   { cpu: 1,    memory: 1Gi }
+              volumeMounts:
+                - { name: tmp, mountPath: /tmp }
+          volumes:
+            - { name: tmp, emptyDir: {} }
+

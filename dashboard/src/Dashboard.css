@@ -1,0 +1,61 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: hsl(222 47% 8%);
+  color: hsl(210 40% 96%);
+  -webkit-font-smoothing: antialiased;
+}
+.app { display: flex; min-height: 100vh; }
+
+/* Modern app shell (shadcn-aligned dark theme). Every page sits inside this
+   frame, so restyling it lifts the whole product at once. */
+.sidebar {
+  width: 256px;
+  background: hsl(222 47% 11%);
+  padding: 1.25rem 0.875rem;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid hsl(217 33% 20%);
+  position: sticky;
+  top: 0;
+  height: 100vh;
+}
+.sidebar-header h2 {
+  color: hsl(210 40% 98%);
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  padding: 0 0.5rem;
+  margin-bottom: 0.25rem;
+}
+.welcome { font-size: 0.8rem; color: hsl(215 20% 60%); padding: 0 0.5rem; margin-bottom: 1.5rem; }
+.nav-links { list-style: none; flex: 1; display: flex; flex-direction: column; gap: 0.125rem; overflow-y: auto; }
+.nav-links li {
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  cursor: pointer;
+  color: hsl(215 20% 70%);
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.nav-links li:hover { background: hsl(217 33% 17%); color: hsl(210 40% 98%); }
+.nav-links li.active {
+  background: hsl(263 70% 60% / 0.15);
+  color: hsl(263 70% 78%);
+  box-shadow: inset 2px 0 0 hsl(263 70% 60%);
+}
+.content { flex: 1; overflow-y: auto; height: 100vh; }
+.logout-btn {
+  background: transparent;
+  border: 1px solid hsl(217 33% 24%);
+  color: hsl(215 20% 65%);
+  padding: 0.5rem;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-top: 1rem;
+  font-size: 0.85rem;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.logout-btn:hover { color: hsl(0 70% 70%); border-color: hsl(0 70% 50% / 0.5); }
+
