@@ -110,6 +110,15 @@ is in STATUS.md. Everything below is either in progress or not started.
       (`domain-rbac.test.js`) — the Phase 10 fixes have unit coverage
       (`security-fixes.test.js`) but not full per-route integration suites
       the way domain-rbac.test.js covers the generic CRUD routes.
+- [x] Six-stage monetary separation verified end-to-end (Phase 10) — no
+      dashboard/export/analytics/PDF code touched `CommercialOutcome`'s six
+      amount fields at all before this, so the invariant couldn't be
+      violated (nothing to violate it), but that's also a real gap: no
+      revenue-funnel view existed for contractors. Added
+      `GET /api/commercialOutcomes/summary`, the one canonical place that
+      sums across outcomes with the six stages kept separate — see
+      STATUS.md. Any future dashboard/CSV/PDF work should build on this,
+      not re-derive its own totals.
 - [ ] Durable GCP jobs: idempotency, retries, heartbeat, cancellation,
       progress, dead-lettering, replay (folds into Phase 3).
 - [ ] Transactional outbox for billing/notifications/job creation/audit.

@@ -253,6 +253,31 @@ describe('commercial outcome six-stage ledger', () => {
     expect(ledger.body.data[1].toStage).toBe('validated');
     expect(ledger.body.data[1].fromStage).toBe('identified');
   });
+
+  test('summary endpoint sums across outcomes with the six stages kept separate, never merged', async () => {
+    const { owner, proj } = await seedProjectAndPacket();
+    const o1 = await request(app).post('/api/commercialOutcomes').set('Authorization', bearer(owner)).send({ project_id: proj.body.id });
+    const o2 = await request(app).post('/api/commercialOutcomes').set('Authorization', bearer(owner)).send({ project_id: proj.body.id });
+
+    await request(app).post(`/api/commercialOutcomes/${o1.body.id}/transition`).set('Authorization', bearer(owner)).send({ toStage: 'identified', amount: 1000 });
+    await request(app).post(`/api/commercialOutcomes/${o1.body.id}/transition`).set('Authorization', bearer(owner)).send({ toStage: 'validated', amount: 900 });
+    await request(app).post(`/api/commercialOutcomes/${o2.body.id}/transition`).set('Authorization', bearer(owner)).send({ toStage: 'identified', amount: 2000 });
+    await request(app).post(`/api/commercialOutcomes/${o2.body.id}/transition`).set('Authorization', bearer(owner)).send({ toStage: 'validated', amount: 1800 });
+    await request(app).post(`/api/commercialOutcomes/${o2.body.id}/transition`).set('Authorization', bearer(owner)).send({ toStage: 'submitted', amount: 1800 });
+
+    // Route-ordering regression guard: /summary must not be shadowed by the
+    // generic GET /commercialOutcomes/:id route registered later in the file.
+    const summary = await request(app).get('/api/commercialOutcomes/summary').set('Authorization', bearer(owner));
+    expect(summary.status).toBe(200);
+    expect(summary.body.outcomeCount).toBe(2);
+    expect(summary.body.totals.identified_amount).toBe(3000);
+    expect(summary.body.totals.validated_amount).toBe(2700);
+    expect(summary.body.totals.submitted_amount).toBe(1800);
+    // Never collapsed into one number — collected/invoiced/approved untouched stay zero, not undefined or merged.
+    expect(summary.body.totals.approved_amount).toBe(0);
+    expect(summary.body.totals.invoiced_amount).toBe(0);
+    expect(summary.body.totals.collected_amount).toBe(0);
+  });
 });
 
 describe('Idempotency-Key on POST', () => {

@@ -721,6 +721,31 @@ Full verification: server test suite 13/13 suites, 138/150 tests passing
 (12 intentionally skipped) after every fix in this phase, run together as
 one batch at the end.
 
+**Six-stage monetary separation, verified**: the audit asked whether the
+identified/validated/submitted/approved/invoiced/collected separation is
+enforced "across every Dashboard metric, CSV export, JSON export, PDF
+packet, Competition report, Analytics route." Traced every reference to
+the six `CommercialOutcome` amount fields in the codebase: the only
+persistence path is the existing role-gated
+`/commercialOutcomes/:id/transition` endpoint (Phase 1); no dashboard,
+export, analytics, or PDF code touches these fields at all today — so the
+invariant currently can't be violated by aggregation code, because no
+aggregation code existed. That's also a real gap: a contractor has no way
+to see their own revenue funnel across multiple outcomes. Added
+`GET /api/commercialOutcomes/summary` (optionally `?projectId=`) as the
+one canonical place that sums across outcomes — the six stages summed
+**separately**, never merged into a single number — so any future
+dashboard/export/PDF work has a correct default to build on rather than
+re-deriving the sums itself. (`lib/workflows/impl/outcometracking.js`, a
+generic scaffold "workflow" that superficially resembles this six-stage
+concept, was also checked — it already keeps every stage separate
+correctly, but it operates on an ad-hoc JSON blob, not the real
+`CommercialOutcome` table, so it isn't a live enforcement point.) New
+test in `domain-rbac.test.js` covers both the correct separated summation
+and — since Express matches routes in registration order — a regression
+guard that `/summary` isn't shadowed by the generic `GET
+/commercialOutcomes/:id` route.
+
 ### Known gaps / not done in Phase 10
 
 - Real Postgres+RLS application tests still aren't in CI (only migration

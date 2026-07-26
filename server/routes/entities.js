@@ -273,6 +273,25 @@ async function assertForeignKeys(e, data, orgId) {
 const PAGE_DEFAULT = 50;
 const PAGE_MAX = 200;
 
+// Org-wide (optionally project-scoped) revenue funnel — the six monetary
+// stages, summed SEPARATELY, never merged into one "revenue" figure. This
+// is meant to be the one place any future dashboard/export/PDF surface
+// reads a multi-outcome revenue total from, so the six-stage separation
+// invariant holds by construction rather than by every future call site
+// remembering not to sum fields together. Registered BEFORE the generic
+// per-entity `GET /commercialOutcomes/:id` route below (Express matches
+// routes in registration order — a later-registered `/summary` would be
+// shadowed by the earlier `:id` pattern treating "summary" as an id).
+router.get('/commercialOutcomes/summary', asyncHandler(async (req, res) => {
+  const where = scope(req, req.query.projectId ? { project_id: String(req.query.projectId) } : {});
+  const outcomes = await prisma.commercialOutcome.findMany({ where });
+  const totals = { identified_amount: 0, validated_amount: 0, submitted_amount: 0, approved_amount: 0, invoiced_amount: 0, collected_amount: 0 };
+  for (const o of outcomes) {
+    for (const field of Object.keys(totals)) totals[field] += o[field] || 0;
+  }
+  res.json({ outcomeCount: outcomes.length, totals });
+}));
+
 for (const e of ENTITIES) {
   const model = e.model;
   const base = '/' + e.plural;
