@@ -424,6 +424,55 @@ non-code items.
   behavior against a real database, which is a better fit than squeezing
   them into a text-prompt/text-response eval case.
 
+## Phase 9 — P1 hardening: automated WCAG 2.2 AA scanning (DONE, 2026-07-26)
+
+- Added Playwright + `@axe-core/playwright` to the dashboard
+  (`dashboard/a11y/public-pages.spec.cjs`, `npm run test:a11y`), scanning
+  every public unauthenticated page (landing, pricing, security, privacy,
+  terms, AI limitations, about) against WCAG 2.0/2.1/2.2 AA tags. Fails the
+  build on any `serious`/`critical` violation; `moderate`/`minor` are
+  logged, not blocking. Wired into `ci.yml`'s dashboard job.
+- **This immediately found four real, pre-existing accessibility bugs**,
+  all fixed:
+  1. Every plain `<a>` on the (newly rewritten) legal pages inherited an
+     invisible dark navy (`#1b3a5c`, 1.62:1 contrast) from
+     `theme.css`'s global `a { color: var(--color-primary) }` rule — a
+     light-theme leftover cascading into these dark-themed pages. Fixed
+     with a scoped `.legal-page a { color: ... }` override (5.52:1).
+  2. The landing page's "Visit the public trust portal" link used
+     Tailwind's `text-primary` at 3.68:1 against its section background —
+     fixed with a verified-compliant inline color (5.24:1).
+  3. `PricingPage`'s fatal-error state rendered red text with no
+     background wrapper, inheriting the browser's white default (2.76:1)
+     — fixed to match the page's dark theme with a proper alert style.
+  4. **A shared-component bug**: `components/ui/button.js`'s `outline` and
+     `ghost` button variants had no default text color class at all,
+     falling back to the browser's black default — invisible on any dark
+     button of either variant anywhere in the app, not just where axe
+     happened to catch it. Fixed at the source (`text-foreground` added to
+     both variants), which corrects every outline/ghost button app-wide,
+     not just the one flagged instance.
+- All 7 scanned pages now pass with zero serious/critical violations.
+
+### Known gaps / not done in Phase 9
+
+- This is **automated** WCAG coverage only — axe-core catches roughly
+  30-50% of WCAG issues by design (contrast, missing labels, some ARIA
+  misuse). **Manual assistive-technology testing (screen reader
+  walkthroughs, keyboard-only navigation review by a human) is not done
+  and can't be done by an agent** — see the non-code items list below.
+- Only the public/unauthenticated pages are scanned. The authenticated
+  dashboard (Projects, Evidence, Findings, Packets, etc. once built —
+  see the Final-phase nav rewrite) needs a logged-in session to reach and
+  isn't covered yet.
+- The remaining broader P1 list (cross-tenant tests for the ~15 hand-
+  written routes that don't yet use `attachTenant`/`runWithOrg`, durable-
+  job dead-lettering/replay, transactional outbox, ownership transfer/
+  account deletion execution, API-key project-level scope matrices,
+  full audit-coverage/log-redaction tests) is **not done** — this phase
+  scoped to the WCAG item specifically, given how much ground the earlier
+  phases already covered. See TODO.md for the itemized remainder.
+
 ## Not yet started
 
 See TODO.md.

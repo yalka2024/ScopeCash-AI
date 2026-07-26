@@ -4,32 +4,42 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "clsx": "^2.1.1",
-    "tailwind-merge": "^2.5.4",
-    "class-variance-authority": "^0.7.1",
-    "lucide-react": "^0.468.0",
     "@radix-ui/react-accordion": "^1.2.2",
     "@radix-ui/react-slot": "^1.1.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "highlight.js": "^11.10.0",
+    "lucide-react": "^0.468.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
     "react-markdown": "^9.0.1",
-    "remark-gfm": "^4.0.0",
     "rehype-highlight": "^7.0.1",
-    "highlight.js": "^11.10.0"
+    "remark-gfm": "^4.0.0",
+    "tailwind-merge": "^2.5.4"
   },
   "devDependencies": {
-    "vite": "^6.0.5",
+    "@axe-core/playwright": "^4.12.1",
+    "@playwright/test": "^1.62.0",
     "@vitejs/plugin-react": "^4.3.4",
-    "tailwindcss": "^3.4.17",
+    "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",
-    "autoprefixer": "^10.4.20"
+    "tailwindcss": "^3.4.17",
+    "vite": "^6.0.5"
   },
   "scripts": {
     "dev": "vite",
     "start": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:a11y": "playwright test --config=playwright.config.cjs"
   },
-  "browserslist": { "production": [">0.2%", "not dead"], "development": ["last 1 chrome version"] }
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead"
+    ],
+    "development": [
+      "last 1 chrome version"
+    ]
+  }
 }
-

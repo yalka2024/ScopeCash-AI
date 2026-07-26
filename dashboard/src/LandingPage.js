@@ -159,7 +159,10 @@ function Trust() {
           ))}
         </div>
         <div className="mt-8 text-center">
-          <a href="#trust-portal" className="font-semibold text-primary no-underline hover:underline">
+          {/* text-primary measured 3.68:1 against this section's background —
+              below the 4.5:1 WCAG AA minimum (caught by dashboard/a11y/).
+              Inline override to a lighter shade of the same hue (5.24:1). */}
+          <a href="#trust-portal" className="font-semibold no-underline hover:underline" style={{ color: '#a074e8' }}>
             Visit the public trust portal →
           </a>
         </div>

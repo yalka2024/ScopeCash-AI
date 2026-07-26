@@ -102,7 +102,11 @@ export default function PricingPage({ onNavigateToAuth }) {
   }
 
   if (error && !plans) {
-    return <div className="p-8"><p className="text-red-400">{error}</p></div>;
+    return (
+      <div className="min-h-screen bg-background p-8">
+        <p role="alert" className="rounded-md border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300">{error}</p>
+      </div>
+    );
   }
   if (!plans) {
     return <div className="p-8 text-muted-foreground">Loading plans…</div>;

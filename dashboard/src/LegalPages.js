@@ -36,16 +36,25 @@ const GOVERNING_STATE = '[GOVERNING STATE — usually your state of incorporatio
 const wrap = { maxWidth: 880, margin: '0 auto', padding: '0 1.25rem' };
 const lastUpdated = 'July 2026 (DRAFT — pending counsel review, see note below)';
 
+// Scoped link color: this dark-themed page previously let <a> tags inherit
+// whatever global Dashboard.css (authored for the light authenticated app)
+// happened to cascade in, which resolved to a near-invisible dark navy
+// (#1b3a5c) on this page's near-black background — a real WCAG AA
+// color-contrast failure caught by the axe-core scan in dashboard/a11y/.
+// COLORS.primary against COLORS.bg measures 5.52:1 (AA requires 4.5:1).
+const LINK_CSS = `.legal-page a { color: ${COLORS.primary}; } .legal-page a:hover { color: ${COLORS.ink}; } .legal-page a:visited { color: ${COLORS.primary}; }`;
+
 function PageShell({ title, kicker, children, onHome, onPricing, onLogin, currentPath }) {
   return (
-    <div style={{ background: COLORS.bg, color: COLORS.ink, minHeight: '100vh', fontFamily: 'system-ui,-apple-system,Segoe UI,Roboto,sans-serif' }}>
+    <div className="legal-page" style={{ background: COLORS.bg, color: COLORS.ink, minHeight: '100vh', fontFamily: 'system-ui,-apple-system,Segoe UI,Roboto,sans-serif' }}>
+      <style>{LINK_CSS}</style>
       <header style={{ borderBottom: `1px solid ${COLORS.border}`, background: COLORS.bg, position: 'sticky', top: 0, zIndex: 10 }}>
         <div style={{ maxWidth: 1120, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.9rem 1.25rem' }}>
           <a href="#" onClick={(e) => { e.preventDefault(); onHome(); }} style={{ fontWeight: 700, fontSize: '1.15rem', color: COLORS.ink, textDecoration: 'none' }}>
             {PLATFORM_NAME}
           </a>
           <nav style={{ display: 'flex', gap: '1.25rem', alignItems: 'center' }}>
-            <a href="#pricing" onClick={(e) => { e.preventDefault(); onPricing(); }} style={{ color: COLORS.muted, textDecoration: 'none', fontSize: '0.95rem' }}>Pricing</a>
+            <a href="#pricing" onClick={(e) => { e.preventDefault(); onPricing(); }} style={{ textDecoration: 'none', fontSize: '0.95rem' }}>Pricing</a>
             <button type="button" onClick={onLogin} style={{ padding: '0.5rem 1rem', borderRadius: 6, border: `1px solid ${COLORS.border}`, background: COLORS.bg, color: COLORS.ink, cursor: 'pointer', fontSize: '0.9rem' }}>Sign in</button>
           </nav>
         </div>

@@ -72,8 +72,11 @@ is in STATUS.md. Everything below is either in progress or not started.
 - [ ] Cloud Monitoring alert policies, SLOs, on-call — folds into Phase 3.
 - [ ] Dependency/container/secret/infra scanning in CI.
 - [ ] Explicit regional/data-residency configuration.
-- [ ] WCAG 2.2 AA — automated (axe-core in CI) achievable in-repo; manual AT
-      testing is a non-code item below.
+- [x] WCAG 2.2 AA — automated scanning (Playwright + axe-core, wired into
+      CI) done in Phase 9; found and fixed 4 real contrast bugs, see
+      STATUS.md. Only public pages are covered (no authenticated-dashboard
+      scan yet — folds into the Final nav-rewrite phase). Manual AT testing
+      remains a non-code item below.
 
 ## P2 — maturity (not started, lower priority)
 
