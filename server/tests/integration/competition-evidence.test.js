@@ -3,18 +3,8 @@
  * reconciliation against real Invoice rows, and the HTTP report/export
  * endpoints (admin-only). Real SQLite DB, no mocking.
  */
-const fs = require('fs');
-const path = require('path');
 const crypto = require('crypto');
-const { execSync } = require('child_process');
-
-const SERVER_ROOT = path.join(__dirname, '..', '..');
-const TEST_DB = path.join(SERVER_ROOT, 'test.db');
-for (const suffix of ['', '-journal', '-shm', '-wal']) {
-  const f = TEST_DB + suffix;
-  if (fs.existsSync(f)) fs.rmSync(f);
-}
-execSync('npx prisma migrate deploy', { cwd: SERVER_ROOT, env: { ...process.env, DATABASE_URL: 'file:./test.db' }, stdio: 'pipe' });
+// test.db migration is handled once by tests/global-setup.js (Jest globalSetup).
 
 const express = require('express');
 const request = require('supertest');

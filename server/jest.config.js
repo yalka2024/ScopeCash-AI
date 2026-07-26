@@ -15,6 +15,7 @@ module.exports = {
     global: { lines: 50, functions: 50, branches: 35, statements: 50 },
   },
   setupFiles: ['<rootDir>/tests/setup-env.js'],
+  globalSetup: '<rootDir>/tests/global-setup.js',
   testTimeout: 20000,
 };
 

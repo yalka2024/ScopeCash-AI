@@ -12,22 +12,8 @@
  * (see tests/integration/health.test.js), so none of this was exercised
  * end-to-end before.
  */
-const fs = require('fs');
-const path = require('path');
 const crypto = require('crypto');
-const { execSync } = require('child_process');
-
-const SERVER_ROOT = path.join(__dirname, '..', '..');
-const TEST_DB = path.join(SERVER_ROOT, 'test.db');
-for (const suffix of ['', '-journal', '-shm', '-wal']) {
-  const f = TEST_DB + suffix;
-  if (fs.existsSync(f)) fs.rmSync(f);
-}
-execSync('npx prisma migrate deploy', {
-  cwd: SERVER_ROOT,
-  env: { ...process.env, DATABASE_URL: 'file:./test.db' },
-  stdio: 'pipe',
-});
+// test.db migration is handled once by tests/global-setup.js (Jest globalSetup).
 
 const express = require('express');
 const cookieParser = require('cookie-parser');
