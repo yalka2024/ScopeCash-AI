@@ -157,187 +157,21 @@ router.delete('/:id', requireScope('write', 'delete'), asyncHandler(async (req, 
   res.json({ message: 'Deleted' });
 }));
 
-// EU AI Act auto-classification — runs the rules engine and stores the verdict
-// on the record (overallRisk, riskScore, reportJson). Idempotent: each call
-// overwrites the previous verdict.
-const classifier = require('../lib/eu-ai-act-classifier');
-const annexIv    = require('../lib/annex-iv-generator');
-const conformity = require('../lib/conformity');
-
-const ClassifySchema = z.object({
-  description:    z.string().min(3).max(2000),
-  sector:         z.string().optional(),
-  decisionImpact: z.string().optional(),
-  dataSensitive:  z.array(z.string()).optional().default([]),
-  scope:          z.string().optional(),
-  providerRole:   z.string().optional(),
-});
-router.post('/:id/classify', requireScope('write'), validate(ClassifySchema), asyncHandler(async (req, res) => {
-  const tp = tenantPrisma(prisma, tenantContextFromUser(req.user));
-  const record = await tp.project.findFirst({ where: { id: req.params.id } });
-  if (!record) throw new HttpError(404, 'Not found', 'not_found');
-
-  const verdict = classifier.classify(req.body);
-
-  const updated = await prisma.project.update({
-    where: { id: record.id },
-    data: {
-      overallRisk: verdict.verdict,
-      riskScore:   verdict.score,
-      reportJson:  JSON.stringify(verdict),
-    },
-  });
-
-  await audit(req, 'project.classify', {
-    resource: 'project', resourceId: record.id,
-    details: { verdict: verdict.verdict, score: verdict.score, version: verdict.version },
-  });
-  enqueueWebhookEvent(req.user.id, 'project.classified', {
-    id: record.id, verdict: verdict.verdict, score: verdict.score,
-  }).catch(() => {});
-  cache.del(`analytics:overview:${req.user.id}`).catch(() => {});
-
-  res.json({ record: updated, verdict });
-}));
-
-// Annex IV technical documentation — JSON
-// Aborts if there is no classifier verdict on file.
-async function _loadRecordWithVerdict(req) {
-  const tp = tenantPrisma(prisma, tenantContextFromUser(req.user));
-  const record = await tp.project.findFirst({ where: { id: req.params.id } });
-  if (!record) throw new HttpError(404, 'Not found', 'not_found');
-  if (!record.reportJson) {
-    throw new HttpError(409, 'Run classification before generating Annex IV documentation', 'not_classified');
-  }
-  let verdict;
-  try { verdict = JSON.parse(record.reportJson); }
-  catch { throw new HttpError(500, 'Stored verdict is invalid JSON', 'corrupt_verdict'); }
-
-  const org = req.user.orgId
-    ? await prisma.organization.findUnique({ where: { id: req.user.orgId } })
-    : null;
-  return { record, verdict, organisation: org ? { name: org.name } : {} };
-}
-
-router.get('/:id/annex-iv.json', requireScope('read'), asyncHandler(async (req, res) => {
-  const { record, verdict, organisation } = await _loadRecordWithVerdict(req);
-  const extras = {};
-  // Optional: pull from a future "extras" column. For now, the user fills these
-  // via a follow-up endpoint or accepts the placeholders.
-  const doc = annexIv.generateJson({ record, verdict, organisation, extras });
-  await audit(req, 'project.annex_iv.export', {
-    resource: 'project', resourceId: record.id,
-    details: { format: 'json', completeness: doc.completeness.percentage },
-  });
-  res.json(doc);
-}));
-
-router.get('/:id/annex-iv.pdf', requireScope('read'), asyncHandler(async (req, res) => {
-  const { record, verdict, organisation } = await _loadRecordWithVerdict(req);
-  const filename = `annex-iv-${(record.projectName || record.id).replace(/[^a-zA-Z0-9._-]/g, '_')}.pdf`;
-  res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-  await audit(req, 'project.annex_iv.export', {
-    resource: 'project', resourceId: record.id,
-    details: { format: 'pdf' },
-  });
-  annexIv.generatePdf({ record, verdict, organisation, extras: {} }, res);
-}));
-
-// ─── Conformity Assessment (Article 43, Annex VI internal control) ────────
-// State lives in record.conformityJson. Idempotent: GET returns the current
-// state (creating a draft on first read for high-risk records).
-
+// Generic document-record evaluations (accuracy/robustness scoring against
+// EvalRun/EvalResult) — kept; this is reusable eval infrastructure, not
+// EU-AI-Act-specific machinery. (The legacy classify/Annex IV/conformity
+// assessment endpoints that lived here — EU AI Act Article 6 risk
+// classification and Annex IV/VI technical documentation — were removed:
+// this product documents contractor scope evidence, not AI Act conformity.
+// See lib/eu-ai-act-classifier.js, lib/annex-iv-generator.js, lib/conformity.js
+// — also removed — if resurrecting any of this for a different product.)
 async function _loadRecord(req) {
   const tp = tenantPrisma(prisma, tenantContextFromUser(req.user));
   const record = await tp.project.findFirst({ where: { id: req.params.id } });
   if (!record) throw new HttpError(404, 'Not found', 'not_found');
   return record;
 }
-function _readState(record) {
-  if (!record.conformityJson) return null;
-  try { return JSON.parse(record.conformityJson); }
-  catch { throw new HttpError(500, 'Stored conformity state is invalid JSON', 'corrupt_conformity'); }
-}
-async function _writeState(recordId, state) {
-  return prisma.project.update({
-    where: { id: recordId },
-    data: { conformityJson: JSON.stringify(state) },
-  });
-}
 
-router.get('/:id/conformity', requireScope('read'), asyncHandler(async (req, res) => {
-  const record = await _loadRecord(req);
-  const state = _readState(record) || conformity.buildTemplate();
-  res.json({ state, summary: conformity.summarise(state) });
-}));
-
-router.post('/:id/conformity/start', requireScope('write'), asyncHandler(async (req, res) => {
-  const record = await _loadRecord(req);
-  if (record.conformityJson) {
-    throw new HttpError(409, 'Conformity assessment already started', 'already_started');
-  }
-  const state = conformity.buildTemplate();
-  if (req.body && req.body.route) state.route = req.body.route;
-  await _writeState(record.id, state);
-  await audit(req, 'project.conformity.start', {
-    resource: 'project', resourceId: record.id,
-    details: { route: state.route },
-  });
-  res.json({ state, summary: conformity.summarise(state) });
-}));
-
-const ConformityItemSchema = z.object({
-  itemId:   z.string().min(1).max(64),
-  status:   z.enum(conformity.STATUSES).optional(),
-  evidence: z.string().max(4000).optional(),
-});
-router.patch('/:id/conformity/item', requireScope('write'), validate(ConformityItemSchema), asyncHandler(async (req, res) => {
-  const record = await _loadRecord(req);
-  const state = _readState(record) || conformity.buildTemplate();
-  conformity.updateItem(state, req.body.itemId, {
-    status: req.body.status,
-    evidence: req.body.evidence,
-  });
-  await _writeState(record.id, state);
-  await audit(req, 'project.conformity.update', {
-    resource: 'project', resourceId: record.id,
-    details: { itemId: req.body.itemId, status: req.body.status },
-  });
-  res.json({ state, summary: conformity.summarise(state) });
-}));
-
-const AttestSchema = z.object({
-  signatureName: z.string().min(2).max(200),
-  signatureRole: z.string().min(2).max(200),
-});
-router.post('/:id/conformity/attest', requireScope('write'), validate(AttestSchema), asyncHandler(async (req, res) => {
-  const record = await _loadRecord(req);
-  const state = _readState(record);
-  if (!state) throw new HttpError(409, 'Start the conformity assessment first', 'not_started');
-  try {
-    conformity.attest(state, {
-      signedBy:      req.user.id,
-      signatureName: req.body.signatureName,
-      signatureRole: req.body.signatureRole,
-    });
-  } catch (e) {
-    if (e.code === 'not_ready') throw new HttpError(409, e.message, 'not_ready');
-    throw e;
-  }
-  await _writeState(record.id, state);
-  await audit(req, 'project.conformity.attest', {
-    resource: 'project', resourceId: record.id,
-    details: { signedBy: req.user.id, signatureName: req.body.signatureName },
-  });
-  res.json({ state, summary: conformity.summarise(state) });
-}));
-
-router.get('/:id/conformity/checklist-template', requireScope('read'), asyncHandler(async (_req, res) => {
-  res.json({ version: conformity.VERSION, sections: conformity.CHECKLIST });
-}));
-
-// ─── Model Evaluations (Article 15 — accuracy, robustness, cybersecurity) ─
 const evals = require('../lib/ai-evals');
 
 router.get('/system/eval-suites', requireScope('read'), asyncHandler(async (_req, res) => {

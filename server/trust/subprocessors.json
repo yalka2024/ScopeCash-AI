@@ -3,8 +3,16 @@
   "version": "1.0.0",
   "subprocessors": [
     {
+      "name": "Google Cloud Platform (Google LLC)",
+      "purpose": "Application hosting, object storage, managed databases, background job queue (Cloud Tasks), secrets management (Secret Manager), and AI evidence analysis (Vertex AI / Gemini)",
+      "location": "US (region configurable per deployment)",
+      "data_categories": ["customer content (documents, evidence)", "customer data", "logs", "backups"],
+      "dpa_url": "https://cloud.google.com/terms/data-processing-addendum",
+      "compliance": ["SOC 2 Type II", "ISO 27001", "ISO 27018", "HIPAA BAA available"]
+    },
+    {
       "name": "Amazon Web Services (AWS)",
-      "purpose": "Application hosting, object storage, managed databases",
+      "purpose": "Optional S3-compatible object storage backend (alternative to Google Cloud Storage)",
       "location": "US, EU (multi-region)",
       "data_categories": ["customer data", "logs", "backups"],
       "dpa_url": "https://aws.amazon.com/service-terms/",

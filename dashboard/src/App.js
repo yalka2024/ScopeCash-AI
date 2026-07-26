@@ -17,12 +17,8 @@ import TrustPortalPage from './TrustPortalPage';
 import GovernancePage from './GovernancePage';
 import PricingPage from './PricingPage';
 import LandingPage from './LandingPage';
-import { SecurityPage, PrivacyPage, TermsPage, AboutPage } from './LegalPages';
+import { SecurityPage, PrivacyPage, TermsPage, AiLimitationsPage, AboutPage } from './LegalPages';
 import OnboardingWizard from './OnboardingWizard';
-
-
-
-import Article6WizardPage from './Article6WizardPage';
 import EvaluationsPage from './EvaluationsPage';
 import SetupPage from './SetupPage';
 import IntegrationsPage from './IntegrationsPage';
@@ -35,7 +31,6 @@ function initialPageFromHash() {
   if (typeof window === 'undefined') return 'home';
   const h = window.location.hash;
   if (h === '#pricing')      return 'pricing';
-  if (h === '#article-6')    return 'article-6';
   if (h === '#setup')        return 'setup';
   if (h === '#integrations') return 'integrations';
   if (h === '#help' || h.indexOf('#help/') === 0) return 'help';
@@ -45,6 +40,7 @@ function initialPageFromHash() {
   if (h === '#security') return 'security';
   if (h === '#privacy')  return 'privacy';
   if (h === '#terms')    return 'terms';
+  if (h === '#ai-limitations') return 'ai-limitations';
   if (h === '#about')    return 'about';
   return 'home';
 }
@@ -74,7 +70,6 @@ export default function App() {
       onLogin:   () => setPage('login'),
     };
     if (page === 'pricing')   return <PricingPage onNavigateToAuth={nav.onLogin} />;
-    if (page === 'article-6') return <Article6WizardPage onHome={nav.onHome} />;
     if (page === 'setup')     return <SetupPage onHome={nav.onHome} onLogin={nav.onLogin} />;
     if (page === 'integrations') return <IntegrationsPage onHome={nav.onHome} />;
     if (page === 'help')      return <HelpCenterPage onHome={nav.onHome} onLogin={nav.onLogin} />;
@@ -82,6 +77,7 @@ export default function App() {
     if (page === 'security') return <SecurityPage {...nav} />;
     if (page === 'privacy')  return <PrivacyPage  {...nav} />;
     if (page === 'terms')    return <TermsPage    {...nav} />;
+    if (page === 'ai-limitations') return <AiLimitationsPage {...nav} />;
     if (page === 'about')    return <AboutPage    {...nav} />;
     return <LandingPage onPricing={nav.onPricing} onLogin={nav.onLogin} />;
   }

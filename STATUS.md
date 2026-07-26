@@ -323,6 +323,70 @@ non-code items.
   (true today); would need adjustment if billing ever moves to multiple
   payment sources per org.
 
+## Phase 6 — Legal pages + EU AI Act legacy removal (DONE, 2026-07-26)
+
+- **Removed, not just relabeled**, the EU AI Act legacy product surface the
+  audit specifically called out as needing more than "the two React files":
+  - `dashboard/src/Article6WizardPage.js`, `ConformityCard.js` (already
+    orphaned), and `VerdictCard.js` (also orphaned) — deleted.
+  - `server/routes/eu-ai-act.js`, `routes/article6-lead.js` — deleted, along
+    with their `index.js` mounts.
+  - `server/lib/eu-ai-act-classifier.js`, `lib/annex-iv-generator.js`,
+    `lib/conformity.js` (~1,080 lines) — deleted, along with the
+    `/:id/classify`, `/:id/annex-iv.{json,pdf}`, and `/:id/conformity/*`
+    endpoints in `routes/project.js` that used them. Verified zero test
+    coverage depended on any of this before removing it. The generic
+    eval-suite endpoints that shared the file were kept (reusable
+    infrastructure, not EU-AI-Act-specific despite a misleading comment).
+  - The `article6Verdict` email template — deleted.
+  - `routes/help.js`'s entire help-center content (404 lines, every article
+    EU-AI-Act-focused, several pointing at now-deleted API endpoints) —
+    rewritten with accurate ScopeCash content (evidence pipeline, citation
+    enforcement, real API examples).
+  - `PricingPage.js`'s EU-AI-Act-framed feature bullets — corrected.
+- `dashboard/src/LegalPages.js` rewritten: Security, Privacy, Terms, About,
+  plus a new **AI Limitations** page (explicitly named in the audit) —
+  contractor-specific framing throughout: CCPA/CPRA instead of GDPR
+  Articles, biometric/recording consent language for jobsite photos/audio,
+  an explicit "human must review every finding, AI cannot approve a
+  packet or advance the outcome ledger" section, and a governing-law
+  section with a bracketed placeholder instead of a copy-pasted Ireland
+  jurisdiction claim.
+- `server/trust/tos-template.md`, `privacy-template.md`, `dpa-template.md`
+  rewritten to match (contractor Acceptable Use clause covering unlawful
+  recordings/fabricated evidence, AI Limitations section, CCPA/CPRA
+  privacy-rights section, US governing-law placeholder).
+  `security-overview.md` and `subprocessors.json` corrected to list Google
+  Cloud Platform (now the actual AI/hosting/storage/secrets/task-queue
+  processor per Phases 2–3) rather than omitting it entirely, and softened
+  a GDPR-specific 72-hour breach-notification figure to general
+  "applicable state law" language. `compliance.json`,
+  `retention-schedule.json`, and `security-controls.json` were already
+  correctly US/contractor-framed (a prior generation pass must have fixed
+  these but missed the legal pages) — left as-is.
+- **Every rewritten legal document is explicitly marked DRAFT** with
+  bracketed placeholders (`[LEGAL ENTITY NAME]`, `[STATE OF INCORPORATION]`,
+  `[GOVERNING STATE]`) and a visible banner stating it needs attorney
+  review before being relied on — an AI agent cannot supply a real legal
+  entity, jurisdiction, or counsel sign-off, and pretending otherwise would
+  be worse than leaving the placeholder visible.
+- Server test suite (143 tests) and dashboard production build both
+  verified clean after every removal.
+
+### Known gaps / not done in Phase 6
+
+- `server/trust/ropa-template.md` (Record of Processing Activities — a
+  GDPR Article 30 artifact) left untouched: lower priority for a US-only
+  product, not linked from the rewritten legal pages, still reachable via
+  `/api/trust/documents/` directly if a customer asks for it.
+- `dashboard/src/GovernancePage.js` (the "Governance" nav item — AI model
+  registry / policy tracker) not audited for EU-specific framing; deferred
+  to the Final phase's broader nav review.
+- The full navigation IA rewrite (Dashboard/AI Assistant/Data/Tools/Trust/
+  Marketplace → Projects/Evidence/Findings/Packets/Outcomes/etc.) is
+  explicitly the Final-phase task, not done here — Phase 6 only removed
+  what no longer belongs, it didn't build the correct replacement nav.
+
 ## Not yet started
 
 See TODO.md.

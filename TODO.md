@@ -30,14 +30,10 @@ is in STATUS.md. Everything below is either in progress or not started.
 - [x] **Phase 5 — Competition Evidence Center.** See STATUS.md. Remaining
       follow-ups: purpose-built forms for logging deployment/uptime
       evidence and revenue classification (currently generic CRUD only).
-- [ ] **Phase 6 — Legal pages.** `dashboard/src/LegalPages.js` and
-      `server/trust/*.md` still describe an EU-first AI Act compliance
-      product hosted in Frankfurt. Needs US contractor-focused ToS/Privacy/AI
-      Limitations/DPA (placeholders for legal entity + governing state,
-      flagged for counsel review — see non-code items below), CCPA/CPRA,
-      jobsite/employee/customer data handling, biometric/location/audio
-      consent. Remove `Article6WizardPage` from `dashboard/src/App.js` and
-      any orphaned `ConformityCard`/EU-specific server routes.
+- [x] **Phase 6 — Legal pages + EU AI Act removal.** See STATUS.md.
+      Remaining follow-ups: `ropa-template.md` (GDPR-specific, low priority),
+      `GovernancePage.js` not yet audited, full nav IA rewrite is the Final
+      phase task.
 - [ ] **Phase 7 — Remaining mock tool stubs.** `CloudTasksEnqueuer`,
       `SecretManagerClient` (folds into Phase 3). `EmailNotificationSender`
       already has a real path (Resend/SendGrid); `MalwareScanHook` already

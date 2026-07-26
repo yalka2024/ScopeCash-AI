@@ -3,16 +3,16 @@ import { getPublicPlans, isLoggedIn, startCheckout } from './api';
 import { Button } from './components/ui/button';
 
 /**
- * PricingPage — public-facing 3-tier pricing card, framed for EU AI Act
- * compliance buyers (DPOs, CISOs, AI governance leads). Shows the live
- * plans catalog from /api/billing/plans/public so prices stay in sync
- * with entitlements.js (single source of truth). Dark theme (matches the app).
+ * PricingPage — public-facing 3-tier pricing card for specialty contractors
+ * documenting scope changes and unbilled work. Shows the live plans catalog
+ * from /api/billing/plans/public so prices stay in sync with
+ * entitlements.js (single source of truth). Dark theme (matches the app).
  */
 
 const FEATURE_LABELS = {
-  ai_features: 'AI risk classification (Article 6 + Annex III)',
-  audit_log: 'Immutable audit log (Article 12)',
-  data_export: 'Data export (GDPR Art. 20)',
+  ai_features: 'AI evidence analysis (Gemini via Vertex AI)',
+  audit_log: 'Immutable audit log',
+  data_export: 'Data export',
   webhooks: 'Webhooks',
   api_access: 'REST API access',
   team_collaboration: 'Team collaboration & roles',
@@ -204,11 +204,12 @@ export default function PricingPage({ onNavigateToAuth }) {
 
       <footer className="mt-10 text-center text-sm text-muted-foreground">
         <p>
-          All plans include audit-grade evidence retention, GDPR-compliant data processing
-          {' '}(DPA available), and the EU AI Act risk classifier covering Article 5 (prohibited),
-          Article 6 + Annex III (high-risk), and Article 50 (transparency) obligations.
+          All plans include audit-grade evidence retention, a Data Processing
+          {' '}Addendum on request, and citation-backed AI evidence analysis —
+          every finding is grounded in your uploaded documents and field
+          evidence, not a freehand assertion.
         </p>
-        <p>Prices in {currency}. VAT not included. Cancel anytime.</p>
+        <p>Prices in {currency}. Sales tax not included where applicable. Cancel anytime.</p>
       </footer>
     </div>
   );

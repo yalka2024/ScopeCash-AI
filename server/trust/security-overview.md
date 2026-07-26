@@ -5,9 +5,11 @@
 ## Architecture
 - **Web tier:** Express 5 on Node 20 LTS, behind a reverse proxy with TLS termination at the edge.
 - **API tier:** Same process; rate-limited per-IP and per-API-key.
-- **Background workers:** BullMQ on Redis for async/scheduled work (webhook delivery, usage aggregation, dunning sweep).
-- **Persistence:** PostgreSQL (production) via Prisma; better-sqlite3 supported for development & demos only.
-- **Object storage:** Pluggable driver (`local` for dev, `s3` for production).
+- **AI processing:** Google Gemini via Vertex AI (Application Default Credentials, no API-key handling) for document extraction, evidence interpretation, and finding generation.
+- **Background workers:** BullMQ on Redis, or Google Cloud Tasks (push-based, OIDC-verified) for async/scheduled work — evidence analysis, webhook delivery, usage aggregation, dunning sweep.
+- **Persistence:** PostgreSQL (production) via Prisma, with row-level security enforced at the database layer; better-sqlite3 supported for development & demos only.
+- **Object storage:** Pluggable driver (`local` for dev, `s3` for S3-compatible providers, `gcs` for Google Cloud Storage in production).
+- **Secrets:** Google Secret Manager at runtime in production, not environment files.
 
 ## Identity & Access
 - Cookie sessions on the dashboard, JWT (15-minute access, 14-day refresh) for the API.
@@ -37,7 +39,7 @@
 
 ## Incident Response
 - 24×7 paging via on-call rotation.
-- Customer notification within 72 hours of confirmed personal-data breach.
+- Customer notification without unreasonable delay after a confirmed security incident involving customer data, consistent with applicable state breach-notification law.
 - Postmortem published within 14 days for any P0/P1 customer-impacting event.
 
 ## Reporting Vulnerabilities

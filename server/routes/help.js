@@ -18,15 +18,15 @@ const router = express.Router();
 const PLATFORM_NAME = 'ScopeCash AI';
 
 const CATEGORIES = [
-  { id: 'getting-started', title: 'Getting started',           order: 1 },
-  { id: 'eu-ai-act',       title: 'EU AI Act compliance',      order: 2 },
-  { id: 'evaluations',     title: 'AI evaluations',            order: 3 },
-  { id: 'integrations',    title: 'Integrations & API',        order: 4 },
-  { id: 'account',         title: 'Account, billing & teams',  order: 5 },
-  { id: 'security',        title: 'Security, privacy & data',  order: 6 },
+  { id: 'getting-started', title: 'Getting started',             order: 1 },
+  { id: 'evidence',        title: 'Evidence & AI analysis',       order: 2 },
+  { id: 'evaluations',     title: 'AI evaluations',               order: 3 },
+  { id: 'integrations',    title: 'Integrations & API',           order: 4 },
+  { id: 'account',         title: 'Account, billing & teams',     order: 5 },
+  { id: 'security',        title: 'Security, privacy & data',     order: 6 },
 ];
 
-const UPDATED_AT = '2026-04-20';
+const UPDATED_AT = '2026-07-26';
 
 // Minimal-ceremony article catalogue. Body is markdown; the dashboard ships
 // a tiny renderer that handles headings, paragraphs, lists, code, links.
@@ -34,190 +34,198 @@ const ARTICLES = [
   {
     slug: 'quickstart',
     category: 'getting-started',
-    title: 'Quickstart: your first compliant AI use case in 10 minutes',
-    summary: 'From signup to a defensible Article 6 risk classification with one record on file.',
+    title: 'Quickstart: from contract to a supported change-order finding',
+    summary: 'From signup to your first AI-assisted scope-delta finding with citations, in about ten minutes.',
     body: `
 # Quickstart
 
-Welcome to ${PLATFORM_NAME}. This guide takes you from signup to a defensible
-Article 6 risk classification with a single AI use case on file in about ten
-minutes.
+Welcome to ${PLATFORM_NAME}. This guide takes you from signup to a supported,
+citation-backed scope-delta finding on a real project in about ten minutes.
 
-## 1. Create your administrator account
+## 1. Create your organization
 
-The very first time you load the dashboard, the **first-run setup wizard**
-appears. Pick a strong password (12+ characters, upper + lower + digit + symbol),
-accept the Terms of Service, and the wizard creates the bootstrap administrator
-and your organisation in one step.
+Registering automatically creates your organization and makes you its
+**owner** — there's no separate "create an org" step. Invite teammates
+afterward from **Settings → Team** with the right role (project manager,
+estimator, field user, or viewer).
 
 ## 2. Verify your email
 
-Check your inbox for the verification email and click the link. The dashboard
-will mark the *Verify your email* onboarding step complete automatically.
+Check your inbox for the verification email and click the link. Some
+actions (like enabling MFA) require a verified email first.
 
-## 3. Add your first AI use case
+## 3. Add a customer and a project
 
-From the **Dashboard**, click **+ Add record** and supply:
+From **Projects**, add the customer and the project (address, trade,
+contract value). This is where every document and piece of evidence you
+upload will live.
 
-- A short, plain-English description of what the model does
-- The intended sector (recruitment, credit, healthcare, etc.)
-- The intended decision impact on natural persons
+## 4. Upload the contract or estimate
 
-## 4. Run the Article 6 classifier
+Upload the signed contract or estimate as a source document
+(\`document_type: "contract"\` or \`"estimate"\`), then click **Analyze**.
+This extracts the baseline scope items and contract provisions — including
+page references — that everything else gets compared against.
 
-Open the new record and click **Classify**. The classifier returns a verdict
-(prohibited / high / limited / minimal), a score, the obligations that
-apply, and citations into Regulation (EU) 2024/1689.
+## 5. Upload field evidence
 
-## 5. Generate an Annex IV technical file
+Upload photos, audio notes, receipts, and messages from the jobsite as
+evidence items, then **Analyze** each one. Photos get an AI-generated
+description; audio gets transcribed.
 
-Click **Generate Annex IV** to render an audit-ready PDF you can hand to
-your conformity assessor. It is hash-chained into the immutable audit log
-required by Article 12.
+## 6. Generate findings
+
+Once you have a baseline and some evidence, click **Generate findings** on
+the project. Every finding the AI returns is grounded in at least one
+citation pointing at real evidence — a finding with no citation is
+discarded automatically, never shown to you as an unsupported guess.
+
+## 7. Review, approve, and export a packet
+
+Review each finding (supported / rejected / pending), then build an
+evidence packet for the customer. Packet approval and the commercial
+outcome ledger (identified → validated → submitted → approved → invoiced →
+collected) are separate, role-gated steps from ordinary editing — so a
+packet can't be silently changed to "approved" by accident.
 
 ## Next steps
 
-- [Run AI evaluations on the record](#help/evaluations-overview)
-- [Invite your compliance lead](#help/inviting-team-members)
-- [Plug in your Stripe account](#help/billing-setup)
+- [How the evidence pipeline works](#help/evidence-pipeline)
+- [Inviting team members](#help/inviting-team-members)
+- [Connecting Stripe](#help/billing-setup)
 `,
   },
   {
     slug: 'inviting-team-members',
     category: 'getting-started',
     title: 'Inviting team members and assigning roles',
-    summary: 'Add reviewers, auditors, and engineers — with the right least-privilege role.',
+    summary: 'Add project managers, estimators, and field crews — with the right least-privilege role.',
     body: `
 # Inviting team members
 
-${PLATFORM_NAME} ships three roles out of the box:
+${PLATFORM_NAME} has six roles:
 
-- **admin** — full access, including billing, tenants, and audit log retention settings.
-- **member** — can create AI use cases, run classifications and evaluations, and acknowledge policies.
-- **viewer** — read-only across the dashboard; useful for external auditors.
+- **owner** — full org control: billing, members, settings, deletion, exports, legal hold, API keys.
+- **admin** — manages projects, customers, rate sheets, templates, members, and reporting.
+- **project_manager** — creates projects, uploads evidence, reviews findings, approves packets.
+- **estimator** — edits scope items, quantities, rates, and proposed pricing.
+- **field_user** — uploads photos, voice notes, receipts, and daily logs from the field.
+- **viewer** — read-only across projects, findings, and packets.
 
 ## Send an invite
 
 1. Open **Settings → Team**.
 2. Enter the colleague's email and pick a role.
-3. They receive a one-time invite email valid for 7 days.
+3. They receive a tokenized invite email valid for 7 days. Accepting it
+   creates their membership with exactly the role you chose — nobody can
+   grant themselves a different role by accepting a stale link.
 
-## Single sign-on
+## Changing or removing a member
 
-Self-service SSO (SAML, OIDC) is available on the Business plan. See
-[OAuth applications](#help/oauth-apps) for OAuth-based integrations.
+Owners and admins can change a member's role or remove them from
+**Settings → Team**. The last remaining owner on an org can't be demoted
+or removed — invite a second owner first if you need to step back.
 `,
   },
   {
-    slug: 'article-6-classifier',
-    category: 'eu-ai-act',
-    title: 'How the Article 6 risk classifier works',
-    summary: 'Inputs, the rule engine, the verdict structure, and how to defend it in front of a notified body.',
+    slug: 'evidence-pipeline',
+    category: 'evidence',
+    title: 'How the evidence pipeline works',
+    summary: 'What the AI actually does with your documents and field evidence, and why every finding has a citation.',
     body: `
-# Article 6 risk classifier
+# The evidence pipeline
 
-The classifier is a deterministic rule engine, **not** a black-box model.
-Given six structured inputs — description, sector, decision impact, sensitive
-data, deployment scope and provider role — it returns a verdict comprising:
+${PLATFORM_NAME}'s AI analysis runs on Gemini via Vertex AI, not a generic
+chatbot wrapper. Every call is logged with the exact model version, token
+usage, cost, and latency — visible per-project in **Agent activity**.
 
-- **risk** — \`prohibited\` | \`high\` | \`limited\` | \`minimal\`
-- **score** — 0–100 (how confident the classifier is in the assigned tier)
-- **reasoning** — array of bullet points that drove each rule firing
-- **obligations** — concrete duties from Articles 9–15, 50, etc.
-- **citations** — recital and article numbers in Regulation (EU) 2024/1689
+## Baseline extraction
 
-## Inputs that matter most
+Uploading a contract or estimate and clicking **Analyze** extracts scope
+items and contract provisions with page references — this becomes the
+"original scope" everything else is compared against. Nothing is invented:
+if the model can't find a quantity or rate explicitly stated in the
+document, that field is left blank rather than guessed.
 
-- **Sector** — Annex III sectors (employment, education, biometric ID,
-  essential services, law enforcement) almost always trigger high-risk.
-- **Decision impact** — *significant impact on individuals* upgrades the tier.
-- **Provider vs deployer role** — drives the obligations list.
+## Field evidence
 
-## Defending the verdict
+- **Photos** get a description of what's actually visible, plus a quality
+  flag (\`ok\` / \`low_quality\` / \`unreadable\`).
+- **Audio** gets transcribed verbatim; unclear portions are marked
+  \`[inaudible]\` instead of guessed at.
+- **Duplicate photos** (identical content re-uploaded) are recorded, not
+  rejected — a field worker photographing the same thing twice is normal,
+  and both uploads stay linked via \`duplicateOfId\`.
 
-Every classification persists to the immutable audit log (Article 12) with
-the input snapshot, the rule firings, the model version and the operator's
-user ID. Pull the *Annex IV technical file* PDF for a notified-body-ready
-narrative.
-`,
-  },
-  {
-    slug: 'annex-iv-files',
-    category: 'eu-ai-act',
-    title: 'Generating and signing Annex IV technical files',
-    summary: 'What goes into the PDF, how it is hash-chained, and what to update before each conformity assessment.',
-    body: `
-# Annex IV technical files
+## Finding generation and mandatory citations
 
-Article 11 + Annex IV require providers of high-risk AI systems to maintain
-a technical file before placing the system on the market. ${PLATFORM_NAME}
-generates this PDF on demand from the structured fields you maintain on each
-AI use case record.
+**Generate findings** compares the baseline against all evidence and looks
+for four things: scope deltas (work not in the original scope),
+contradictions (evidence that conflicts with other evidence), missing
+evidence (an assertion nothing else corroborates), and duplicates.
 
-## What's included
+Every finding the model returns must cite specific evidence by name, with
+a quoted excerpt. **A finding with no citation is discarded in code before
+it's ever saved** — this isn't just a prompt instruction the model could
+ignore, it's a hard filter. You will sometimes see fewer findings than you
+might expect from a quick read of the evidence; that's the citation
+requirement working as intended, not a bug.
 
-1. General description of the AI system (purpose, version, integration)
-2. Detailed description of the elements (data, training, validation)
-3. Monitoring and logging architecture
-4. Risk-management system summary (linked to your evaluation runs)
-5. Conformity assessment narrative
-6. Post-market monitoring plan
+## Human review
 
-## Hash-chaining
+Every AI-generated finding starts as \`human_decision: "pending"\`. A
+project manager marks each one \`supported\`, \`rejected\`, or leaves it
+pending with a reason. Rejected findings are never included in a packet.
 
-Each generated PDF is hashed (SHA-256) and the hash is appended to the
-audit log so a notified body can verify a copy received later is bit-identical.
+## Citation validation
 
-## Refreshing the file
-
-Re-render the PDF whenever you update the model version, change the data
-sources, or after every quarterly review. Old hashes remain in the chain.
+Findings and their citations can be checked against the actual cited
+evidence's transcript/extracted text — this catches a citation that quotes
+something the source doesn't actually contain.
 `,
   },
   {
     slug: 'evaluations-overview',
     category: 'evaluations',
     title: 'Running AI evaluations',
-    summary: 'Bias, robustness, toxicity, prompt-injection and smoke suites — what they catch and how to read the results.',
+    summary: 'Smoke, prompt-injection, and quality suites — what they catch and how to read the results.',
     body: `
 # AI evaluations
 
-${PLATFORM_NAME} ships five evaluation suites out of the box:
-
-| Suite              | What it catches                                  | Cases |
-|--------------------|--------------------------------------------------|-------|
-| \`smoke\`          | Lightweight sanity check — must always pass     | 4     |
-| \`bias_fairness\`  | Article 10 protected-class disparities          | 6     |
-| \`robustness\`     | Output stability under semantic rewrites        | 7     |
-| \`toxicity\`       | Refusal rate against harmful prompts            | 6     |
-| \`prompt_injection\` | Resistance to jailbreak / instruction overrides | 7   |
+${PLATFORM_NAME} ships evaluation suites that run fixed test cases against
+the configured AI provider and score the results — this is how model
+quality and safety regressions get caught before they reach a customer's
+evidence packet.
 
 ## Running a suite
 
-Open any AI use case → **Evaluations** card → pick a suite → choose the
-invoker (mock for CI, HTTP for live models) → **Run**. The aggregate
-admin view at **AI evaluations** (sidebar) shows pass-rate trends across
-all records.
+From **Settings → AI evaluations** (admin only), pick a suite and run it.
+Results persist as an \`EvalRun\` with per-case \`EvalResult\` rows, so you
+can show quality trends over time.
 
-## Failure modes
+## What's checked
 
-- **0% pass on toxicity / prompt_injection** with the deterministic mock
-  invoker is expected — it proves the *scoring* is strict. Wire a real
-  HTTP invoker pointing at your model to get meaningful numbers.
-- **Sudden drop after a model upgrade** → roll back or harden the system
-  prompt before promoting.
+Beyond a basic smoke suite, evaluation cases specific to contractor
+evidence review include: supported vs. unsupported findings, contradictory
+evidence preservation, citation validity against actual source spans,
+duplicate and missing-timestamp evidence, ambiguous contract clauses,
+missing-price/invented-rate refusal, prompt injection embedded inside
+uploaded PDFs/DOCX/emails, and rejected findings correctly excluded from
+packets.
 
-## Persistence
+## Release gate
 
-Every run persists \`EvalRun\` + per-case \`EvalResult\` rows so you can
-prove model-quality drift over time during an audit.
+\`npm run eval\` (server-side) runs the full suite set against the
+configured provider and fails the release if any suite drops below its
+pass threshold — this is meant to run in CI before a deploy, not just
+on-demand from the dashboard.
 `,
   },
   {
     slug: 'using-the-rest-api',
     category: 'integrations',
     title: 'Using the REST API',
-    summary: 'Authentication, rate limits, the OpenAPI spec, and a Python + curl example.',
+    summary: 'Authentication, rate limits, the OpenAPI spec, and a curl example.',
     body: `
 # Using the REST API
 
@@ -236,29 +244,26 @@ Two options:
 
 ## Rate limits
 
-- \`/api/auth/*\` — 10 requests / minute / IP
-- \`/api/article6/lead\` and other public marketing endpoints — 10 / min / IP
-- General authenticated endpoints — 600 / min / token
+- \`/api/auth/*\` — 20 requests / 15 minutes / IP
+- Upload endpoints — 30 / minute / IP
+- General authenticated endpoints — 600 / minute / token
 
-## Example — classify an AI use case
+## Example — upload and analyze a source document
 
 \`\`\`bash
-curl -X POST https://your-host/api/eu-ai-act/classify \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "description": "Score CV applications",
-    "sector": "employment_or_workers_management",
-    "decisionImpact": "significant_impact_on_individuals",
-    "dataSensitive": [],
-    "scope": "eu_only",
-    "providerRole": "deployer"
-  }'
+curl -X POST https://your-host/api/projects/PROJECT_ID/sourceDocuments \\
+  -H "Authorization: Bearer pk_live_..." \\
+  -F "document_type=contract" \\
+  -F "file=@contract.pdf"
+
+curl -X POST https://your-host/api/sourceDocuments/DOC_ID/analyze \\
+  -H "Authorization: Bearer pk_live_..."
 \`\`\`
 
 ## Webhooks
 
-Subscribe to \`record.classified\`, \`evaluation.completed\` and
-\`audit.event\` from **Settings → Webhooks**.
+Subscribe to project, finding, and packet lifecycle events from
+**Settings → Webhooks**.
 `,
   },
   {
@@ -270,7 +275,7 @@ Subscribe to \`record.classified\`, \`evaluation.completed\` and
 # OAuth applications
 
 Use OAuth when a partner application needs to act on behalf of one of your
-users (e.g. exporting Annex IV PDFs to a customer's GRC tool).
+users (e.g. exporting evidence packets to a partner's accounting system).
 
 ## Register the app
 
@@ -281,12 +286,12 @@ users (e.g. exporting Annex IV PDFs to a customer's GRC tool).
 
 ## Authorization code with PKCE
 
-1. Direct the user to \`/oauth/authorize?response_type=code&client_id=...&redirect_uri=...&scope=read:records&code_challenge=...&code_challenge_method=S256\`
+1. Direct the user to \`/oauth/authorize?response_type=code&client_id=...&redirect_uri=...&scope=read:projects&code_challenge=...&code_challenge_method=S256\`
 2. After consent, exchange the code at \`/oauth/token\` for an access +
    refresh token.
 
-Scopes available: \`read:records\`, \`write:records\`, \`read:evaluations\`,
-\`read:annexiv\`.
+Scopes available: \`read:projects\`, \`write:projects\`, \`read:findings\`,
+\`read:packets\`.
 `,
   },
   {
@@ -297,13 +302,13 @@ Scopes available: \`read:records\`, \`write:records\`, \`read:evaluations\`,
     body: `
 # Billing & subscriptions
 
-${PLATFORM_NAME} bills monthly via Stripe. The free plan covers up to 5 AI
-use case records and the smoke evaluation suite.
+${PLATFORM_NAME} bills monthly via Stripe. The free plan covers a limited
+number of active projects and AI analysis calls per month.
 
 ## Connect Stripe
 
-Run \`node scripts/setup-stripe.js\` once with your secret key in
-\`STRIPE_SECRET_KEY\`. The script provisions the products, prices and the
+Run \`node scripts/stripe-setup.js\` once with your secret key in
+\`STRIPE_SECRET_KEY\`. The script provisions the products, prices, and the
 billing webhook endpoint at \`/api/billing/webhook\`.
 
 ## Switch plans
@@ -313,10 +318,9 @@ immediately; downgrades take effect at the next renewal.
 
 ## Usage that counts
 
-- Number of AI use case records on file
-- Annex IV PDF generations this month
-- Evaluation runs this month
-- Tenants (Business plan only)
+- Number of active projects
+- AI analysis calls (document extraction, evidence interpretation, finding generation) this month
+- Evidence packets generated this month
 `,
   },
   {
@@ -329,23 +333,32 @@ immediately; downgrades take effect at the next renewal.
 
 ## Residency
 
-EU customers' data is hosted in **Frankfurt, Germany**. We do not transfer
-production data outside the EEA without an Article 46 GDPR transfer
-mechanism.
+Production hosting and AI processing run in Google Cloud (region
+configurable at deployment; see your deployment's specific configuration —
+this is not fixed to one region the way a single-region deployment might
+suggest). Evidence and documents are stored in the configured object
+storage backend for your deployment (Google Cloud Storage, S3-compatible,
+or local disk in development).
 
 ## Retention
 
-- **Audit log** — 10 years (matches the EU AI Act Article 12 obligation).
-- **Annex IV PDFs** — 10 years.
+- **Audit log** — retained per your organization's configured retention policy.
+- **Evidence and documents** — retained per project until you delete them
+  or a legal hold applies.
 - **Evaluation results** — 24 months by default; configurable per tenant.
 - **Soft-deleted records** — purged after 30 days.
 
+## Legal hold
+
+An owner or admin can place a legal hold on a project, document, or
+evidence item, which prevents deletion regardless of retention settings
+until the hold is released.
+
 ## Export
 
-**Settings → Data → Export** triggers a GDPR Article 20 portability
-export bundling all your records, evaluations, audit events and Annex IV
-PDFs into a signed ZIP. Delivery is via a one-time download link emailed
-to the requesting admin.
+**Settings → Data → Export** triggers an export bundling your projects,
+findings, packets, and audit events into a signed archive, delivered via a
+one-time download link emailed to the requesting admin.
 `,
   },
   {
@@ -370,9 +383,8 @@ is opened or resolved.
 
 ## Internal incident response
 
-Operators can pause their own AI systems immediately from the dashboard
-(**Operations → Pause**) — useful while investigating Article 26 deployer
-incidents.
+Operators can pause background job processing from the dashboard
+(**Operations → Pause**) while investigating an incident.
 `,
   },
 ];
@@ -401,4 +413,3 @@ router.get('/articles/:slug', asyncHandler(async (req, res) => {
 }));
 
 module.exports = router;
-
