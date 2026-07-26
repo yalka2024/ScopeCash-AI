@@ -76,18 +76,38 @@ async function restoreSqlite(archive, force) {
 }
 
 function restorePostgres(archive) {
-  // Streams `gunzip archive | psql DB_URL`. Requires psql on PATH.
+  // Streams `gunzip archive | psql DB_URL`. Requires psql on PATH, matching
+  // (or compatible with) the target server's major version — a real DR
+  // drill found a newer pg_dump's output can include SET directives an
+  // older server's psql doesn't recognize (e.g. `transaction_timeout`,
+  // Postgres 17+ only), which psql --set ON_ERROR_STOP=on correctly aborts
+  // on. See ops/Dockerfile, which pins client tools to the deployed server's
+  // major version for exactly this reason.
   return new Promise((resolve, reject) => {
     const psql = spawn('psql', ['--set', 'ON_ERROR_STOP=on', DB_URL]);
     const gunzip = zlib.createGunzip();
-    fs.createReadStream(archive).pipe(gunzip).pipe(psql.stdin);
     let stderr = '';
+    let settled = false;
+    const fail = (err) => { if (!settled) { settled = true; reject(err); } };
+    const finish = (code) => {
+      if (settled) return;
+      settled = true;
+      if (code === 0) resolve({ engine: 'postgres' });
+      else fail(new Error(`psql exit ${code}: ${stderr.trim()}`));
+    };
+
+    // psql exiting early (e.g. after ON_ERROR_STOP aborts it) closes its
+    // stdin before the gunzip stream is done writing — an expected EPIPE,
+    // not a real failure; psql's own exit code + stderr (below) already
+    // carries the real reason. Left unhandled, that EPIPE crashes the whole
+    // process with a raw stack trace instead of the actual psql error.
+    psql.stdin.on('error', (err) => { if (err.code !== 'EPIPE') fail(err); });
+    gunzip.on('error', (err) => fail(new Error(`invalid backup archive: ${err.message}`)));
+    fs.createReadStream(archive).on('error', fail).pipe(gunzip).pipe(psql.stdin);
+
     psql.stderr.on('data', (d) => { stderr += d.toString(); });
-    psql.on('error', (err) => reject(new Error(`psql failed to start: ${err.message} (is psql on PATH?)`)));
-    psql.on('close', (code) => {
-      if (code !== 0) return reject(new Error(`psql exit ${code}: ${stderr}`));
-      resolve({ engine: 'postgres' });
-    });
+    psql.on('error', (err) => fail(new Error(`psql failed to start: ${err.message} (is psql on PATH?)`)));
+    psql.on('close', finish);
   });
 }
 

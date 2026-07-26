@@ -1,0 +1,8 @@
+# Shell scripts run inside Linux containers via their shebang line — a CRLF
+# checkout (the Windows git default) breaks `#!/usr/bin/env bash` outright
+# ("bash\r: No such file or directory"). A real DR drill caught
+# ops/backup/pg-backup.sh silently broken this way; force LF so it can't
+# reappear on the next checkout.
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.dockerfile text eol=lf
