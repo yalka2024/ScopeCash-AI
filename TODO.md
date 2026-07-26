@@ -25,9 +25,8 @@ is in STATUS.md. Everything below is either in progress or not started.
   - [ ] Cloud SQL IAM database authentication.
   - [ ] GCP Terraform (`deploy/terraform/` is still AWS-only).
   - [ ] Cloud Logging structured fields / Cloud Monitoring alert policies.
-- [ ] **Phase 4 — Riverside HVAC demo.** Authored fictional contract/estimate/
-      photos/voice-note/messages, deterministic seed script, expected
-      findings + review decisions, a marked-fictional generated packet.
+- [x] **Phase 4 — Riverside HVAC demo.** See STATUS.md. `npm run
+      db:seed:demo`. No open follow-ups from this phase.
 - [ ] **Phase 5 — Competition Evidence Center.** `CompetitionEvidence` model
       exists (Phase 1); needs aggregation service, admin UI, arms-length vs.
       related-party classification, monthly breakdown, JSON/CSV/PDF exports,

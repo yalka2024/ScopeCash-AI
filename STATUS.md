@@ -233,6 +233,57 @@ non-code items.
 - Cloud Logging structured fields / Cloud Monitoring alert policies not
   done — folds into the broader P1 observability gap in TODO.md.
 
+## Phase 4 — Riverside HVAC demo (DONE, 2026-07-26)
+
+- `server/prisma/seed-riverside-demo.js` (`npm run db:seed:demo`): a fully
+  authored, deterministic, idempotent fictional scenario — "Summit
+  Mechanical Services" (contractor) and "Riverside Community Center"
+  (customer), a rooftop HVAC unit replacement. Every project name and the
+  generated packet are prefixed `[FICTIONAL DEMO]`. Covers every piece the
+  audit named:
+  - A real contract (curb-only reconnect scope, explicit ductwork/electrical
+    exclusions, a Section 4.2 "verbal approvals not binding" clause) and a
+    matching itemized estimate, seeded as `SourceDocument` + `ScopeItem`/
+    `ContractProvision` rows (as if `extractContractBaseline` had run).
+  - Photo + audio field evidence, seeded with the transcript/extractedText
+    `interpretImage`/`transcribeAudio` would have produced.
+  - A **duplicate photo**: two `EvidenceItem` rows with the same sha256 hash
+    and `duplicateOfId` linking them — this surfaced and fixed a real bug
+    (below).
+  - A **missing-timestamp photo** (`capturedAt: null`).
+  - A **contradiction**: two messages — one claiming verbal customer
+    approval, a later one explicitly denying any change-order approval —
+    become an `EvidenceFinding` of type `contradiction` with
+    `human_decision: 'pending'`.
+  - An **unsupported/rejected finding**: a single blurry, uncorroborated
+    photo produces a low-confidence (0.31) finding that a human reviewer
+    explicitly `reject`s with a reason — excluded from the packet.
+  - Two **supported** scope-delta findings (unauthorized ductwork run,
+    unauthorized panel breaker), each with real `Citation` rows.
+  - A `CommercialOutcome` + `StageTransition` ledger carried through
+    identified → validated → submitted (invoiced/collected deliberately not
+    reached — the project is "still in progress," not artificially completed).
+  - A **real, rendered PDF packet** via the existing (already-functional)
+    `PDFPacketRenderer` tool — genuinely a valid PDF (verified: `PDF
+    document, version 1.4, 4 page(s)`), not a placeholder — whose executive
+    summary explicitly states the rejected finding was excluded and the
+    contradiction finding is pending, and which totals only the two
+    supported findings ($2,150).
+  - Verified idempotent: running the script twice produces identical row
+    counts (same org/project/packet ids on the second run).
+- **Found and fixed a real bug while building this**: `EvidenceItem` had
+  `@@unique([orgId, sha256Hash])`. A field worker genuinely re-uploading the
+  same photo twice — exactly the "duplicate photo" scenario the audit asked
+  for — would have hit a Prisma unique-constraint violation and crashed
+  `POST /api/projects/:id/evidenceItems`, not gracefully recorded the
+  duplicate via `duplicateOfId` the way `routes/evidence.js` already
+  intended. Changed to a plain (non-unique) index; application code is now
+  what's responsible for detecting and flagging duplicates, not the DB
+  constraint. New regression test added
+  (`evidence-routes.test.js`: "re-uploading identical photo bytes succeeds
+  and records duplicateOfId").
+- Full suite: 121 passed, 12 skipped, 0 failed.
+
 ## Not yet started
 
 See TODO.md.

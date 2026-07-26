@@ -1225,7 +1225,11 @@ model EvidenceItem {
 
   citations Citation[]
 
-  @@unique([orgId, sha256Hash])
+  // NOT unique, deliberately: a field worker genuinely re-photographing the
+  // same thing twice must still be able to upload both — routes/evidence.js
+  // detects the repeated hash and records the relationship via duplicateOfId
+  // instead of rejecting the second upload outright.
+  @@index([orgId, sha256Hash])
   @@index([orgId, project_id])
   @@index([project_id, evidenceType])
 }

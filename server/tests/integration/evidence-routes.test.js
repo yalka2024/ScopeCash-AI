@@ -149,4 +149,19 @@ describe('evidence upload + analysis routes', () => {
     expect(second.status).toBe(409);
     expect(second.body.code).toBe('duplicate_document');
   });
+
+  test('re-uploading identical photo bytes succeeds and records duplicateOfId (does not crash on a hash collision)', async () => {
+    const { user, project } = await makeOwnerAndProject();
+    const buf = Buffer.from([0xff, 0xd8, 0xff, 0x00, 0xaa, 0xbb, 0xcc]);
+    const first = await request(app).post(`/api/projects/${project.id}/evidenceItems`).set('Authorization', bearer(user))
+      .attach('file', buf, { filename: 'first.jpg', contentType: 'image/jpeg' });
+    expect(first.status).toBe(201);
+    expect(first.body.duplicateOfId).toBeNull();
+
+    const second = await request(app).post(`/api/projects/${project.id}/evidenceItems`).set('Authorization', bearer(user))
+      .attach('file', buf, { filename: 'second.jpg', contentType: 'image/jpeg' });
+    expect(second.status).toBe(201);
+    expect(second.body.duplicateOfId).toBe(first.body.id);
+    expect(second.body.sha256Hash).toBe(first.body.sha256Hash);
+  });
 });

@@ -89,7 +89,7 @@ router.post('/projects/:projectId/evidenceItems', requireAnyOrgRole(...UPLOAD_RO
     if (!evidenceType) throw new HttpError(400, `Unsupported evidence file type ".${ext}"`, 'unsupported_file_type');
 
     const persisted = await persistFile(req, req.file);
-    const existing = await prisma.evidenceItem.findUnique({ where: { orgId_sha256Hash: { orgId: req.tenant.orgId, sha256Hash: persisted.sha256 } } });
+    const existing = await prisma.evidenceItem.findFirst({ where: { orgId: req.tenant.orgId, sha256Hash: persisted.sha256 } });
     const row = await prisma.evidenceItem.create({
       data: {
         orgId: req.tenant.orgId, project_id: project.id, evidenceType, storageUri: persisted.key,

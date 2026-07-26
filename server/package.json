@@ -16,6 +16,7 @@
     "db:migrate": "prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev",
     "db:seed": "node prisma/seed.js",
+    "db:seed:demo": "node prisma/seed-riverside-demo.js",
     "db:postgres:sync": "node prisma/sync-postgres-schema.js",
     "db:postgres:check": "node prisma/sync-postgres-schema.js --check",
     "db:postgres:generate": "npm run db:postgres:sync && prisma generate --config prisma.postgres.config.ts",
