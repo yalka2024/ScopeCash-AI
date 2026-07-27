@@ -545,7 +545,22 @@ is in STATUS.md. Everything below is either in progress or not started.
       Found and fixed an unrelated real a11y bug along the way: an earlier
       item's payer_type `<select>` had no accessible label. See STATUS.md
       Phase 38.
-- [ ] DR/regional failover exercises
+- [x] DR/regional failover exercises — a genuine regional failover drill
+      is categorically blocked: `deploy/terraform-gcp/main.tf` is
+      architecturally single-region (Secret Manager deliberately pinned
+      to one region for data-residency reasons, not just unapplied), no
+      live GCP project exists, no replica exists to promote. Wrote the
+      honest DR plan this repo never had (`ops/dr-regional-failover-plan.md`)
+      covering what real regional failover would require, and explicitly
+      declining to resolve the data-residency-vs-cross-region-replication
+      policy question itself (a compliance call, not an engineering one).
+      Then really drilled the one piece that IS locally testable:
+      `lib/lifecycle.js`'s graceful-shutdown mechanism (previously zero
+      test coverage), via a real SIGTERM sent to the actual, unmodified
+      production `server/Dockerfile` image (`npm run dr:drain-drill`) —
+      found and fixed two real bugs along the way (Windows can't deliver
+      real SIGTERM to a child process; a shell-wrapped CMD breaks tini's
+      signal forwarding). See STATUS.md Phase 39.
 
 ## Not achievable by an engineering agent — needs your direct action
 

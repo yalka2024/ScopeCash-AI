@@ -63,14 +63,11 @@
  *                              one endpoint's config (e.g. "login") while
  *                              iterating
  */
-const path = require('path');
-const fs = require('fs');
 const crypto = require('crypto');
-const { spawn, execSync } = require('child_process');
+const { execSync } = require('child_process');
 const autocannon = require('autocannon');
 const pidusage = require('pidusage');
-
-const SERVER_ROOT = path.join(__dirname, '..');
+const { SERVER_ROOT, waitForHttp, setupSqlite, spawnServer: spawnServerBase } = require('./lib/test-server');
 // Set once, here, so the SAME secret is used both to sign tokens in this
 // (parent) process during seeding and by the spawned child server process
 // that verifies them -- process.env is inherited into the child's env
@@ -81,7 +78,6 @@ const PORT = parseInt(process.env.LOADTEST_PORT || '4123', 10);
 const BASE_URL = process.env.LOADTEST_URL || `http://127.0.0.1:${PORT}`;
 const SPAWN_SERVER = !process.env.LOADTEST_URL;
 const USE_SQLITE = process.env.LOADTEST_SQLITE === '1';
-const DB_FILE = path.join(SERVER_ROOT, 'loadtest.db');
 const PG_CONTAINER = 'scopecash-loadtest-pg';
 const PG_PORT = parseInt(process.env.LOADTEST_PG_PORT || '55499', 10);
 const PG_URL = process.env.LOADTEST_DATABASE_URL || `postgresql://postgres:postgres@localhost:${PG_PORT}/scopecash`;
@@ -93,31 +89,8 @@ const MEMORY_GROWTH_THRESHOLD_PCT = 60; // crude leak signal, not a hard science
 
 function log(msg) { console.log(`[loadtest] ${msg}`); }
 
-function waitForHttp(url, timeoutMs) {
-  return new Promise((resolve, reject) => {
-    const deadline = Date.now() + timeoutMs;
-    const tick = () => {
-      require('http').get(url, (res) => { res.resume(); resolve(); })
-        .on('error', () => {
-          if (Date.now() > deadline) return reject(new Error(`timed out waiting for ${url}`));
-          setTimeout(tick, 250);
-        });
-    };
-    tick();
-  });
-}
-
 function sh(cmd, env) {
   return execSync(cmd, { cwd: SERVER_ROOT, env: { ...process.env, ...env }, stdio: 'pipe' }).toString();
-}
-
-async function setupSqlite() {
-  for (const suffix of ['', '-journal', '-shm', '-wal']) {
-    const f = DB_FILE + suffix;
-    if (fs.existsSync(f)) fs.rmSync(f);
-  }
-  sh('npx prisma migrate deploy', { DATABASE_URL: 'file:./loadtest.db' });
-  return 'file:./loadtest.db';
 }
 
 function dockerAvailable() {
@@ -156,18 +129,14 @@ function teardownPostgres() {
 }
 
 function spawnServer(databaseUrl) {
-  const env = {
-    ...process.env,
+  return spawnServerBase({
     NODE_ENV: 'test', // suppresses per-request access-log noise + background schedulers; does NOT weaken auth/rate-limit/bcrypt behavior (verified against index.js/lib/security.js/lib/ratelimit.js before relying on this)
     PORT: String(PORT),
     DATABASE_URL: databaseUrl,
     STORAGE_DRIVER: 'local',
     STORAGE_LOCAL_DIR: './uploads-loadtest',
     LOGIN_MAX_FAILED: '999',
-  };
-  const child = spawn(process.execPath, ['index.js'], { cwd: SERVER_ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
-  child.stderr.on('data', (d) => process.stderr.write(`[server] ${d}`));
-  return child;
+  });
 }
 
 async function seedFixtures(databaseUrl) {
@@ -437,7 +406,7 @@ async function main() {
     if (SPAWN_SERVER) {
       if (USE_SQLITE) {
         log('setting up disposable loadtest.db (SQLite)...');
-        databaseUrl = await setupSqlite();
+        databaseUrl = setupSqlite('loadtest.db');
       } else {
         databaseUrl = await setupPostgres();
         usingPostgres = !process.env.LOADTEST_DATABASE_URL;

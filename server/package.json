@@ -38,7 +38,8 @@
     "test:postgres-rls": "jest --config jest.postgres.config.js --runInBand",
     "eval": "node scripts/eval-gate.js",
     "perf:load": "node scripts/loadtest.js",
-    "perf:soak": "node scripts/loadtest.js --soak"
+    "perf:soak": "node scripts/loadtest.js --soak",
+    "dr:drain-drill": "node scripts/dr-drain-drill.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.88.0",
