@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { isLoggedIn, getUser, logout, checkBetaStatus, onAuthChange } from './api';
 import AuthPage from './AuthPage';
 import DomainGroupPage from './DomainGroupPage';
+import EvidenceUpload from './EvidenceUpload';
 import EntitiesPage from './EntitiesPage';
 import AgentConsolePage from './DashboardPage';
 import AssistantPage from './AssistantPage';
@@ -78,6 +79,11 @@ export default function App() {
   const [page, setPage] = useState(initialPageFromHash());
   const [isBeta, setIsBeta] = useState(false);
   const [authed, setAuthed] = useState(isLoggedIn());
+  // Keyed by model (sourceDocument/evidenceItem) — a document upload only
+  // bumps sourceDocument's signal, so only that table refetches, not both
+  // on every single upload.
+  const [evidenceRefresh, setEvidenceRefresh] = useState({});
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
     checkBetaStatus().then(setIsBeta);
@@ -120,12 +126,19 @@ export default function App() {
 
   return (
     <div className="app">
-      <nav className="sidebar">
+      <button type="button" className="menu-toggle" aria-label={mobileNavOpen ? 'Close menu' : 'Open menu'}
+        aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen((v) => !v)}>
+        {mobileNavOpen ? '✕' : '☰'}
+      </button>
+      <nav className={`sidebar${mobileNavOpen ? ' open' : ''}`}>
         <div className="sidebar-header">
           <h2>ScopeCash AI</h2>
           <p className="welcome">Welcome, {user?.name || user?.email}</p>
         </div>
-        <ul className="nav-links">
+        {/* Event delegation, not a per-item onClick edit — closes the mobile
+            drawer after picking ANY destination (a no-op click handler on
+            desktop, where .sidebar never gets the .open class at all). */}
+        <ul className="nav-links" onClickCapture={() => setMobileNavOpen(false)}>
           {WORKFLOW_NAV.map((g) => (
             <li key={g.key} className={authedPage === g.key ? 'active' : ''}>
               <button type="button" aria-current={authedPage === g.key ? 'page' : undefined} onClick={() => setPage(g.key)}>{g.label}</button>
@@ -168,7 +181,15 @@ export default function App() {
         {(authedPage === 'projects' || authedPage === 'settings') && (
           <OnboardingWizard onNavigate={setPage} />
         )}
-        {workflowGroup && <DomainGroupPage title={workflowGroup.label} description={workflowGroup.description} models={workflowGroup.models} />}
+        {workflowGroup && (
+          <DomainGroupPage
+            title={workflowGroup.label} description={workflowGroup.description} models={workflowGroup.models}
+            refreshSignal={authedPage === 'evidence' ? evidenceRefresh : undefined}
+            beforeSections={authedPage === 'evidence' ? (
+              <EvidenceUpload onUploaded={(model) => setEvidenceRefresh((s) => ({ ...s, [model]: (s[model] || 0) + 1 }))} />
+            ) : null}
+          />
+        )}
         {authedPage === 'assistant' && <AssistantPage />}
 
         {isAdmin && adminGroup && <DomainGroupPage title={adminGroup.label} description={adminGroup.description} models={adminGroup.models} />}

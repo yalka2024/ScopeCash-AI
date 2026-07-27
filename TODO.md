@@ -384,15 +384,33 @@ is in STATUS.md. Everything below is either in progress or not started.
       genuinely can approve packets — the 5 templates the tool's own
       description names don't actually exist yet. See STATUS.md Phase 24.
 
-## P2 — maturity (not started, lower priority)
+## P2 — maturity (lower priority)
 
-Mobile capture UX + upload resume, HEIC conversion, near-duplicate image
-detection, OCR quality scoring, rate-sheet import/versioning UI, tax/markup
-calculation engine, packet template versioning, PDF visual regression tests,
-notification preference management, usage quotas matching stated prices,
-success-fee/earned-revenue accounting, GCP billing cost-attribution
-reconciliation, perf/load/soak testing, dashboard bundle splitting (773 KB
-chunk warning), DR/regional failover exercises.
+- [x] Mobile capture UX + upload resume — research found there was NO
+      working upload UI in the dashboard at all (the real, tested,
+      previously-reviewed server endpoints in routes/evidence.js were
+      completely unreachable from the app). New `EvidenceUpload.js`:
+      project picker, camera capture (`capture="environment"`), drag-drop,
+      tries signed-URL upload then falls back to multipart automatically,
+      real progress bars + retry-with-backoff on the transfer step. Plus a
+      scoped mobile-responsive collapsible sidebar (the shell had zero
+      viewport breakpoints before this). Verified in a real browser via a
+      new Playwright e2e spec; re-running the a11y suite caught and fixed a
+      real contrast bug in the new `<select>`s. See STATUS.md Phase 25.
+- [ ] HEIC conversion
+- [ ] Near-duplicate image detection
+- [ ] OCR quality scoring
+- [ ] Rate-sheet import/versioning UI
+- [ ] Tax/markup calculation engine
+- [ ] Packet template versioning
+- [ ] PDF visual regression tests
+- [ ] Notification preference management
+- [ ] Usage quotas matching stated prices
+- [ ] Success-fee/earned-revenue accounting
+- [ ] GCP billing cost-attribution reconciliation
+- [ ] Perf/load/soak testing
+- [ ] Dashboard bundle splitting (801 KB chunk warning, was 773 KB)
+- [ ] DR/regional failover exercises
 
 ## Not achievable by an engineering agent — needs your direct action
 

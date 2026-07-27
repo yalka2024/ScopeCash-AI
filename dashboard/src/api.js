@@ -13,7 +13,7 @@ function notifyAuthCleared() {
 }
 
 // CSRF helper: read cookie set by server (`csrf=<token>`)
-function readCookie(name) {
+export function readCookie(name) {
   if (typeof document === 'undefined') return null;
   const m = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
   return m ? decodeURIComponent(m[1]) : null;
@@ -66,6 +66,52 @@ async function apiFetchForm(path, formData, _retry = false) {
   if (res.status === 401 && !_retry) {
     const ok = await tryRefresh();
     if (ok) return apiFetchForm(path, formData, true);
+    notifyAuthCleared();
+    throw new Error('Unauthorized');
+  }
+  return res;
+}
+
+// Raw XMLHttpRequest wrapper — the only way to get upload-progress events
+// (fetch has none). Exported for direct use against URLs OUTSIDE this app's
+// own API (e.g. a signed GCS/S3 PUT), which must never carry this app's
+// cookies/CSRF header. For calls to THIS app's own API, use apiFetchXhr
+// below instead — it adds the same CSRF/401-refresh-retry handling
+// apiFetch/apiFetchForm give every other authenticated call.
+export function xhrRequest({ method, url, headers = {}, body, onProgress, withCredentials = false }) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(method, url);
+    xhr.withCredentials = withCredentials;
+    for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v);
+    if (onProgress) {
+      xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
+    }
+    xhr.onload = () => {
+      let parsed = null;
+      try { parsed = xhr.responseText ? JSON.parse(xhr.responseText) : null; } catch { /* not JSON */ }
+      resolve({ status: xhr.status, body: parsed });
+    };
+    xhr.onerror = () => reject(Object.assign(new Error('Network error'), { networkError: true }));
+    xhr.send(body);
+  });
+}
+
+// XHR counterpart to apiFetch/apiFetchForm, for callers that need onProgress
+// (fetch can't provide it) while still going through this app's own
+// CSRF-header + 401-refresh-retry handling — the behavior every other
+// authenticated call already gets. Use xhrRequest directly only for
+// requests OUTSIDE this app's own API.
+export async function apiFetchXhr(path, { method = 'POST', body, onProgress } = {}, _retry = false) {
+  const headers = {};
+  if (isUnsafe(method)) {
+    const csrf = readCookie('csrf');
+    if (csrf) headers['x-csrf-token'] = csrf;
+  }
+  const res = await xhrRequest({ method, url: `${API_URL}${path}`, headers, body, onProgress, withCredentials: true });
+  if (res.status === 401 && !_retry) {
+    const ok = await tryRefresh();
+    if (ok) return apiFetchXhr(path, { method, body, onProgress }, true);
     notifyAuthCleared();
     throw new Error('Unauthorized');
   }

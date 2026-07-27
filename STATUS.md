@@ -2069,6 +2069,84 @@ approved packet) for permanent accountability.
 suite: 25/25 server test suites, 244 passing. Re-verified against a real
 non-superuser Postgres+RLS role (11/11).
 
+## Phase 25 — P2: mobile capture UX + upload resume (DONE, 2026-07-27)
+
+Research first (Explore agent) found the real state behind this vague
+one-line TODO item: **there was no way to upload a file through the
+dashboard UI at all, mobile or desktop.** The real upload endpoints
+(multipart AND signed-URL, both fully built, tested, and previously
+security-reviewed server-side — `routes/evidence.js`) were completely
+unreachable from the app — the generic entity-CRUD form (`FieldInput` in
+`EntitiesPage.js`) has no file-input case, so a `SourceDocument`/
+`EvidenceItem` row's `storage_uri` rendered as a plain text box a user
+would have to type a raw storage key into. `dashboard/src/api.js`'s
+`uploadFile`/`uploadFiles` were dead scaffolding targeting an unrelated,
+never-called generic `/projects` route.
+
+New `dashboard/src/EvidenceUpload.js`, wired into the Evidence nav page
+(`App.js`) above its entity tables:
+
+- Project picker, drag-and-drop zone, three quick actions: "Take Photo"
+  (`capture="environment"` — opens the rear camera directly on mobile,
+  falls back to a normal picker on desktop), "Add Photo / Audio / Receipt",
+  "Upload Document" (with a document-type selector).
+- Tries the direct-to-storage signed-URL flow first (keeps large field
+  photos/video off this server's own memory); on the 501
+  `direct_upload_unsupported` every local/demo deployment gets (no
+  `STORAGE_DRIVER=gcs|s3` configured), automatically falls back to the
+  proxied multipart endpoint — so the widget works in every deployment mode
+  without the user ever knowing which path was used.
+- Real upload progress bars via raw `XMLHttpRequest` (`fetch()` has no
+  upload-progress event) and retry-with-backoff (3 attempts, network error
+  or 5xx only, never 4xx) on the transfer step specifically — the piece
+  actually exposed to a flaky field connection. Not full resumable-session
+  chunked uploads (GCS `resumable:true`, byte-range tracking across page
+  reloads) — scoped down per the research agent's own recommendation: that
+  complexity mainly pays off for large video on very unreliable networks,
+  while retry-the-whole-PUT covers the realistic photo/receipt/short-clip
+  case already handled by the existing 20MB `UPLOAD_MAX_BYTES` limit.
+- `EntitySection`/`DomainGroupPage` gained an optional `refreshSignal` prop
+  (undefined everywhere else, so a no-op for every other caller) so a
+  successful upload refreshes the list below without a manual reload.
+- Small, scoped mobile responsiveness fix alongside this (the app shell had
+  exactly one `@media` rule anywhere in its CSS before this — a
+  `prefers-reduced-motion` check, zero viewport breakpoints): a
+  hamburger-toggled collapsible sidebar drawer under 768px, closing itself
+  on nav selection (event delegation on the nav list, not a per-item edit).
+  Deliberately scoped to the shell + upload flow, not an app-wide
+  responsive redesign of all 27 pages.
+
+Verified in a real browser, not just a clean build: extended the item-10
+Playwright e2e suite (`dashboard/e2e/evidence-upload.spec.cjs`) with tests
+that register a real user, seed a real project directly via Prisma, then
+actually drive the widget — upload a real `.txt` (sniffable by
+`storage.js#sniffMagicBytes`'s printable-bytes rule) and a minimal
+real-signature `.png`, both via the multipart fallback path (no
+`STORAGE_DRIVER` set in the e2e config, matching what every local/demo
+deployment actually gets), and confirm the row lands in the database AND
+appears in the UI table via `refreshSignal` with no manual reload. Also
+added a real-browser mobile-viewport test for the hamburger drawer.
+
+Re-running the existing `test:a11y:authed` suite (unchanged since Phase 9)
+against this diff caught a real, new WCAG contrast violation the build
+itself couldn't: the new `<select>` elements had no explicit text-color
+class, so they inherited the browser's default black text on this app's
+dark theme (1.17:1 contrast, needs 4.5:1) — the exact same bug class Phase
+9 found in unstyled `<a>`/button-variant elements. Fixed with
+`text-foreground`; re-ran clean.
+
+19/19 e2e tests, 30/30 authenticated a11y tests, 7/7 public a11y tests, all
+passing. Pre-push `/security-review` found no exploitable issues (CSRF
+handling on the new raw-XHR calls matches the established `apiFetch`/
+`apiFetchForm` pattern exactly; no XSS sink; retry semantics are safe).
+
+### Known gap found, not fixed here
+
+The build now warns at 801 KB for the main JS chunk (was 773 KB before this
+component) — folds into the existing "dashboard bundle splitting" P2 item
+later in this list, not addressed here to keep this phase scoped to the
+capture-UX gap it was meant to close.
+
 ## Not yet started
 
 See TODO.md.

@@ -16,7 +16,7 @@ const { defineConfig } = require('@playwright/test');
 
 module.exports = defineConfig({
   testDir: './e2e',
-  testMatch: /nav-smoke\.spec\.cjs/,
+  testMatch: /\.spec\.cjs$/,
   timeout: 30_000,
   fullyParallel: false, // tests share one logged-in session; run serially
   workers: 1,

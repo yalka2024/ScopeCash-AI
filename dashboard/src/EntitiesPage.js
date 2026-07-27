@@ -47,7 +47,7 @@ function display(type, v) {
   return String(v);
 }
 
-export function EntitySection({ entity }) {
+export function EntitySection({ entity, refreshSignal }) {
   const types = entity.fieldTypes || {};
   const readOnly = !!entity.readOnly;
   const [rows, setRows] = useState([]);
@@ -68,7 +68,10 @@ export function EntitySection({ entity }) {
       .then((d) => setRows(Array.isArray(d) ? d : (Array.isArray(d?.data) ? d.data : [])))
       .catch((e) => setError(e.message));
   }, [entity.plural]);
-  useEffect(() => { load(); }, [load]);
+  // refreshSignal: bumped by a parent (e.g. EvidenceUpload) after a
+  // successful upload so this list re-fetches without the user manually
+  // reloading — undefined for every other caller, so this is a no-op there.
+  useEffect(() => { load(); }, [load, refreshSignal]);
 
   // Enqueues async analysis (lib/evidence-jobs.js on the server — Gemini
   // extraction/transcription/findings-generation all run in the background,
