@@ -176,6 +176,22 @@ router.post('/transfer-ownership/confirm', attachTenant, validate(ConfirmTransfe
     }
 
     const [newOwnerRow] = await prisma.tenantTransaction(async (tx) => {
+      // The "one pending request per org" check at creation time is a
+      // plain findFirst-then-create, not itself race-proof — two
+      // near-simultaneous requests from the same owner to two different
+      // targets could both end up pending. If BOTH were then independently
+      // confirmed, the org would end up with two simultaneous owners
+      // (the exact invariant the PATCH/DELETE "last owner" guards exist to
+      // protect). Re-verify here, inside the transaction, that the
+      // requester is STILL actually the current owner before promoting the
+      // target — if a different pending request already resolved this
+      // handoff, this one is stale and must not also grant ownership.
+      const fromMembership = await tx.orgMembership.findUnique({
+        where: { orgId_userId: { orgId: request_.orgId, userId: request_.fromUserId } },
+      });
+      if (!fromMembership || fromMembership.role !== 'owner') {
+        throw new HttpError(409, 'This transfer request is stale — ownership already changed through a different request', 'stale_transfer');
+      }
       const newOwnerRow = await tx.orgMembership.update({
         where: { orgId_userId: { orgId: request_.orgId, userId: request_.toUserId } },
         data: { role: 'owner' },

@@ -1532,6 +1532,27 @@ scoped-but-unbuilt feature, no shortcuts taken relative to the original plan.
 
 Full suite: 19/19 server test suites, 184 passing (9 new).
 
+Pre-push `/security-review` found no exploitable vulnerability (token
+entropy/hashing matches the codebase's existing Invitation/password-reset
+pattern exactly; `req.tenant.orgId`/`req.orgRole` are re-derived fresh from
+the DB every request, never trusted from a JWT claim, so there's no stale-
+role or cross-org window; the confirm endpoint's org/status/expiry/
+recipient checks all run before any write) but did flag a real, if narrow,
+data-integrity gap worth closing immediately: the "one pending request per
+org" check at creation time is a plain check-then-create, not itself race-
+proof — two near-simultaneous requests to different targets could both end
+up pending, and if BOTH were later confirmed, the org would end up with
+two simultaneous owners (only the org's own current owner could trigger
+this, so it didn't meet the review's exploitability bar, but it breaks the
+exact invariant the PATCH/DELETE "last owner" guards exist to protect).
+Closed by re-verifying, inside the confirm transaction, that the request's
+`fromUserId` is still actually the current owner before promoting the
+target — a request superseded by an earlier-confirmed one now fails with
+409 `stale_transfer` instead of minting a second owner. New regression test
+simulates the race directly (two pending requests inserted for the same
+org, confirms both) and asserts the second is rejected with exactly one
+owner remaining. Full suite: 19/19 server test suites, 185 passing.
+
 ## Not yet started
 
 See TODO.md.

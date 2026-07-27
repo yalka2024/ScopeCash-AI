@@ -21,7 +21,7 @@ const request = require('supertest');
 const prisma = require('../../lib/prisma');
 const { issueCsrfCookie, csrfProtect } = require('../../lib/csrf');
 const { errorMiddleware } = require('../../lib/validate');
-const { signAccessToken } = require('../../lib/security');
+const { signAccessToken, hashToken } = require('../../lib/security');
 
 const authRoutes = require('../../routes/auth');
 const organizationRoutes = require('../../routes/organization');
@@ -391,6 +391,42 @@ describe('ownership transfer (two-step: request, then target confirms)', () => {
     const second = await request(app).post('/api/orgs/transfer-ownership').set('Authorization', bearer(owner)).send({ newOwnerUserId: admin2.id });
     expect(second.status).toBe(409);
     expect(second.body.code).toBe('transfer_already_pending');
+  });
+
+  test('regression: confirming a second, racing pending request after the first already resolved ownership does not create two owners', async () => {
+    // The "one pending request per org" API-level check (previous test) is
+    // a plain check-then-create, not itself race-proof: two near-
+    // simultaneous requests from the same owner to two different targets
+    // could both end up pending. Simulates that directly by inserting both
+    // requests via Prisma with known tokens, bypassing the API's guard.
+    // Confirming both, in order, must not leave two simultaneous owners.
+    const { org, user: owner } = await makeOrgWithMember('owner');
+    const admin1 = await addMember(org, 'admin');
+    const admin2 = await addMember(org, 'admin');
+    const tokenA = 'raw-token-for-the-first-racing-request';
+    const tokenB = 'raw-token-for-the-second-racing-request';
+    await Promise.all([
+      prisma.ownershipTransferRequest.create({
+        data: { orgId: org.id, fromUserId: owner.id, toUserId: admin1.id, tokenHash: hashToken(tokenA), expiresAt: new Date(Date.now() + 48 * 3600_000) },
+      }),
+      prisma.ownershipTransferRequest.create({
+        data: { orgId: org.id, fromUserId: owner.id, toUserId: admin2.id, tokenHash: hashToken(tokenB), expiresAt: new Date(Date.now() + 48 * 3600_000) },
+      }),
+    ]);
+
+    const confirmA = await request(app).post('/api/orgs/transfer-ownership/confirm').set('Authorization', bearer(admin1)).send({ token: tokenA });
+    expect(confirmA.status).toBe(200);
+
+    const confirmB = await request(app).post('/api/orgs/transfer-ownership/confirm').set('Authorization', bearer(admin2)).send({ token: tokenB });
+    expect(confirmB.status).toBe(409);
+    expect(confirmB.body.code).toBe('stale_transfer');
+
+    const ownerCount = await prisma.orgMembership.count({ where: { orgId: org.id, role: 'owner', status: 'active' } });
+    expect(ownerCount).toBe(1); // admin1 only — admin2's stale confirm never applied
+    const admin1Membership = await prisma.orgMembership.findUnique({ where: { orgId_userId: { orgId: org.id, userId: admin1.id } } });
+    const admin2Membership = await prisma.orgMembership.findUnique({ where: { orgId_userId: { orgId: org.id, userId: admin2.id } } });
+    expect(admin1Membership.role).toBe('owner');
+    expect(admin2Membership.role).toBe('admin'); // unchanged
   });
 
   test('the owner can revoke a pending request before it is confirmed', async () => {
