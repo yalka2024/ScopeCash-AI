@@ -436,6 +436,59 @@ d('Postgres RLS', () => {
     expect(v1AfterSupersede.status).toBe('superseded');
   });
 
+  test('regression: approving a packet writes a real Notification row via lib/notifications.js#notifyUser() under real Postgres+RLS', async () => {
+    // Notification/NotificationPreference have no orgId column, so unlike
+    // every other table in this file they never get an RLS policy at all
+    // (prisma/rls.sql only ever ALTERs a table that has one) — confirmed
+    // separately. The actual thing worth verifying here: notifyUser()'s
+    // two Prisma calls (notification.create, user.findUnique) still work
+    // correctly when invoked from INSIDE an already-RLS-active runWithOrg()
+    // transaction (via attachTenant on a real HTTP request), i.e. mixing a
+    // non-RLS table's write into an RLS-scoped request doesn't silently
+    // break under Postgres the way it might if $allOperations assumed
+    // every table had an orgId column to scope by.
+    const express = require('express');
+    const request = require('supertest');
+    const cookieParser = require('cookie-parser');
+    const { errorMiddleware } = require('../../lib/validate');
+    const { signAccessToken } = require('../../lib/security');
+    const entityRoutes = require('../../routes/entities');
+    const app = express();
+    app.use(cookieParser());
+    app.use(express.json());
+    app.use('/api', entityRoutes);
+    app.use(errorMiddleware);
+
+    const { org, owner, creator, proj } = await runWithSystemAccess(async () => {
+      const org = await prisma.organization.create({ data: { name: uid('Org') } });
+      const owner = await prisma.user.create({ data: { email: `${uid('u')}@test.local`, passwordHash: 'x', role: 'user', orgId: org.id, emailVerified: true } });
+      await prisma.orgMembership.create({ data: { orgId: org.id, userId: owner.id, role: 'owner', status: 'active' } });
+      const creator = await prisma.user.create({ data: { email: `${uid('u')}@test.local`, passwordHash: 'x', role: 'user', orgId: org.id, emailVerified: true } });
+      await prisma.orgMembership.create({ data: { orgId: org.id, userId: creator.id, role: 'project_manager', status: 'active' } });
+      const customer = await prisma.customer.create({ data: { orgId: org.id, name: uid('Customer') } });
+      const proj = await prisma.projectRecord.create({ data: { orgId: org.id, customer_id: customer.id, name: 'RLS notification regression', userId: owner.id } });
+      return { org, owner, creator, proj };
+    });
+    const ownerBearer = `Bearer ${signAccessToken({ id: owner.id, email: owner.email, role: owner.role, orgId: owner.orgId })}`;
+    const creatorBearer = `Bearer ${signAccessToken({ id: creator.id, email: creator.email, role: creator.role, orgId: creator.orgId })}`;
+
+    const createRes = await request(app).post('/api/evidencePackets').set('Authorization', creatorBearer)
+      .send({ project_id: proj.id, packet_number: uid('PK'), version: 1 });
+    expect(createRes.status).toBe(201);
+
+    const approveRes = await request(app).post(`/api/evidencePackets/${createRes.body.id}/approve`).set('Authorization', ownerBearer);
+    expect(approveRes.status).toBe(200);
+
+    // notifyUser() is fired-and-forgotten by the route — poll briefly.
+    let notification = null;
+    for (let i = 0; i < 20 && !notification; i++) {
+      notification = await runWithSystemAccess(async () => prisma.notification.findFirst({ where: { userId: creator.id, type: 'packet.approved' } }));
+      if (!notification) await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(notification).toBeTruthy();
+    expect(notification.message).toContain(createRes.body.packet_number);
+  });
+
   test('regression: evidence-jobs.js#reconcileStuckJobs() sweeps across every org with zero ambient context (the "job creation" outbox hazard)', async () => {
     // reconcileStuckJobs() legitimately needs to see stuck runs across
     // EVERY org (a stuck job's own org isn't known ahead of time) — it's

@@ -5,6 +5,7 @@ import DomainGroupPage from './DomainGroupPage';
 import EvidenceUpload from './EvidenceUpload';
 import RateSheetTools from './RateSheetTools';
 import PacketTemplateTools from './PacketTemplateTools';
+import NotificationBell from './NotificationBell';
 import EntitiesPage from './EntitiesPage';
 import AgentConsolePage from './DashboardPage';
 import AssistantPage from './AssistantPage';
@@ -165,9 +166,12 @@ export default function App() {
         {mobileNavOpen ? '✕' : '☰'}
       </button>
       <nav className={`sidebar${mobileNavOpen ? ' open' : ''}`}>
-        <div className="sidebar-header">
-          <h2>ScopeCash AI</h2>
-          <p className="welcome">Welcome, {user?.name || user?.email}</p>
+        <div className="sidebar-header flex items-start justify-between gap-2">
+          <div>
+            <h2>ScopeCash AI</h2>
+            <p className="welcome">Welcome, {user?.name || user?.email}</p>
+          </div>
+          <NotificationBell />
         </div>
         {/* Event delegation, not a per-item onClick edit — closes the mobile
             drawer after picking ANY destination (a no-op click handler on

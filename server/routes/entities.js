@@ -30,6 +30,7 @@ const { requireAnyOrgRole, PACKET_APPROVE_ROLES } = require('../lib/roles');
 const { z, validate, asyncHandler, HttpError } = require('../lib/validate');
 const { audit } = require('../lib/audit');
 const { computeCostItemDerived, costItemNeedsPricingRecompute } = require('../lib/pricing');
+const { notifyUser } = require('../lib/notifications');
 const { attachApiKeyProjectScope } = require('../lib/api-key-scope');
 
 const router = express.Router();
@@ -467,6 +468,16 @@ router.post('/evidencePackets/:id/approve', requireAnyOrgRole(...PACKET_APPROVE_
     data: { status: 'approved', approved_by_id: req.user.id, approved_at: new Date() },
   });
   await audit(req, 'evidencePackets.approve', { resource: 'evidencePacket', resourceId: packet.id });
+  // Best-effort — the approval itself already succeeded and is the source
+  // of truth; a notification failure shouldn't roll it back. No extra
+  // dedup needed here (unlike lifecycle-triggers.js's once-per-user-ever
+  // sends): the 409 above already makes "packet approved" a naturally
+  // idempotent, per-resource event.
+  notifyUser(packet.userId, 'packet.approved', {
+    title: 'Evidence packet approved',
+    message: `Packet ${packet.packet_number} v${packet.version} was approved.`,
+    properties: { packetId: packet.id, project_id: packet.project_id },
+  }).catch(() => {});
   res.json(row);
 }));
 

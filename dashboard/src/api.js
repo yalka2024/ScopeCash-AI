@@ -276,8 +276,25 @@ export async function trackGrowthEvent(name, properties) {
 }
 
 export async function getNotifications() {
-  const res = await apiFetch('/notifications');
-  return res.json();
+  return apiJson('/notifications');
+}
+
+export async function markNotificationRead(id) {
+  return apiJson(`/notifications/${id}/read`, { method: 'PATCH' });
+}
+
+export async function markAllNotificationsRead() {
+  return apiJson('/notifications/read-all', { method: 'POST' });
+}
+
+export async function getNotificationPreferences() {
+  return apiJson('/notifications/preferences');
+}
+
+export async function setNotificationPreference(type, { inApp, email }) {
+  return apiJson(`/notifications/preferences/${encodeURIComponent(type)}`, {
+    method: 'PUT', body: JSON.stringify({ inApp, email }),
+  });
 }
 
 export async function checkBetaStatus() {

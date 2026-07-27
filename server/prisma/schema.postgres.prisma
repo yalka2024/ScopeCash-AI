@@ -29,6 +29,7 @@ model User {
 
   records         Project[]
   notifications   Notification[]
+  notificationPreferences NotificationPreference[]
   apiKeys         ApiKey[]
   activities      Activity[]
   refreshTokens   RefreshToken[]
@@ -100,6 +101,25 @@ model Notification {
   createdAt DateTime @default(now())
 
   @@index([userId, read])
+}
+
+// Per-(user, notification type) channel opt-out. Absence of a row for a
+// given type means "use the default" (both channels on) — so a row only
+// needs to exist once a user actually changes something, not one per type
+// up front. See lib/notifications.js#notifyUser, which is the sole writer
+// of Notification rows / sender of notification emails and the sole reader
+// of this table.
+model NotificationPreference {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  inApp     Boolean  @default(true)
+  email     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, type])
 }
 
 // ─── API Keys ─────────────────────────────────────────

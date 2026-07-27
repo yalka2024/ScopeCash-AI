@@ -16,6 +16,7 @@
  */
 const prisma = require('./prisma');
 const events = require('./growth-events');
+const { notifyUser } = require('./notifications');
 
 const KINDS = Object.freeze({
   DAY1_NUDGE:       'lifecycle.day1_nudge',
@@ -43,16 +44,21 @@ async function _markSent(userId, kind, properties = null) {
 }
 
 /**
- * Send a lifecycle notification (idempotent). Emits a growth event.
- * The notification surface is the existing Notification model; an email
- * provider integration can subscribe to `lifecycle.<kind>.sent` events.
+ * Send a lifecycle notification (idempotent — at most once ever per
+ * (userId, kind), tracked via LifecycleSent; fine for a recurring per-user
+ * milestone like these, wrong for a repeatable per-resource event like a
+ * packet approval, which calls notifyUser() directly instead). Emits a
+ * growth event. `kind` is used as both the LifecycleSent key AND the
+ * Notification/NotificationPreference `type` — previously this stored the
+ * generic literal `'lifecycle'` on every row regardless of kind, which
+ * meant a user could not have distinguished, say, a trial-ending notice
+ * from a day-1 nudge for preference purposes; every lifecycle notification
+ * looked identical.
  */
-async function send(userId, kind, { title, message, type = 'lifecycle', orgId = null, properties = null } = {}) {
+async function send(userId, kind, { title, message, orgId = null, properties = null } = {}) {
   if (!userId || !kind) return { ok: false, reason: 'invalid_args' };
   if (await _alreadySent(userId, kind)) return { ok: true, deduped: true };
-  await prisma.notification.create({
-    data: { userId, type, title: String(title || kind), message: String(message || ''), metadata: properties ? JSON.stringify(properties).slice(0, 2000) : null },
-  }).catch(() => {});
+  await notifyUser(userId, kind, { title, message, properties });
   await _markSent(userId, kind, properties);
   events.track({ name: `${kind}.sent`, userId, orgId, properties, source: 'system' });
   return { ok: true };

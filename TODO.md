@@ -455,7 +455,15 @@ is in STATUS.md. Everything below is either in progress or not started.
       Playwright's bundled Chromium) and pixel-diffs against committed
       baselines — verified it actually catches a regression, not just a
       rubber-stamp pass. `npm run test:pdf-visual`. See STATUS.md Phase 32.
-- [ ] Notification preference management
+- [x] Notification preference management — Notification had one real
+      producer (2 lifecycle nudges, both always stored the generic type
+      `'lifecycle'`) and `getNotifications()` had zero UI callers anywhere.
+      New `NotificationPreference` model + `lib/notifications.js#notifyUser()`
+      (the single writer of Notification rows / sender of notification
+      emails, so preferences apply everywhere for free), a genuine second
+      producer (`packet.approved` on packet approval), GET/PUT preference
+      routes + a Settings UI table, and `NotificationBell.js` — the first
+      real UI surfacing a notification at all. See STATUS.md Phase 33.
 - [ ] Usage quotas matching stated prices
 - [ ] Success-fee/earned-revenue accounting
 - [ ] GCP billing cost-attribution reconciliation

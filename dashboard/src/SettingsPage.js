@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { getUser, getBillingUsage, startCheckout, openBillingPortal } from './api';
+import { getUser, getBillingUsage, startCheckout, openBillingPortal, getNotificationPreferences, setNotificationPreference } from './api';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 
@@ -8,14 +8,39 @@ export default function SettingsPage() {
   const [billing, setBilling] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [preferences, setPreferences] = useState(null);
+  const [prefError, setPrefError] = useState(null);
+  const [prefBusyType, setPrefBusyType] = useState(null);
 
   useEffect(() => {
     let mounted = true;
     getBillingUsage()
       .then(d => { if (mounted) setBilling(d); })
       .catch(e => { if (mounted) setError(e.message || 'Failed to load billing'); });
+    getNotificationPreferences()
+      .then(d => { if (mounted) setPreferences(d.preferences); })
+      .catch(e => { if (mounted) setPrefError(e.message || 'Failed to load notification preferences'); });
     return () => { mounted = false; };
   }, []);
+
+  async function onTogglePreference(type, channel, current) {
+    setPrefBusyType(type); setPrefError(null);
+    const row = preferences.find((p) => p.type === type);
+    // Optimistic: the checkbox is a controlled input bound to `preferences`,
+    // so without this it snaps back to its old value the instant this
+    // handler's first setState (setPrefBusyType) re-renders — checked
+    // still reflects the pre-toggle state until the PUT resolves. Rolled
+    // back in the catch branch if the request actually fails.
+    setPreferences((prev) => prev.map((p) => (p.type === type ? { ...p, [channel]: !current } : p)));
+    try {
+      await setNotificationPreference(type, { inApp: row.inApp, email: row.email, [channel]: !current });
+    } catch (e) {
+      setPrefError(e.message);
+      setPreferences((prev) => prev.map((p) => (p.type === type ? { ...p, [channel]: current } : p)));
+    } finally {
+      setPrefBusyType(null);
+    }
+  }
 
   async function onPortal() {
     setBusy(true); setError(null);
@@ -103,6 +128,49 @@ export default function SettingsPage() {
                 )}
               </div>
             </>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>Notification preferences</CardTitle></CardHeader>
+        <CardContent>
+          {prefError && <p className="text-red-400">{prefError}</p>}
+          {!preferences && !prefError && <p className="text-muted-foreground">Loading…</p>}
+          {preferences && (
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="border-b border-border text-left">
+                  <th className="p-2 font-medium text-muted-foreground">Notification</th>
+                  <th className="p-2 font-medium text-muted-foreground">In-app</th>
+                  <th className="p-2 font-medium text-muted-foreground">Email</th>
+                </tr>
+              </thead>
+              <tbody>
+                {preferences.map((p) => (
+                  <tr key={p.type} className="border-b border-border/50">
+                    <td className="p-2 text-foreground">
+                      {p.label}
+                      <p className="text-xs text-muted-foreground">{p.description}</p>
+                    </td>
+                    <td className="p-2">
+                      <input
+                        type="checkbox" checked={p.inApp} disabled={prefBusyType === p.type}
+                        aria-label={`${p.label} — in-app`}
+                        onChange={() => onTogglePreference(p.type, 'inApp', p.inApp)}
+                      />
+                    </td>
+                    <td className="p-2">
+                      <input
+                        type="checkbox" checked={p.email} disabled={prefBusyType === p.type}
+                        aria-label={`${p.label} — email`}
+                        onChange={() => onTogglePreference(p.type, 'email', p.email)}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </CardContent>
       </Card>
