@@ -39,7 +39,7 @@ function FieldInput({ type, field, value, onChange }) {
   }
   if (type === 'PayerType') {
     return (
-      <select value={value ?? ''} onChange={(e) => onChange(e.target.value)}
+      <select value={value ?? ''} onChange={(e) => onChange(e.target.value)} aria-label={humanize(field)}
         className="w-36 rounded border border-border bg-background p-1 text-sm text-foreground">
         <option value="">(unset)</option>
         <option value="customer">Customer</option>

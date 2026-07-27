@@ -1,36 +1,59 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { Suspense, lazy, useState, useEffect, useMemo } from 'react';
 import { isLoggedIn, getUser, logout, checkBetaStatus, onAuthChange } from './api';
-import AuthPage from './AuthPage';
-import DomainGroupPage from './DomainGroupPage';
-import EvidenceUpload from './EvidenceUpload';
-import RateSheetTools from './RateSheetTools';
-import PacketTemplateTools from './PacketTemplateTools';
-import NotificationBell from './NotificationBell';
-import EntitiesPage from './EntitiesPage';
-import AgentConsolePage from './DashboardPage';
-import AssistantPage from './AssistantPage';
-import SettingsPage from './SettingsPage';
-import TrustPage from './TrustPage';
-import TenantsPage from './TenantsPage';
-import AiEconomicsPage from './AiEconomicsPage';
-import CompetitionEvidencePage from './CompetitionEvidencePage';
-import GrowthPage from './GrowthPage';
-import DataProductsPage from './DataProductsPage';
-import MarketplacePage from './MarketplacePage';
-import OperationsPage from './OperationsPage';
-import StatusPage from './StatusPage';
-import TrustPortalPage from './TrustPortalPage';
-import GovernancePage from './GovernancePage';
-import PricingPage from './PricingPage';
-import LandingPage from './LandingPage';
-import { SecurityPage, PrivacyPage, TermsPage, AiLimitationsPage, AboutPage } from './LegalPages';
-import OnboardingWizard from './OnboardingWizard';
-import EvaluationsPage from './EvaluationsPage';
-import SetupPage from './SetupPage';
-import IntegrationsPage from './IntegrationsPage';
-import ToolsPage from './ToolsPage';
-import HelpCenterPage from './HelpCenterPage';
 import './Dashboard.css';
+// Eager: the small set of components on the critical first-paint path
+// (the pre-auth landing/login screen, and 'projects' — the default
+// post-login destination). Everything else is route-level code-split via
+// React.lazy() below so a visitor only downloads the ~20 secondary/admin
+// pages they actually navigate to, instead of one bundle containing all
+// of them upfront (this was the dashboard's 800+ KB single-chunk warning
+// — see TODO.md "Dashboard bundle splitting").
+import AuthPage from './AuthPage';
+import LandingPage from './LandingPage';
+import DomainGroupPage from './DomainGroupPage';
+import NotificationBell from './NotificationBell';
+import OnboardingWizard from './OnboardingWizard';
+// DomainGroupPage (eager, above) statically imports EntitySection from
+// this same module, so Rollup can't move it into a separate chunk no
+// matter what — lazy()-wrapping it here would just add a Suspense
+// boundary around code that's already in the main bundle. Confirmed via
+// a real build (Rollup logs exactly this when you get it wrong).
+import EntitiesPage from './EntitiesPage';
+
+const EvidenceUpload = lazy(() => import('./EvidenceUpload'));
+const RateSheetTools = lazy(() => import('./RateSheetTools'));
+const PacketTemplateTools = lazy(() => import('./PacketTemplateTools'));
+const AgentConsolePage = lazy(() => import('./DashboardPage'));
+const AssistantPage = lazy(() => import('./AssistantPage'));
+const SettingsPage = lazy(() => import('./SettingsPage'));
+const TrustPage = lazy(() => import('./TrustPage'));
+const TenantsPage = lazy(() => import('./TenantsPage'));
+const AiEconomicsPage = lazy(() => import('./AiEconomicsPage'));
+const CompetitionEvidencePage = lazy(() => import('./CompetitionEvidencePage'));
+const GrowthPage = lazy(() => import('./GrowthPage'));
+const DataProductsPage = lazy(() => import('./DataProductsPage'));
+const MarketplacePage = lazy(() => import('./MarketplacePage'));
+const OperationsPage = lazy(() => import('./OperationsPage'));
+const StatusPage = lazy(() => import('./StatusPage'));
+const TrustPortalPage = lazy(() => import('./TrustPortalPage'));
+const GovernancePage = lazy(() => import('./GovernancePage'));
+const PricingPage = lazy(() => import('./PricingPage'));
+// Named exports from one shared module — Vite/Rollup still dedupes these
+// 5 dynamic import()s of './LegalPages' into a single chunk.
+const SecurityPage = lazy(() => import('./LegalPages').then((m) => ({ default: m.SecurityPage })));
+const PrivacyPage = lazy(() => import('./LegalPages').then((m) => ({ default: m.PrivacyPage })));
+const TermsPage = lazy(() => import('./LegalPages').then((m) => ({ default: m.TermsPage })));
+const AiLimitationsPage = lazy(() => import('./LegalPages').then((m) => ({ default: m.AiLimitationsPage })));
+const AboutPage = lazy(() => import('./LegalPages').then((m) => ({ default: m.AboutPage })));
+const EvaluationsPage = lazy(() => import('./EvaluationsPage'));
+const SetupPage = lazy(() => import('./SetupPage'));
+const IntegrationsPage = lazy(() => import('./IntegrationsPage'));
+const ToolsPage = lazy(() => import('./ToolsPage'));
+const HelpCenterPage = lazy(() => import('./HelpCenterPage'));
+
+function PageLoading() {
+  return <div className="p-8 text-sm text-muted-foreground">Loading…</div>;
+}
 
 /**
  * Authenticated nav IA — organized around the actual ScopeCash AI workflow
@@ -117,17 +140,22 @@ export default function App() {
       onPricing: () => setPage('pricing'),
       onLogin:   () => setPage('login'),
     };
-    if (page === 'pricing')   return <PricingPage onNavigateToAuth={nav.onLogin} />;
-    if (page === 'setup')     return <SetupPage onHome={nav.onHome} onLogin={nav.onLogin} />;
-    if (page === 'integrations') return <IntegrationsPage onHome={nav.onHome} />;
-    if (page === 'help')      return <HelpCenterPage onHome={nav.onHome} onLogin={nav.onLogin} />;
-    if (page === 'login')     return <AuthPage isBeta={isBeta} />;
-    if (page === 'security') return <SecurityPage {...nav} />;
-    if (page === 'privacy')  return <PrivacyPage  {...nav} />;
-    if (page === 'terms')    return <TermsPage    {...nav} />;
-    if (page === 'ai-limitations') return <AiLimitationsPage {...nav} />;
-    if (page === 'about')    return <AboutPage    {...nav} />;
-    return <LandingPage onPricing={nav.onPricing} onLogin={nav.onLogin} />;
+    let unauthedContent;
+    if (page === 'login')          unauthedContent = <AuthPage isBeta={isBeta} />;
+    else if (page === 'pricing')   unauthedContent = <PricingPage onNavigateToAuth={nav.onLogin} />;
+    else if (page === 'setup')     unauthedContent = <SetupPage onHome={nav.onHome} onLogin={nav.onLogin} />;
+    else if (page === 'integrations') unauthedContent = <IntegrationsPage onHome={nav.onHome} />;
+    else if (page === 'help')      unauthedContent = <HelpCenterPage onHome={nav.onHome} onLogin={nav.onLogin} />;
+    else if (page === 'security')  unauthedContent = <SecurityPage {...nav} />;
+    else if (page === 'privacy')   unauthedContent = <PrivacyPage  {...nav} />;
+    else if (page === 'terms')     unauthedContent = <TermsPage    {...nav} />;
+    else if (page === 'ai-limitations') unauthedContent = <AiLimitationsPage {...nav} />;
+    else if (page === 'about')     unauthedContent = <AboutPage    {...nav} />;
+    else return <LandingPage onPricing={nav.onPricing} onLogin={nav.onLogin} />;
+    // LandingPage stays eager and returns directly above (the actual
+    // marketing home page most anonymous visitors land on) — everything
+    // else in this branch is a lazy import needing a Suspense boundary.
+    return <Suspense fallback={<PageLoading />}>{unauthedContent}</Suspense>;
   }
 
   const user = getUser();
@@ -223,32 +251,37 @@ export default function App() {
           <DomainGroupPage
             title={workflowGroup.label} description={workflowGroup.description} models={workflowGroup.models}
             refreshSignal={pageTools?.refreshSignal}
-            beforeSections={pageTools?.render ? pageTools.render() : null}
+            beforeSections={pageTools?.render ? <Suspense fallback={<PageLoading />}>{pageTools.render()}</Suspense> : null}
             onSectionSaved={pageTools?.onSectionSaved}
           />
         )}
-        {authedPage === 'assistant' && <AssistantPage />}
+        {/* Everything below is a lazily-imported page component — one
+            Suspense boundary covers the whole set since at most one of
+            these conditions is ever true at a time. */}
+        <Suspense fallback={<PageLoading />}>
+          {authedPage === 'assistant' && <AssistantPage />}
 
-        {isAdmin && adminGroup && <DomainGroupPage title={adminGroup.label} description={adminGroup.description} models={adminGroup.models} />}
-        {authedPage === 'competition' && isAdmin && <CompetitionEvidencePage />}
-        {authedPage === 'ai-economics' && isAdmin && <AiEconomicsPage />}
-        {authedPage === 'evaluations' && isAdmin && <EvaluationsPage />}
-        {authedPage === 'growth' && isAdmin && <GrowthPage />}
-        {authedPage === 'data-products' && isAdmin && <DataProductsPage />}
-        {authedPage === 'operations' && isAdmin && <OperationsPage />}
-        {authedPage === 'tenants' && isAdmin && <TenantsPage />}
-        {authedPage === 'trust-portal' && isAdmin && <TrustPortalPage />}
-        {authedPage === 'governance' && isAdmin && <GovernancePage />}
-        {authedPage === 'agent-console' && isAdmin && <AgentConsolePage />}
-        {authedPage === 'tools' && isAdmin && <ToolsPage />}
-        {authedPage === 'all-records' && isAdmin && <EntitiesPage />}
+          {isAdmin && adminGroup && <DomainGroupPage title={adminGroup.label} description={adminGroup.description} models={adminGroup.models} />}
+          {authedPage === 'competition' && isAdmin && <CompetitionEvidencePage />}
+          {authedPage === 'ai-economics' && isAdmin && <AiEconomicsPage />}
+          {authedPage === 'evaluations' && isAdmin && <EvaluationsPage />}
+          {authedPage === 'growth' && isAdmin && <GrowthPage />}
+          {authedPage === 'data-products' && isAdmin && <DataProductsPage />}
+          {authedPage === 'operations' && isAdmin && <OperationsPage />}
+          {authedPage === 'tenants' && isAdmin && <TenantsPage />}
+          {authedPage === 'trust-portal' && isAdmin && <TrustPortalPage />}
+          {authedPage === 'governance' && isAdmin && <GovernancePage />}
+          {authedPage === 'agent-console' && isAdmin && <AgentConsolePage />}
+          {authedPage === 'tools' && isAdmin && <ToolsPage />}
+          {authedPage === 'all-records' && isAdmin && <EntitiesPage />}
 
-        {authedPage === 'marketplace' && <MarketplacePage user={user} />}
-        {authedPage === 'security' && <TrustPage />}
-        {authedPage === 'status' && <StatusPage />}
-        {authedPage === 'settings' && <SettingsPage />}
-        {authedPage === 'pricing' && <PricingPage />}
-        {authedPage === 'help' && <HelpCenterPage onHome={() => setPage('projects')} />}
+          {authedPage === 'marketplace' && <MarketplacePage user={user} />}
+          {authedPage === 'security' && <TrustPage />}
+          {authedPage === 'status' && <StatusPage />}
+          {authedPage === 'settings' && <SettingsPage />}
+          {authedPage === 'pricing' && <PricingPage />}
+          {authedPage === 'help' && <HelpCenterPage onHome={() => setPage('projects')} />}
+        </Suspense>
       </main>
     </div>
   );

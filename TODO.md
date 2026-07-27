@@ -530,7 +530,21 @@ is in STATUS.md. Everything below is either in progress or not started.
       a secondary, deliberately-deferred finding (authenticated routes pay
       for 2-3 sequential DB round trips before reaching route logic,
       queuing under Prisma's connection pool at high concurrency).
-- [ ] Dashboard bundle splitting (801 KB chunk warning, was 773 KB)
+- [x] Dashboard bundle splitting — App.js statically imported all ~30 page
+      components (no router, just a `page` state string + one giant
+      conditional). Converted ~25 of them (all 12 admin-only pages plus
+      every other secondary page) to `React.lazy()` behind two `Suspense`
+      boundaries; kept only the critical first-paint set (Auth, Landing,
+      DomainGroupPage, NotificationBell, OnboardingWizard) eager. Main
+      chunk 819 KB → 289.5 KB (242 KB → 90.15 KB gzip), no build warning.
+      `AssistantPage` (366 KB — react-markdown/rehype-highlight/
+      highlight.js, unused elsewhere) now only loads when a user actually
+      opens the AI Assistant. Verified with all 3 real Playwright suites
+      against the actual built bundle (60/60 passing: e2e nav-smoke,
+      authenticated a11y across every admin lazy page, public a11y).
+      Found and fixed an unrelated real a11y bug along the way: an earlier
+      item's payer_type `<select>` had no accessible label. See STATUS.md
+      Phase 38.
 - [ ] DR/regional failover exercises
 
 ## Not achievable by an engineering agent — needs your direct action
