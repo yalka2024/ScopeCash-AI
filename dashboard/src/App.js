@@ -4,6 +4,7 @@ import AuthPage from './AuthPage';
 import DomainGroupPage from './DomainGroupPage';
 import EvidenceUpload from './EvidenceUpload';
 import RateSheetTools from './RateSheetTools';
+import PacketTemplateTools from './PacketTemplateTools';
 import EntitiesPage from './EntitiesPage';
 import AgentConsolePage from './DashboardPage';
 import AssistantPage from './AssistantPage';
@@ -43,8 +44,8 @@ const WORKFLOW_NAV = [
     description: 'Uploaded contracts, estimates, photos, voice notes, receipts, and daily logs — the source material every finding cites.' },
   { key: 'findings', label: 'Findings', models: ['changeEvent', 'evidenceFinding', 'citation', 'scopeItem', 'contractProvision'],
     description: 'Scope baseline extracted from your contract, and the possible added/omitted/substituted work the AI surfaced against it — every assertion cited.' },
-  { key: 'packets', label: 'Packets', models: ['evidencePacket'],
-    description: 'Evidence packets built from approved findings, ready for customer or insurer review.' },
+  { key: 'packets', label: 'Packets', models: ['evidencePacket', 'packetTemplate'],
+    description: 'Evidence packets built from approved findings, ready for customer or insurer review, and the reusable layout templates they can be generated from.' },
   { key: 'outcomes', label: 'Outcomes', models: ['commercialOutcome', 'costItem'],
     description: 'The six-stage money trail: identified, validated, submitted, approved, invoiced, collected — tracked separately, never merged.' },
   { key: 'customers', label: 'Customers', models: ['customer', 'rateSheet', 'rateSheetItem', 'consentRecord', 'feedback', 'testimonial'],
@@ -85,7 +86,16 @@ export default function App() {
   // on every single upload.
   const [evidenceRefresh, setEvidenceRefresh] = useState({});
   const [rateSheetRefresh, setRateSheetRefresh] = useState(0);
+  const [packetTemplateRefresh, setPacketTemplateRefresh] = useState(0);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  // Must run on every render, before the `if (!authed) return` below —
+  // hooks can never be conditional. Was previously declared after that
+  // early return (harmless while it was the only such hook, since a signed-
+  // out render then called strictly fewer hooks than a signed-in one until
+  // the count actually diverged) — now genuinely fixed rather than
+  // adding a second hook with the same latent bug.
+  const rateSheetSignal = useMemo(() => ({ rateSheet: rateSheetRefresh, rateSheetItem: rateSheetRefresh }), [rateSheetRefresh]);
+  const packetTemplateSignal = useMemo(() => ({ packetTemplate: packetTemplateRefresh }), [packetTemplateRefresh]);
 
   useEffect(() => {
     checkBetaStatus().then(setIsBeta);
@@ -125,12 +135,28 @@ export default function App() {
   const authedPage = (page === 'home' || page === 'login') ? 'projects' : page;
   const workflowGroup = WORKFLOW_NAV.find((g) => g.key === authedPage);
   const adminGroup = ADMIN_NAV.find((g) => g.key === authedPage);
-  // Memoized so DomainGroupPage's per-section refresh effect only re-fires
-  // when the counter actually changes, not on every unrelated App re-render
-  // (e.g. the mobile nav toggling) — a fresh object literal here would have
-  // the same referential-inequality problem evidenceRefresh avoids by being
-  // real state.
-  const rateSheetSignal = useMemo(() => ({ rateSheet: rateSheetRefresh, rateSheetItem: rateSheetRefresh }), [rateSheetRefresh]);
+  // One lookup instead of a growing per-page ternary chain for refreshSignal/
+  // beforeSections/onSectionSaved — each entry's own widget keeps its own
+  // callback shape (EvidenceUpload targets one model per upload; the
+  // versioning-tools widgets bump a single flat counter), so this stays a
+  // page -> config map rather than forcing every widget onto one uniform API.
+  const PAGE_TOOLS = {
+    evidence: {
+      refreshSignal: evidenceRefresh,
+      render: () => <EvidenceUpload onUploaded={(model) => setEvidenceRefresh((s) => ({ ...s, [model]: (s[model] || 0) + 1 }))} />,
+    },
+    customers: {
+      refreshSignal: rateSheetSignal,
+      render: () => <RateSheetTools reloadSignal={rateSheetRefresh} onChanged={() => setRateSheetRefresh((n) => n + 1)} />,
+      onSectionSaved: (model) => { if (model === 'rateSheet') setRateSheetRefresh((n) => n + 1); },
+    },
+    packets: {
+      refreshSignal: packetTemplateSignal,
+      render: () => <PacketTemplateTools reloadSignal={packetTemplateRefresh} onChanged={() => setPacketTemplateRefresh((n) => n + 1)} />,
+      onSectionSaved: (model) => { if (model === 'packetTemplate') setPacketTemplateRefresh((n) => n + 1); },
+    },
+  };
+  const pageTools = PAGE_TOOLS[authedPage];
 
   return (
     <div className="app">
@@ -192,19 +218,9 @@ export default function App() {
         {workflowGroup && (
           <DomainGroupPage
             title={workflowGroup.label} description={workflowGroup.description} models={workflowGroup.models}
-            refreshSignal={
-              authedPage === 'evidence' ? evidenceRefresh
-              : authedPage === 'customers' ? rateSheetSignal
-              : undefined
-            }
-            beforeSections={
-              authedPage === 'evidence' ? (
-                <EvidenceUpload onUploaded={(model) => setEvidenceRefresh((s) => ({ ...s, [model]: (s[model] || 0) + 1 }))} />
-              ) : authedPage === 'customers' ? (
-                <RateSheetTools reloadSignal={rateSheetRefresh} onChanged={() => setRateSheetRefresh((n) => n + 1)} />
-              ) : null
-            }
-            onSectionSaved={authedPage === 'customers' ? (model) => { if (model === 'rateSheet') setRateSheetRefresh((n) => n + 1); } : undefined}
+            refreshSignal={pageTools?.refreshSignal}
+            beforeSections={pageTools?.render ? pageTools.render() : null}
+            onSectionSaved={pageTools?.onSectionSaved}
           />
         )}
         {authedPage === 'assistant' && <AssistantPage />}

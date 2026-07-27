@@ -25,18 +25,29 @@ async function mockRun(input, ctx) {
   };
 }
 
+// The four content blocks this renderer knows how to produce, in their
+// original (and default) order. A template's `sections` input is a
+// caller-resolved subset/reordering of these keys (resolving a
+// PacketTemplate.sections string into this array is the caller's job —
+// this tool stays dependency-free and never queries the database itself).
+const ALL_SECTIONS = ['disclaimer', 'body', 'appendix', 'approval'];
+
 /**
  * Generates a minimal but structurally valid PDF in pure Node.js (no deps).
- * The PDF contains:
+ * By default the PDF contains all four blocks, in this order:
  *   - A disclaimer page
  *   - The packet data (serialised JSON, paginated at ~50 lines per page)
  *   - A source appendix listing any `sources` found in packet_data_json
  *   - An approval record from any `approval` field in packet_data_json
+ * Pass `sections` (an array drawn from ALL_SECTIONS) to include only some
+ * blocks, or reorder them — unrecognized keys are ignored.
  *
  * Output `pdf_bytes` is a Buffer containing a valid PDF 1.4 file.
  */
 async function realRun(input, ctx) {
-  const { packet_data_json, template_id } = input || {};
+  const { packet_data_json, template_id, sections } = input || {};
+  const wanted = Array.isArray(sections) ? [...new Set(sections.filter((s) => ALL_SECTIONS.includes(s)))] : [];
+  const wantedSections = wanted.length ? wanted : ALL_SECTIONS;
 
   // ── Parse packet data ────────────────────────────────────────────────────
   let packet = {};
@@ -69,28 +80,34 @@ async function realRun(input, ctx) {
     `User      : ${userId}`,
   ];
 
-  // Serialise packet body (skip sources/approval — handled separately)
-  const bodyObj = Object.assign({}, packet);
-  delete bodyObj.sources;
-  delete bodyObj.approval;
-  const bodyLines = JSON.stringify(bodyObj, null, 2).split('\n');
-
-  const LINES_PER_PAGE = 50;
-  const bodyPages = [];
-  for (let i = 0; i < bodyLines.length; i += LINES_PER_PAGE) {
-    bodyPages.push(bodyLines.slice(i, i + LINES_PER_PAGE));
+  // Serialise packet body (skip sources/approval — handled separately) —
+  // skipped entirely when 'body' isn't a wanted section, since this is the
+  // one block whose cost scales with the size of packet_data_json.
+  let bodyPages = [];
+  if (wantedSections.includes('body')) {
+    const bodyObj = Object.assign({}, packet);
+    delete bodyObj.sources;
+    delete bodyObj.approval;
+    const bodyLines = JSON.stringify(bodyObj, null, 2).split('\n');
+    const LINES_PER_PAGE = 50;
+    for (let i = 0; i < bodyLines.length; i += LINES_PER_PAGE) {
+      bodyPages.push(bodyLines.slice(i, i + LINES_PER_PAGE));
+    }
+    if (bodyPages.length === 0) bodyPages.push(['(no packet data)']);
   }
-  if (bodyPages.length === 0) bodyPages.push(['(no packet data)']);
 
-  // Source appendix
-  const sources = Array.isArray(packet.sources) ? packet.sources : [];
-  const APPENDIX = [
-    'SOURCE APPENDIX',
-    '─'.repeat(60),
-    ...( sources.length
-         ? sources.map((s, i) => `[${i + 1}] ${typeof s === 'string' ? s : JSON.stringify(s)}`)
-         : ['(no sources listed)'] ),
-  ];
+  // Source appendix — likewise skipped when not wanted.
+  let APPENDIX = [];
+  if (wantedSections.includes('appendix')) {
+    const sources = Array.isArray(packet.sources) ? packet.sources : [];
+    APPENDIX = [
+      'SOURCE APPENDIX',
+      '─'.repeat(60),
+      ...( sources.length
+           ? sources.map((s, i) => `[${i + 1}] ${typeof s === 'string' ? s : JSON.stringify(s)}`)
+           : ['(no sources listed)'] ),
+    ];
+  }
 
   // Approval record
   const approval = packet.approval || {};
@@ -104,13 +121,10 @@ async function realRun(input, ctx) {
     ...(approval.notes ? [`Notes       : ${approval.notes}`] : []),
   ];
 
-  // Assemble all logical pages
-  const allPages = [
-    DISCLAIMER,
-    ...bodyPages,
-    APPENDIX,
-    APPROVAL,
-  ];
+  // Assemble the requested blocks, in the requested order — each maps to
+  // one-or-more logical pages; 'body' is the only multi-page block.
+  const BLOCK_PAGES = { disclaimer: [DISCLAIMER], body: bodyPages, appendix: [APPENDIX], approval: [APPROVAL] };
+  const allPages = wantedSections.flatMap((key) => BLOCK_PAGES[key]);
 
   // ── Build a valid PDF 1.4 file ───────────────────────────────────────────
   //
@@ -243,8 +257,8 @@ async function realRun(input, ctx) {
 
 module.exports = {
   name: NAME,
-  description: "Server-side PDF generation for evidence packets using WeasyPrint or Puppeteer. Embeds disclaimer, source appendix, and approval record.",
-  inputs: ["packet_data_json", "template_id"],
+  description: "Server-side PDF generation for evidence packets using WeasyPrint or Puppeteer. Embeds disclaimer, source appendix, and approval record. `sections` (array of 'disclaimer'|'body'|'appendix'|'approval') selects and orders which blocks appear — resolve a PacketTemplate's `sections` string into this array before calling; defaults to all four in their original order.",
+  inputs: ["packet_data_json", "template_id", "sections"],
   outputs: ["pdf_bytes", "content_hash", "page_count"],
   envKey: ENV_KEY,
   configKeys: [ENV_KEY],

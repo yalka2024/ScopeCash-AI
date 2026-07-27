@@ -438,7 +438,15 @@ is in STATUS.md. Everything below is either in progress or not started.
       `markupAmount`/`taxAmount`/`billedTotal` fields from the org's rates,
       wired into the generic create/update path — never overriding an
       explicit value. See STATUS.md Phase 30.
-- [ ] Packet template versioning
+- [x] Packet template versioning — no template concept existed anywhere;
+      `pdfpacketrenderer.js`'s `template_id` was a printed-but-inert label.
+      New `PacketTemplate` model (draft/active/superseded, same lifecycle as
+      rate sheets) whose `sections` field now genuinely controls which of
+      the renderer's 4 content blocks appear and in what order. New
+      `EvidencePacket.packetTemplateId` records which template a packet
+      used, though nothing yet auto-applies it at export time (the export
+      route doesn't generate a PDF server-side at all today — documented,
+      not silently implied). See STATUS.md Phase 31.
 - [ ] PDF visual regression tests
 - [ ] Notification preference management
 - [ ] Usage quotas matching stated prices

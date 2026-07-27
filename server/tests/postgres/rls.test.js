@@ -388,6 +388,54 @@ d('Postgres RLS', () => {
     expect(blocked.body.code).toBe('invalid_reference');
   });
 
+  test('regression: packet template new-version/publish routes work correctly against real Postgres+RLS enforcement', async () => {
+    // Same rationale as the rate-sheet regression above: a normal
+    // authenticated route behind attachTenant, not a context-loss test —
+    // the point is the publish route's updateMany() supersede write (this
+    // time keyed on `name` alone, no trade/customer dimension) actually
+    // takes effect under real RLS rather than silently affecting zero rows.
+    const express = require('express');
+    const request = require('supertest');
+    const cookieParser = require('cookie-parser');
+    const { errorMiddleware } = require('../../lib/validate');
+    const { signAccessToken } = require('../../lib/security');
+    const entityRoutes = require('../../routes/entities');
+    const app = express();
+    app.use(cookieParser());
+    app.use(express.json());
+    app.use('/api', entityRoutes);
+    app.use(errorMiddleware);
+
+    const { org, user } = await runWithSystemAccess(async () => {
+      const org = await prisma.organization.create({ data: { name: uid('Org') } });
+      const user = await prisma.user.create({ data: { email: `${uid('u')}@test.local`, passwordHash: 'x', role: 'user', orgId: org.id, emailVerified: true } });
+      await prisma.orgMembership.create({ data: { orgId: org.id, userId: user.id, role: 'owner', status: 'active' } });
+      return { org, user };
+    });
+    const bearer = `Bearer ${signAccessToken({ id: user.id, email: user.email, role: user.role, orgId: user.orgId })}`;
+
+    const createRes = await request(app).post('/api/packetTemplates').set('Authorization', bearer)
+      .send({ name: 'Standard packet', sections: 'disclaimer,body,appendix,approval' });
+    expect(createRes.status).toBe(201);
+    const v1Id = createRes.body.id;
+
+    const publishV1 = await request(app).post(`/api/packetTemplates/${v1Id}/publish`).set('Authorization', bearer);
+    expect(publishV1.status).toBe(200);
+    expect(publishV1.body.status).toBe('active');
+
+    const newVersionRes = await request(app).post(`/api/packetTemplates/${v1Id}/new-version`).set('Authorization', bearer);
+    expect(newVersionRes.status).toBe(201);
+    const v2Id = newVersionRes.body.id;
+    expect(newVersionRes.body.sections).toBe('disclaimer,body,appendix,approval'); // cloned under real RLS, not silently blank
+
+    const publishV2 = await request(app).post(`/api/packetTemplates/${v2Id}/publish`).set('Authorization', bearer);
+    expect(publishV2.status).toBe(200);
+    expect(publishV2.body.status).toBe('active');
+
+    const v1AfterSupersede = await runWithSystemAccess(async () => prisma.packetTemplate.findUnique({ where: { id: v1Id } }));
+    expect(v1AfterSupersede.status).toBe('superseded');
+  });
+
   test('regression: evidence-jobs.js#reconcileStuckJobs() sweeps across every org with zero ambient context (the "job creation" outbox hazard)', async () => {
     // reconcileStuckJobs() legitimately needs to see stuck runs across
     // EVERY org (a stuck job's own org isn't known ahead of time) — it's

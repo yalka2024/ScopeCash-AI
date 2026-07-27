@@ -474,6 +474,98 @@ describe('cost item pricing engine (quantity × unit price + markup + tax)', () 
   });
 });
 
+describe('packet template versioning workflow', () => {
+  async function makeDraftTemplate(owner, overrides) {
+    const res = await request(app).post('/api/packetTemplates').set('Authorization', bearer(owner))
+      .send(Object.assign({ name: 'Change order support', sections: 'disclaimer,body,appendix,approval' }, overrides));
+    expect(res.status).toBe(201);
+    return res.body;
+  }
+
+  test('creates a draft template and publishes it as active', async () => {
+    const { user: owner } = await makeOrgWithMember('owner');
+    const draft = await makeDraftTemplate(owner);
+    expect(draft.status).toBe('draft');
+    expect(draft.version).toBe(1);
+
+    const published = await request(app).post(`/api/packetTemplates/${draft.id}/publish`).set('Authorization', bearer(owner));
+    expect(published.status).toBe(200);
+    expect(published.body.status).toBe('active');
+  });
+
+  test('refuses to publish a template twice (409)', async () => {
+    const { user: owner } = await makeOrgWithMember('owner');
+    const draft = await makeDraftTemplate(owner);
+    await request(app).post(`/api/packetTemplates/${draft.id}/publish`).set('Authorization', bearer(owner));
+    const again = await request(app).post(`/api/packetTemplates/${draft.id}/publish`).set('Authorization', bearer(owner));
+    expect(again.status).toBe(409);
+    expect(again.body.code).toBe('not_draft');
+  });
+
+  test('field_user cannot create, version, or publish a packet template', async () => {
+    const { user: owner, org } = await makeOrgWithMember('owner');
+    const draft = await makeDraftTemplate(owner);
+    const fieldUser = await prisma.user.create({ data: { email: uniqueEmail(), passwordHash: 'x', role: 'user', orgId: org.id, emailVerified: true } });
+    await prisma.orgMembership.create({ data: { orgId: org.id, userId: fieldUser.id, role: 'field_user', status: 'active' } });
+
+    const createRes = await request(app).post('/api/packetTemplates').set('Authorization', bearer(fieldUser))
+      .send({ name: 'x', sections: 'body' });
+    expect(createRes.status).toBe(403);
+    const versionRes = await request(app).post(`/api/packetTemplates/${draft.id}/new-version`).set('Authorization', bearer(fieldUser));
+    expect(versionRes.status).toBe(403);
+    const publishRes = await request(app).post(`/api/packetTemplates/${draft.id}/publish`).set('Authorization', bearer(fieldUser));
+    expect(publishRes.status).toBe(403);
+  });
+
+  test('full lifecycle: publish v1, new-version clones sections into v2 draft, publishing v2 supersedes v1', async () => {
+    const { user: owner } = await makeOrgWithMember('owner');
+    const v1 = await makeDraftTemplate(owner, { name: 'Standard packet', sections: 'disclaimer,body,approval' });
+    const publishV1 = await request(app).post(`/api/packetTemplates/${v1.id}/publish`).set('Authorization', bearer(owner));
+    expect(publishV1.status).toBe(200);
+    expect(publishV1.body.status).toBe('active');
+
+    const v2Res = await request(app).post(`/api/packetTemplates/${v1.id}/new-version`).set('Authorization', bearer(owner));
+    expect(v2Res.status).toBe(201);
+    expect(v2Res.body.version).toBe(2);
+    expect(v2Res.body.status).toBe('draft');
+    expect(v2Res.body.sections).toBe('disclaimer,body,approval'); // cloned from v1
+
+    const publishV2 = await request(app).post(`/api/packetTemplates/${v2Res.body.id}/publish`).set('Authorization', bearer(owner));
+    expect(publishV2.status).toBe(200);
+    expect(publishV2.body.status).toBe('active');
+
+    const v1AfterSupersede = await request(app).get(`/api/packetTemplates/${v1.id}`).set('Authorization', bearer(owner));
+    expect(v1AfterSupersede.body.status).toBe('superseded');
+  });
+
+  test('new-version cannot be created from a template belonging to a DIFFERENT org (404, not a silent cross-tenant leak)', async () => {
+    const { user: owner } = await makeOrgWithMember('owner');
+    const draft = await makeDraftTemplate(owner);
+    const { user: outsider } = await makeOrgWithMember('owner');
+
+    const versionRes = await request(app).post(`/api/packetTemplates/${draft.id}/new-version`).set('Authorization', bearer(outsider));
+    expect(versionRes.status).toBe(404);
+    const publishRes = await request(app).post(`/api/packetTemplates/${draft.id}/publish`).set('Authorization', bearer(outsider));
+    expect(publishRes.status).toBe(404);
+  });
+
+  test('an evidencePacket can link to a packetTemplateId in its own org, and is rejected for one in another org', async () => {
+    const { owner, proj } = await seedProjectAndPacket();
+    const template = await makeDraftTemplate(owner);
+    const linked = await request(app).post('/api/evidencePackets').set('Authorization', bearer(owner))
+      .send({ project_id: proj.body.id, packet_number: 'PK-LINK', version: 1, packetTemplateId: template.id });
+    expect(linked.status).toBe(201);
+    expect(linked.body.packetTemplateId).toBe(template.id);
+
+    const { user: outsider } = await makeOrgWithMember('owner');
+    const outsiderTemplate = await makeDraftTemplate(outsider);
+    const rejected = await request(app).post('/api/evidencePackets').set('Authorization', bearer(owner))
+      .send({ project_id: proj.body.id, packet_number: 'PK-REJECT', version: 1, packetTemplateId: outsiderTemplate.id });
+    expect(rejected.status).toBe(400);
+    expect(rejected.body.code).toBe('invalid_reference');
+  });
+});
+
 describe('commercial outcome six-stage ledger', () => {
   test('forward transitions succeed, backward transitions 409, ledger rows are written', async () => {
     const { owner, proj } = await seedProjectAndPacket();

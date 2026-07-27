@@ -1038,6 +1038,7 @@ model EvidencePacket {
   submission_method String?
   external_reference String?
   userId           String
+  packetTemplateId String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -1046,6 +1047,24 @@ model EvidencePacket {
   @@unique([project_id, packet_number, version])
   @@index([orgId, createdAt])
   @@index([project_id, status])
+}
+
+// Versioned, reusable packet layout: which of PDFPacketRenderer's content
+// blocks (disclaimer/body/appendix/approval — see lib/tools/
+// pdfpacketrenderer.js) appear in a generated packet, and in what order.
+// Same draft -> active -> superseded lifecycle as RateSheet — "same
+// lineage" is identified by `name` alone (no trade/customer dimension here).
+model PacketTemplate {
+  id        String   @id @default(uuid())
+  orgId     String
+  name      String
+  status    String   @default("draft") // draft|active|superseded
+  version   Int      @default(1)
+  sections  String   // comma-separated block keys, e.g. "disclaimer,body,appendix,approval"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId, status])
 }
 
 model CommercialOutcome {

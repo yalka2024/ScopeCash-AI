@@ -138,13 +138,20 @@ const ENTITIES = [
     // pdf_storage_uri/content_hash are intentionally excluded — see the
     // dedicated /evidencePackets/:id/{approve,submit,export} routes below.
     model: 'evidencePacket', plural: 'evidencePackets',
-    fields: ['project_id', 'packet_number', 'version', 'recipient', 'executive_summary', 'total_potential_amount', 'customer_validated_amount'],
-    fieldTypes: { project_id: 'String', packet_number: 'String', version: 'Int', recipient: 'String', executive_summary: 'String', total_potential_amount: 'Float', customer_validated_amount: 'Float' },
+    fields: ['project_id', 'packet_number', 'version', 'recipient', 'executive_summary', 'total_potential_amount', 'customer_validated_amount', 'packetTemplateId'],
+    fieldTypes: { project_id: 'String', packet_number: 'String', version: 'Int', recipient: 'String', executive_summary: 'String', total_potential_amount: 'Float', customer_validated_amount: 'Float', packetTemplateId: 'String' },
     required: ['project_id', 'packet_number', 'version'],
     writeRoles: ['owner', 'admin', 'project_manager'],
     deleteRoles: ['owner', 'admin'],
-    fk: { project_id: 'projectRecord' },
+    fk: { project_id: 'projectRecord', packetTemplateId: 'packetTemplate' },
     hasUserId: true,
+  },
+  {
+    model: 'packetTemplate', plural: 'packetTemplates',
+    fields: ['name', 'status', 'version', 'sections'],
+    fieldTypes: { name: 'String', status: 'String', version: 'Int', sections: 'String' },
+    required: ['name', 'sections'],
+    writeRoles: ['owner', 'admin', 'project_manager'],
   },
   {
     // identified_amount..collected_amount are intentionally excluded — see
@@ -605,6 +612,42 @@ router.post('/rateSheets/:id/publish', requireAnyOrgRole(...RATE_SHEET_ROLES), a
     });
   });
   await audit(req, 'rateSheets.publish', { resource: 'rateSheet', resourceId: published.id, details: { version: published.version } });
+  res.json(published);
+}));
+
+// ── Packet template versioning ──────────────────────────────────────────
+// Same draft -> active -> superseded lifecycle as rate sheets (Phase 29) —
+// "same lineage" is identified by `name` alone (no trade/customer
+// dimension for a packet template). No import route: unlike a rate
+// sheet's line items, a template's whole content IS the `sections` field,
+// directly editable via the generic PUT above.
+const PACKET_TEMPLATE_ENTITY = ENTITIES.find((e) => e.model === 'packetTemplate');
+const PACKET_TEMPLATE_ROLES = PACKET_TEMPLATE_ENTITY.writeRoles;
+
+router.post('/packetTemplates/:id/new-version', requireAnyOrgRole(...PACKET_TEMPLATE_ROLES), asyncHandler(async (req, res) => {
+  const source = await prisma.packetTemplate.findFirst({ where: scope(req, PACKET_TEMPLATE_ENTITY, { id: req.params.id }) });
+  if (!source) return res.status(404).json({ error: 'not_found' });
+  const draft = await prisma.packetTemplate.create({
+    data: { orgId: req.tenant.orgId, name: source.name, sections: source.sections, version: source.version + 1, status: 'draft' },
+  });
+  await audit(req, 'packetTemplates.newVersion', { resource: 'packetTemplate', resourceId: draft.id, details: { fromPacketTemplateId: source.id, fromVersion: source.version, toVersion: draft.version } });
+  res.status(201).json(draft);
+}));
+
+router.post('/packetTemplates/:id/publish', requireAnyOrgRole(...PACKET_TEMPLATE_ROLES), asyncHandler(async (req, res) => {
+  const draft = await prisma.packetTemplate.findFirst({ where: scope(req, PACKET_TEMPLATE_ENTITY, { id: req.params.id }) });
+  if (!draft) return res.status(404).json({ error: 'not_found' });
+  if (draft.status !== 'draft') throw new HttpError(409, 'Only a draft packet template can be published', 'not_draft');
+
+  const published = await prisma.tenantTransaction(async (tx) => {
+    // Exactly one 'active' version per name — supersede whatever currently holds that slot.
+    await tx.packetTemplate.updateMany({
+      where: { orgId: req.tenant.orgId, name: draft.name, status: 'active', id: { not: draft.id } },
+      data: { status: 'superseded' },
+    });
+    return tx.packetTemplate.update({ where: { id: draft.id }, data: { status: 'active' } });
+  });
+  await audit(req, 'packetTemplates.publish', { resource: 'packetTemplate', resourceId: published.id, details: { version: published.version } });
   res.json(published);
 }));
 
