@@ -397,7 +397,19 @@ is in STATUS.md. Everything below is either in progress or not started.
       viewport breakpoints before this). Verified in a real browser via a
       new Playwright e2e spec; re-running the a11y suite caught and fixed a
       real contrast bug in the new `<select>`s. See STATUS.md Phase 25.
-- [ ] HEIC conversion
+- [x] HEIC conversion — as literally written this was premature (HEIC was
+      already accepted + analyzed by Gemini; nothing displayed a photo
+      anywhere, so conversion had no caller). Closed the real gap instead:
+      new `GET /api/evidenceItems/:id/view` streams evidence photos back to
+      the browser, transcoding HEIC/HEIF to JPEG only at serve time
+      (`lib/image-convert.js`, `heic-convert` — pure JS, no native build
+      step); stored bytes never touched. "View" link added to the upload
+      widget. See STATUS.md Phase 26.
+- [ ] **Found while building the above, real and separate**: `storage.js`'s
+      magic-byte signature list has no entry for any audio format
+      (mp3/wav/ogg/m4a/webm) — real binary audio content fails the
+      magic-byte check with a 400 regardless of extension. Audio evidence
+      upload likely does not work today for genuine audio files.
 - [ ] Near-duplicate image detection
 - [ ] OCR quality scoring
 - [ ] Rate-sheet import/versioning UI

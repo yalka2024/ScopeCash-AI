@@ -113,6 +113,20 @@ test('capture-evidence widget uploads a photo via the multipart fallback and it 
   const row = await prisma.evidenceItem.findFirst({ where: { project_id: project.id, storageUri: { contains: 'sitephoto' } } });
   expect(row).toBeTruthy();
   expect(row.evidenceType).toBe('photo');
+
+  // The "View" link only appears once the server has actually returned the
+  // created row's id (FileRow's canView), and points at the real,
+  // authenticated view route (see routes/evidence.js's GET .../view,
+  // which transcodes HEIC to JPEG on the fly and streams everything else
+  // as-is) — following it here exercises the non-HEIC pass-through branch
+  // in a real browser tab, end to end.
+  const viewLink = fileRow.getByRole('link', { name: 'View' });
+  await expect(viewLink).toBeVisible();
+  const href = await viewLink.getAttribute('href');
+  expect(href).toBe(`/api/evidenceItems/${row.id}/view`);
+  const viewResponse = await sharedPage.request.get(href);
+  expect(viewResponse.status()).toBe(200);
+  expect(viewResponse.headers()['content-type']).toBe('image/png');
 });
 
 test('mobile viewport: hamburger menu toggles the sidebar drawer', async ({ browser }) => {

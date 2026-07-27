@@ -435,3 +435,93 @@ describe('direct-to-storage signed upload URLs', () => {
     expect(confirmRes.body.duplicateOfId).toBe(firstUpload.body.id);
   });
 });
+
+describe('GET /evidenceItems/:id/view', () => {
+  const storage = require('../../lib/storage');
+
+  test('streams a real (non-HEIC) image back as-is, with its stored mimeType', async () => {
+    const { user, project } = await makeOwnerAndProject();
+    const bytes = Buffer.from([0xff, 0xd8, 0xff, 0x00, 0x01, 0x02, 0x03]);
+    const upload = await request(app).post(`/api/projects/${project.id}/evidenceItems`).set('Authorization', bearer(user))
+      .attach('file', bytes, { filename: 'roof.jpg', contentType: 'image/jpeg' });
+    expect(upload.status).toBe(201);
+
+    const res = await request(app).get(`/api/evidenceItems/${upload.body.id}/view`).set('Authorization', bearer(user));
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toBe('image/jpeg');
+    expect(Buffer.compare(res.body, bytes)).toBe(0);
+  });
+
+  test('converts a HEIC photo to JPEG on the fly, keeping the ORIGINAL bytes in storage untouched', async () => {
+    const { user, project } = await makeOwnerAndProject();
+    // Minimal valid HEIC container signature (same fixture the upload test
+    // above uses) — enough to pass storage.js#sniffMagicBytes, but not a
+    // real decodable image, so the actual heic-convert call is mocked here
+    // (same testing boundary as mocking lib/billing/stripe's SDK calls
+    // elsewhere — this tests THIS route's own branching/integration logic,
+    // not the third-party codec library's decode correctness).
+    const heic = Buffer.concat([
+      Buffer.from([0x00, 0x00, 0x00, 0x18]), Buffer.from('ftyp'), Buffer.from('heic'),
+      Buffer.from([0x00, 0x00, 0x00, 0x00]), Buffer.from('mif1heic'),
+    ]);
+    const upload = await request(app).post(`/api/projects/${project.id}/evidenceItems`).set('Authorization', bearer(user))
+      .attach('file', heic, { filename: 'jobsite.heic', contentType: 'image/heic' });
+    expect(upload.status).toBe(201);
+
+    const fakeJpeg = Buffer.from('not a real jpeg but stands in for one');
+    const imageConvert = require('../../lib/image-convert');
+    const heicSpy = jest.spyOn(imageConvert, 'heicToJpeg').mockResolvedValue(fakeJpeg);
+
+    const res = await request(app).get(`/api/evidenceItems/${upload.body.id}/view`).set('Authorization', bearer(user));
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toBe('image/jpeg');
+    expect(Buffer.compare(res.body, fakeJpeg)).toBe(0);
+    expect(heicSpy).toHaveBeenCalledTimes(1);
+    expect(Buffer.compare(heicSpy.mock.calls[0][0], heic)).toBe(0); // converter got the REAL original bytes
+
+    // Storage itself was never touched — refetching the raw object still
+    // returns the original HEIC bytes, not the converted JPEG.
+    heicSpy.mockRestore();
+    const row = await prisma.evidenceItem.findUnique({ where: { id: upload.body.id } });
+    const stream = await storage.getStream(row.storageUri);
+    const chunks = [];
+    for await (const chunk of stream) chunks.push(chunk);
+    expect(Buffer.compare(Buffer.concat(chunks), heic)).toBe(0);
+  });
+
+  test('404s for a nonexistent id and for an item belonging to a different org', async () => {
+    const { user, project } = await makeOwnerAndProject();
+    const bytes = Buffer.from([0xff, 0xd8, 0xff, 0x00, 0x01, 0x02, 0x03]);
+    const upload = await request(app).post(`/api/projects/${project.id}/evidenceItems`).set('Authorization', bearer(user))
+      .attach('file', bytes, { filename: 'roof.jpg', contentType: 'image/jpeg' });
+
+    const missing = await request(app).get('/api/evidenceItems/does-not-exist/view').set('Authorization', bearer(user));
+    expect(missing.status).toBe(404);
+
+    const { user: outsider } = await makeOwnerAndProject();
+    const crossOrg = await request(app).get(`/api/evidenceItems/${upload.body.id}/view`).set('Authorization', bearer(outsider));
+    expect(crossOrg.status).toBe(404);
+  });
+
+  test('422s for a non-photo evidence item (e.g. audio)', async () => {
+    const { user, project } = await makeOwnerAndProject();
+    // Seeded directly, not via POST .../evidenceItems: this codebase's
+    // storage.js#MAGIC array has no signature for ANY audio format at all
+    // (mp3/wav/ogg/m4a/webm) — real binary audio content is currently
+    // rejected by validateBuffer's magic-byte check with a 400 regardless
+    // of extension, a separate, real, pre-existing gap unrelated to this
+    // item (HEIC/image handling) and out of scope to fix here. Seeding
+    // directly tests the VIEW route's own 422-for-non-photo logic without
+    // depending on that unrelated, currently-broken upload path.
+    const row = await prisma.evidenceItem.create({
+      data: {
+        orgId: project.orgId, project_id: project.id, evidenceType: 'audio',
+        storageUri: storage.newKey(user.id, 'note.mp3'), sha256Hash: crypto.randomBytes(32).toString('hex'),
+        mimeType: 'audio/mpeg', uploadedById: user.id,
+      },
+    });
+
+    const res = await request(app).get(`/api/evidenceItems/${row.id}/view`).set('Authorization', bearer(user));
+    expect(res.status).toBe(422);
+  });
+});

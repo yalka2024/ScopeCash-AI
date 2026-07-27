@@ -101,15 +101,30 @@ async function uploadOne({ projectId, file, kind, documentType, onProgress }) {
 }
 
 const DOCUMENT_TYPES = ['contract', 'estimate', 'change_order', 'invoice', 'other'];
+const API_URL = process.env.REACT_APP_API_URL || '/api';
 
 function FileRow({ item, onRetry }) {
+  // Only an actual image file has anything to preview (audio/receipt/
+  // document uploads don't). The view route itself (not this link)
+  // transcodes HEIC to JPEG on the fly so it actually displays in a browser
+  // tab, which has no built-in HEIC decoder.
+  const canView = item.serverId && IMAGE_EXTS.has(extOf(item.file.name));
   return (
     <li className="flex items-center gap-3 rounded-md border border-border bg-card px-3 py-2 text-sm">
       <span className="flex-1 truncate">{item.file.name}</span>
       {item.state === 'uploading' && (
         <span className="w-24 text-right text-muted-foreground">{Math.round(item.progress * 100)}%</span>
       )}
-      {item.state === 'done' && <span className="text-green-600">Uploaded</span>}
+      {item.state === 'done' && (
+        <>
+          <span className="text-green-600">Uploaded</span>
+          {canView && (
+            <a href={`${API_URL}/evidenceItems/${item.serverId}/view`} target="_blank" rel="noreferrer" className="underline">
+              View
+            </a>
+          )}
+        </>
+      )}
       {item.state === 'error' && (
         <>
           <span className="text-destructive" title={item.error}>Failed</span>
@@ -171,8 +186,8 @@ export default function EvidenceUpload({ onUploaded }) {
     uploadOne({
       projectId, file, kind, documentType,
       onProgress: (p) => setItems((s) => s.map((it) => (it.id === id ? { ...it, progress: p } : it))),
-    }).then(() => {
-      setItems((s) => s.map((it) => (it.id === id ? { ...it, state: 'done', progress: 1 } : it)));
+    }).then((row) => {
+      setItems((s) => s.map((it) => (it.id === id ? { ...it, state: 'done', progress: 1, serverId: row && row.id } : it)));
       // Only the table that actually changed refetches — 'document' kind
       // maps to sourceDocuments, everything else to evidenceItems (see
       // pathFor above) — not both, on every single upload.

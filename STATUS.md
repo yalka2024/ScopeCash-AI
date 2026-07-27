@@ -2147,6 +2147,70 @@ component) — folds into the existing "dashboard bundle splitting" P2 item
 later in this list, not addressed here to keep this phase scoped to the
 capture-UX gap it was meant to close.
 
+## Phase 26 — P2: HEIC conversion (DONE, 2026-07-27)
+
+Research first (Explore agent) found the TODO item, as literally written,
+was premature: HEIC files were already accepted for upload and already
+analyzed natively by Gemini vision (Phase 8's work) — there was simply no
+code path anywhere that DISPLAYED an evidence photo (no `<img>`, no PDF
+image-embed; `PDFPacketRenderer` serializes packet data as text only,
+zero image-embedding code). Nothing existed yet that a HEIC→JPEG
+conversion would actually serve, and Chrome/Firefox/Edge have no built-in
+HEIC decoder (only Safari does), so building the conversion in isolation
+would have been dead code with no caller.
+
+Rather than defer the item again, closed the real gap it was pointing at:
+Phase 25 just gave users the ability to upload photos with no way to see
+them afterward at all — an immediate, natural next step, not a
+speculative future feature. New `GET /api/evidenceItems/:id/view`
+(`routes/evidence.js`) streams an evidence photo back to the browser,
+transcoding HEIC/HEIF to JPEG only at serve time via a new
+`lib/image-convert.js` wrapper around `heic-convert` (pure JS, WASM-based
+libheif decode — no native build step, so no platform-specific binary to
+worry about in a container image). The STORED object is never touched —
+original HEIC bytes stay in storage always, so Gemini analysis and the
+sha256 hash stay over what was actually uploaded, not a derived copy.
+Non-HEIC images stream through unchanged. Added a "View" link to
+`EvidenceUpload.js`'s upload-progress rows for any actual image file.
+
+`heic-convert`'s own dependency tree introduces zero new `npm audit`
+findings (verified directly, not assumed).
+
+Verified in a real browser: extended the item-25 Playwright e2e spec —
+after a real PNG upload, the "View" link appears with the correct href,
+and actually following it (via Playwright's authenticated request
+context, not just checking the link exists) returns 200 with the right
+`image/png` content-type. Server-side: since no HEIC encoder was available
+in this environment to produce a genuinely decodable test fixture (checked
+for ImageMagick/heif-enc — neither present; `heic-convert`/`heic-decode`
+ship no test fixtures either), mocked `heic-convert` itself at the same
+testing boundary already used for Stripe/email SDK calls elsewhere in this
+codebase — verifying THIS route's own branching/org-scoping/error-handling
+logic, not the third-party codec's decode correctness, which is that
+package's own test suite's responsibility. Confirmed the mocked converter
+receives the REAL original bytes, and that storage itself is provably
+untouched by refetching the raw object after conversion.
+
+Ran `/simplify` before committing: two real, small fixes (deduped the
+HEIC/non-HEIC response branches in the view route down to one
+`res.send()`; dropped a redundant `item.state === 'done'` check already
+guaranteed true by its only call site's own containing condition).
+
+### Known gap found, not fixed here
+
+While building a fixture for a 422-on-non-photo test, found that
+`storage.js`'s `MAGIC` signature array has no entry for ANY audio format
+(mp3/wav/ogg/m4a/webm) at all — only PDF/PNG/JPEG/WEBP/HEIC/ZIP/a
+printable-text catch-all. Real binary audio content therefore fails
+`validateBuffer`'s magic-byte check with a 400 regardless of extension,
+meaning **audio evidence upload likely does not work today for genuine
+audio files** — a real, separate, pre-existing gap, unrelated to HEIC/image
+handling and out of scope for this phase. Worth its own follow-up.
+
+29 new/updated tests (24 server, e2e extension). Full suite: 26/26 server
+test suites, 252 passing. 19/19 e2e, 30/30 authenticated a11y. Pre-push
+`/security-review` found no exploitable issues.
+
 ## Not yet started
 
 See TODO.md.

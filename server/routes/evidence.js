@@ -21,6 +21,11 @@ const { z, validate, asyncHandler, HttpError } = require('../lib/validate');
 const { audit } = require('../lib/audit');
 const limiters = require('../lib/ratelimit');
 const storage = require('../lib/storage');
+// Not destructured — `jest.spyOn(imageConvert, 'heicToJpeg')` in tests
+// replaces the property on this module object; a destructured `const
+// { heicToJpeg }` would capture the original function reference at
+// require-time instead, invisible to the spy.
+const imageConvert = require('../lib/image-convert');
 const pipeline = require('../lib/evidence-pipeline');
 const evidenceJobs = require('../lib/evidence-jobs');
 const { attachApiKeyProjectScope } = require('../lib/api-key-scope');
@@ -319,6 +324,36 @@ router.post('/projects/:projectId/evidenceItems/confirm-upload', requireAnyOrgRo
   });
   await audit(req, 'evidenceItems.upload', { resource: 'evidenceItem', resourceId: row.id, details: { duplicate: !!existing, method: 'direct_signed_url' } });
   res.status(201).json(row);
+}));
+
+// ── EvidenceItem view (browser-displayable, converting HEIC on the fly) ──
+// Storage keeps the ORIGINAL bytes always (HEIC included — Gemini vision
+// analyzes heic/heif natively, and sha256Hash is over what was actually
+// uploaded, not a derived copy). But Chrome/Firefox/Edge have no built-in
+// HEIC decoder — a bare <img src="x.heic"> renders a broken-image icon on
+// every non-Safari browser — so a HEIC/HEIF item is transcoded to JPEG only
+// here, at serve time, never touching the stored object. No role gate
+// beyond org membership (read access), matching this file's other GET
+// routes (e.g. citations/validate below).
+router.get('/evidenceItems/:id/view', asyncHandler(async (req, res) => {
+  const item = await prisma.evidenceItem.findFirst({ where: { id: req.params.id, orgId: req.tenant.orgId } });
+  if (!item) return res.status(404).json({ error: 'not_found' });
+  assertApiKeyCanTouchProject(req, item.project_id);
+  if (item.evidenceType !== 'photo') {
+    throw new HttpError(422, 'Only photo evidence items can be viewed as an image', 'not_an_image');
+  }
+  let buffer;
+  try {
+    buffer = await streamToBuffer(await storage.getStream(item.storageUri));
+  } catch {
+    throw new HttpError(404, 'Stored file not found', 'file_not_found');
+  }
+  const isHeic = item.mimeType === 'image/heic' || item.mimeType === 'image/heif';
+  const contentType = isHeic ? 'image/jpeg' : (item.mimeType || 'application/octet-stream');
+  const body = isHeic ? await imageConvert.heicToJpeg(buffer) : buffer;
+  res.set('Content-Type', contentType);
+  res.set('Cache-Control', 'private, max-age=3600');
+  return res.send(body);
 }));
 
 // ── Analysis triggers ──────────────────────────────────────────────────────
