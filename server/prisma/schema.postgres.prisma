@@ -914,6 +914,15 @@ model SourceDocument {
   uploaded_by_id   String?
   uploaded_at      DateTime
   extraction_status String?  // pending|processing|extracted|failed
+  // Set by lib/evidence-jobs.js#_processSourceDocumentAnalyze — the OCR
+  // (Gemini-native document fallback) equivalent of EvidenceItem.quality,
+  // which does the same job for photos. Counts "[illegible]" markers the
+  // model's own system instruction tells it to write for any span it can't
+  // confidently transcribe (see evidence-pipeline.js's
+  // extractDocumentTextViaGemini) — a real signal that used to be computed
+  // then discarded entirely. null when local pdf-parse/mammoth extraction
+  // succeeded (no comparable per-span confidence signal from that path).
+  extraction_quality String? // ok|low_quality|unreadable
   page_count       Int?
   document_date    DateTime?
   superseded       Boolean?

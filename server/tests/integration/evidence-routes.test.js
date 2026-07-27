@@ -243,6 +243,43 @@ describe('evidence upload + analysis routes', () => {
     expect(output.extraction.method).toBe('gemini-native');
     expect(output.extraction.geminiFallbackRunId).toBeTruthy();
     expect(output.baseline.scopeItemCount).toBe(1);
+    // No "[illegible]" markers in the transcribed text -> 'ok'.
+    expect(output.extraction.quality).toBe('ok');
+    expect(output.extraction.illegibleSpanCount).toBe(0);
+    const doc = await prisma.sourceDocument.findUnique({ where: { id: uploadRes.body.id } });
+    expect(doc.extraction_quality).toBe('ok');
+  });
+
+  test('OCR quality scoring: illegible markers in a Gemini fallback transcript mark extraction_quality low_quality, not just extracted', async () => {
+    const { user, project } = await makeOwnerAndProject();
+    const uploadRes = await request(app)
+      .post(`/api/projects/${project.id}/sourceDocuments`)
+      .set('Authorization', bearer(user))
+      .field('document_type', 'invoice')
+      .attach('file', Buffer.from('%PDF-1.4 fake partially-legible scanned pdf bytes'), { filename: 'faded.pdf', contentType: 'application/pdf' });
+    expect(uploadRes.status).toBe(201);
+
+    jest.spyOn(pipeline, 'extractDocumentText').mockResolvedValueOnce({ text: '', pages: [], method: 'pdf-parse' });
+    vertex.generate.mockResolvedValueOnce({
+      text: '{}',
+      json: { text: 'Invoice total: [illegible]\nDate: [illegible]\nContractor: Riverside HVAC', unreadable: false, pageCount: 1 },
+      modelVersion: 'gemini-2.5-flash-001',
+      usage: { promptTokens: 300, completionTokens: 40, totalTokens: 340 },
+      costUsd: 0.0004,
+    });
+    // 'invoice' document_type does not trigger baseline extraction (only
+    // contract/estimate/change_order do) — only the one generate() call above.
+
+    const analyzeRes = await request(app).post(`/api/sourceDocuments/${uploadRes.body.id}/analyze`).set('Authorization', bearer(user));
+    expect(analyzeRes.status).toBe(202);
+    const run = await pollRun(analyzeRes.body.agentRunId);
+    expect(run.status).toBe('completed');
+    const output = JSON.parse(run.output_refs);
+    expect(output.extraction.quality).toBe('low_quality');
+    expect(output.extraction.illegibleSpanCount).toBe(2);
+    const doc = await prisma.sourceDocument.findUnique({ where: { id: uploadRes.body.id } });
+    expect(doc.extraction_status).toBe('extracted'); // still usable — illegible spans don't fail the whole extraction
+    expect(doc.extraction_quality).toBe('low_quality');
   });
 
   test('422s when Gemini-native fallback also cannot read the document', async () => {
@@ -270,6 +307,7 @@ describe('evidence upload + analysis routes', () => {
     expect(run.error_message).toMatch(/could not read any text/);
     const doc = await prisma.sourceDocument.findUnique({ where: { id: uploadRes.body.id } });
     expect(doc.extraction_status).toBe('failed');
+    expect(doc.extraction_quality).toBe('unreadable');
   });
 
   test('409s when analyzing a document that is already extracted', async () => {

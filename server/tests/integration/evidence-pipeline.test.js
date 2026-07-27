@@ -42,6 +42,17 @@ describe('extractDocumentText', () => {
   });
 });
 
+describe('countIllegibleMarkers', () => {
+  test('counts non-overlapping occurrences of the exact marker DOCUMENT_EXTRACTION_SYSTEM instructs Gemini to write', () => {
+    expect(pipeline.countIllegibleMarkers('Total: [illegible]\nDate: [illegible]\nContractor: Riverside HVAC')).toBe(2);
+  });
+  test('returns 0 for clean text, null, and undefined', () => {
+    expect(pipeline.countIllegibleMarkers('Total: $500. Signed and dated.')).toBe(0);
+    expect(pipeline.countIllegibleMarkers(null)).toBe(0);
+    expect(pipeline.countIllegibleMarkers(undefined)).toBe(0);
+  });
+});
+
 describe('extractContractBaseline', () => {
   test('persists ScopeItem + ContractProvision rows from the model response and logs an AgentRunRecord', async () => {
     const { org, project } = await makeOrgProjectCustomer();

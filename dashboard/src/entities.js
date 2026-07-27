@@ -21,8 +21,8 @@ export const ENTITIES = [
     // No per-row status field on projectRecord itself — poll the returned agentRunId.
     analyze: { path: (id) => `/projects/${id}/findings/generate`, label: 'Generate findings' } },
   { model: 'sourceDocument', plural: 'sourceDocuments',
-    fields: ['project_id', 'document_type', 'original_filename', 'storage_uri', 'mime_type', 'file_size_bytes', 'sha256_hash', 'uploaded_by_id', 'uploaded_at', 'extraction_status', 'page_count', 'document_date', 'superseded'],
-    fieldTypes: { project_id: 'String', document_type: 'String', original_filename: 'String', storage_uri: 'String', mime_type: 'String', file_size_bytes: 'Int', sha256_hash: 'String', uploaded_by_id: 'String', uploaded_at: 'DateTime', extraction_status: 'String', page_count: 'Int', document_date: 'DateTime', superseded: 'Boolean' },
+    fields: ['project_id', 'document_type', 'original_filename', 'storage_uri', 'mime_type', 'file_size_bytes', 'sha256_hash', 'uploaded_by_id', 'uploaded_at', 'extraction_status', 'extraction_quality', 'page_count', 'document_date', 'superseded'],
+    fieldTypes: { project_id: 'String', document_type: 'String', original_filename: 'String', storage_uri: 'String', mime_type: 'String', file_size_bytes: 'Int', sha256_hash: 'String', uploaded_by_id: 'String', uploaded_at: 'DateTime', extraction_status: 'String', extraction_quality: 'String', page_count: 'Int', document_date: 'DateTime', superseded: 'Boolean' },
     // Runs Gemini text extraction (+ contract baseline for contract/estimate/
     // change_order types) via lib/evidence-jobs.js — async, poll agentRunId.
     analyze: { path: (id) => `/sourceDocuments/${id}/analyze`, label: 'Analyze', statusField: 'extraction_status', doneValues: ['extracted'], failedValues: ['failed'] } },

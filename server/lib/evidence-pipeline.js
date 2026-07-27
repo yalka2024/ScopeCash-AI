@@ -107,10 +107,25 @@ const DOCUMENT_EXTRACTION_SCHEMA = {
   },
   required: ['text', 'unreadable'],
 };
+// Colocated with DOCUMENT_EXTRACTION_SYSTEM below (the ONLY place this
+// literal string is defined) rather than re-declared as a separate regex
+// wherever the count is needed (lib/evidence-jobs.js#_processSourceDocumentAnalyze,
+// for SourceDocument.extraction_quality — the OCR-quality-scoring
+// equivalent of EvidenceItem.quality). If this wording ever changes, the
+// counter changes with it instead of silently going stale and always
+// returning 0.
+const ILLEGIBLE_MARKER = '[illegible]';
 const DOCUMENT_EXTRACTION_SYSTEM = 'You are transcribing a scanned or image-based document for a home-services contractor '
   + 'documentation platform. Transcribe EVERY word of visible text exactly as written — do not summarize, paraphrase, '
-  + 'correct, or omit anything. Preserve numbers, dates, and dollar amounts character-for-character. If a word or section '
-  + 'is illegible, write [illegible] there rather than guessing. Never add text that is not actually visible in the document.';
+  + `correct, or omit anything. Preserve numbers, dates, and dollar amounts character-for-character. If a word or section `
+  + `is illegible, write ${ILLEGIBLE_MARKER} there rather than guessing. Never add text that is not actually visible in the document.`;
+
+// Plain substring counting, not a regex — ILLEGIBLE_MARKER contains regex
+// metacharacters ([ ]) that would need escaping for no real benefit here.
+function countIllegibleMarkers(text) {
+  if (!text) return 0;
+  return String(text).split(ILLEGIBLE_MARKER).length - 1;
+}
 
 /**
  * @param {{mimeType:string, buffer?:Buffer, gcsUri?:string, model?:string}} doc
@@ -522,4 +537,5 @@ module.exports = {
   compareScopeToEvidence,
   validateCitations,
   withAgentRun,
+  countIllegibleMarkers,
 };

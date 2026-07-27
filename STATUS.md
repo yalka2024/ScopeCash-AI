@@ -2264,6 +2264,53 @@ Pre-push `/security-review` found no exploitable issues (org/project
 scoping confirmed both app-level and RLS-backstopped; no injection surface
 in the pure-string similarity math).
 
+## Phase 28 — P2: OCR quality scoring (DONE, 2026-07-27)
+
+Research found the same pattern as Phase 27's near-duplicate work: a real
+Gemini-generated quality signal for **document** text extraction already
+existed and was computed then discarded entirely. `extractDocumentTextViaGemini`
+(the Gemini-native fallback for scanned/image-only documents) already
+returns an `unreadable` boolean and its own system instruction already
+tells the model to write `"[illegible]"` for any span it can't confidently
+transcribe rather than guessing — but the caller only ever used `unreadable`
+as a pass/fail branch and threw both signals away otherwise.
+`EvidenceItem.quality` does this exact job for photos (rating blur/
+darkness); `SourceDocument` had no equivalent.
+
+New `SourceDocument.extraction_quality` (`ok|low_quality|unreadable`,
+same enum shape as `EvidenceItem.quality` for consistency), set in
+`evidence-jobs.js#_processSourceDocumentAnalyze`: `'unreadable'` when the
+Gemini fallback's own `unreadable` flag fires (previously discarded),
+`'low_quality'` when the transcript contains one or more `[illegible]`
+markers, `'ok'` otherwise — including the local `pdf-parse`/`mammoth`
+extraction path, which has no comparable per-span confidence signal to
+score against. Surfaced via the existing generic entity table, same
+pattern as Phase 27.
+
+Ran `/simplify` before committing — one real altitude fix: the
+`[illegible]` marker string was initially duplicated (embedded as prose in
+the Gemini prompt in `evidence-pipeline.js`, re-declared as a separate
+regex in `evidence-jobs.js`) with no shared source of truth — if the
+prompt wording ever changed, the counter would silently stop matching and
+always return 0 with nothing to catch it. Moved `countIllegibleMarkers`
+into `evidence-pipeline.js` itself, colocated with `DOCUMENT_EXTRACTION_SYSTEM`
+(the one place the marker string is now defined) and exported for
+`evidence-jobs.js` to call; also simplified the implementation from a
+regex match to a plain substring count (no escaping needed for a fixed
+constant).
+
+7 new/updated tests. Full suite: 27/27 server test suites, 265 passing.
+Verified against real Postgres+RLS (12/12) by extending the existing
+`processJob()` regression test's own assertions with `extraction_quality`
+rather than writing a new test — it's the same `prisma.sourceDocument
+.update()` call site, inside the same already-established `runWithOrg()`
+context, just one more field on an existing write. The later `/simplify`
+refactor (relocating `countIllegibleMarkers`) only moved a pure,
+synchronous string function with zero Prisma/ALS interaction, so it did
+not need a second Postgres-container verification cycle — confirmed via
+the full SQLite suite instead. Pre-push `/security-review` found no
+exploitable issues.
+
 ## Not yet started
 
 See TODO.md.

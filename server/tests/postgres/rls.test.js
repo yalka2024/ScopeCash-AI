@@ -158,6 +158,9 @@ d('Postgres RLS', () => {
     expect(finalRun.error_message).toBeFalsy();
     const finalDoc = await runWithSystemAccess(async () => prisma.sourceDocument.findUnique({ where: { id: sourceDocument.id } }));
     expect(finalDoc.extraction_status).toBe('extracted');
+    // Same call site as the assertion above (one prisma.sourceDocument.update()),
+    // just one more field — local extraction (this test's path) always sets 'ok'.
+    expect(finalDoc.extraction_quality).toBe('ok');
   });
 
   test('regression: evidenceItem.analyze near-duplicate detection runs correctly with zero ambient context', async () => {

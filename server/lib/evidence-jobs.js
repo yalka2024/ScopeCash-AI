@@ -38,6 +38,7 @@ const cloudTasks = require('./cloud-tasks');
 const { runWithOrg, runWithSystemAccess } = require('./tenant-context');
 
 const MIN_EXTRACTED_CHARS = 20;
+
 const QUEUE_NAME = 'scopecash-ai-evidence-jobs';
 const REDIS_URL = process.env.REDIS_URL || '';
 const JOBS_BACKEND = (process.env.JOBS_BACKEND || '').toLowerCase();
@@ -184,7 +185,7 @@ async function _processSourceDocumentAnalyze({ runId, sourceDocumentId, orgId, p
       });
       geminiFallbackRunId = viaGemini.agentRunId;
       if (viaGemini.unreadable || viaGemini.text.trim().length === 0) {
-        await prisma.sourceDocument.update({ where: { id: sourceDocument.id }, data: { extraction_status: 'failed' } });
+        await prisma.sourceDocument.update({ where: { id: sourceDocument.id }, data: { extraction_status: 'failed', extraction_quality: 'unreadable' } });
         return _finishJobRun(runId, { status: 'failed', errorMessage: 'Gemini could not read any text from this document — it may be blank, corrupted, or too low quality to transcribe.', outputRefs: { geminiFallbackRunId } });
       }
       extracted = { text: viaGemini.text, pages: null, method: viaGemini.method };
@@ -194,13 +195,26 @@ async function _processSourceDocumentAnalyze({ runId, sourceDocumentId, orgId, p
     if (['contract', 'estimate', 'change_order'].includes(sourceDocument.document_type)) {
       baseline = await pipeline.extractContractBaseline({ orgId, project, sourceDocument, extractedText: extracted.text });
     }
+    // Only the Gemini fallback path can produce "[illegible]" markers (its
+    // own system instruction — see evidence-pipeline.js); local pdf-parse/
+    // mammoth extraction has no comparable per-span confidence signal to
+    // score against, so it's always 'ok' when it succeeds at all (getting
+    // here already means real text was extracted).
+    const illegibleCount = needsFallback ? pipeline.countIllegibleMarkers(extracted.text) : 0;
+    const extractionQuality = illegibleCount > 0 ? 'low_quality' : 'ok';
     await prisma.sourceDocument.update({
       where: { id: sourceDocument.id },
-      data: { extraction_status: 'extracted', page_count: extracted.pages ? extracted.pages.length : sourceDocument.page_count },
+      data: {
+        extraction_status: 'extracted', extraction_quality: extractionQuality,
+        page_count: extracted.pages ? extracted.pages.length : sourceDocument.page_count,
+      },
     });
 
     const outputRefs = {
-      extraction: { method: extracted.method, textLength: extracted.text.length, pageCount: extracted.pages ? extracted.pages.length : null, geminiFallbackRunId },
+      extraction: {
+        method: extracted.method, textLength: extracted.text.length, pageCount: extracted.pages ? extracted.pages.length : null,
+        geminiFallbackRunId, quality: extractionQuality, illegibleSpanCount: illegibleCount,
+      },
       baseline: baseline ? { scopeItemCount: baseline.scopeItems.length, contractProvisionCount: baseline.contractProvisions.length, agentRunId: baseline.agentRunId } : null,
     };
     return _finishJobRun(runId, { status: 'completed', outputRefs });

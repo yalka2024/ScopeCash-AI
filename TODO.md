@@ -418,7 +418,12 @@ is in STATUS.md. Everything below is either in progress or not started.
       against the 8 most recent same-project photos, above a tuned 0.5
       threshold, recorded in a new `EvidenceItem.nearDuplicateOfId` column.
       See STATUS.md Phase 27.
-- [ ] OCR quality scoring
+- [x] OCR quality scoring — `extractDocumentTextViaGemini`'s Gemini fallback
+      already generated an `unreadable` flag and wrote `[illegible]`
+      markers for low-confidence spans; both were computed then discarded.
+      New `SourceDocument.extraction_quality` (`ok|low_quality|unreadable`,
+      mirrors `EvidenceItem.quality`'s enum) persists it. See STATUS.md
+      Phase 28.
 - [ ] Rate-sheet import/versioning UI
 - [ ] Tax/markup calculation engine
 - [ ] Packet template versioning
