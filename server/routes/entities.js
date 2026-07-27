@@ -29,6 +29,7 @@ const attachTenant = require('../middleware/tenant');
 const { requireAnyOrgRole, PACKET_APPROVE_ROLES } = require('../lib/roles');
 const { z, validate, asyncHandler, HttpError } = require('../lib/validate');
 const { audit } = require('../lib/audit');
+const { computeCostItemDerived, costItemNeedsPricingRecompute } = require('../lib/pricing');
 const { attachApiKeyProjectScope } = require('../lib/api-key-scope');
 
 const router = express.Router();
@@ -180,12 +181,20 @@ const ENTITIES = [
     fk: { project_id: 'projectRecord' },
   },
   {
+    // markupAmount/taxAmount/billedTotal are intentionally excluded from
+    // `fields` — always server-computed by computeCostItemDerived (lib/
+    // pricing.js) from quantity × unit price (unitCost, or a linked
+    // rateSheetItem's rate when unitCost isn't given) and the org's
+    // default_markup/default_tax_rate, same convention as
+    // commercialOutcome's *_amount fields above.
     model: 'costItem', plural: 'costItems',
     fields: ['project_id', 'change_event_id', 'scopeItemId', 'category', 'description', 'quantity', 'unit', 'unitCost', 'totalCost', 'rateSheetItemId'],
     fieldTypes: { project_id: 'String', change_event_id: 'String', scopeItemId: 'String', category: 'String', description: 'String', quantity: 'Float', unit: 'String', unitCost: 'Float', totalCost: 'Float', rateSheetItemId: 'String' },
     required: ['project_id', 'category', 'description'],
     writeRoles: ['owner', 'admin', 'project_manager', 'estimator'],
-    fk: { project_id: 'projectRecord' },
+    fk: { project_id: 'projectRecord', rateSheetItemId: 'rateSheetItem' },
+    computeDerived: computeCostItemDerived,
+    computeDerivedTrigger: costItemNeedsPricingRecompute,
   },
   {
     model: 'rateSheet', plural: 'rateSheets',
@@ -405,6 +414,7 @@ for (const e of ENTITIES) {
     assertApiKeyProjectWrite(req, e, data, { isCreate: true });
     data.orgId = req.tenant.orgId;
     if (e.hasUserId) data.userId = req.user.id;
+    if (e.computeDerived) await e.computeDerived(data, req, null);
     const row = await prisma[model].create({ data });
     await audit(req, `${e.plural}.create`, { resource: model, resourceId: row.id });
     if (idemKey) idempotencyCache.set(idemKey, { status: 201, body: row, expiresAt: Date.now() + IDEMPOTENCY_TTL_MS });
@@ -415,6 +425,11 @@ for (const e of ENTITIES) {
     const data = pick(req.body, e.fields);
     await assertForeignKeys(e, data, req.tenant.orgId);
     assertApiKeyProjectWrite(req, e, data);
+    if (e.computeDerived && (!e.computeDerivedTrigger || e.computeDerivedTrigger(data))) {
+      const existing = await prisma[model].findFirst({ where: scope(req, e, { id: req.params.id }) });
+      if (!existing) return res.status(404).json({ error: 'not_found' });
+      await e.computeDerived(data, req, existing);
+    }
     const result = await prisma[model].updateMany({ where: scope(req, e, { id: req.params.id }), data });
     if (!result.count) return res.status(404).json({ error: 'not_found' });
     const row = await prisma[model].findFirst({ where: scope(req, e, { id: req.params.id }) });

@@ -330,6 +330,64 @@ d('Postgres RLS', () => {
     expect(v1AfterSupersede.status).toBe('superseded');
   });
 
+  test('regression: cost item pricing engine (lib/pricing.js) reads OrganizationRecord and RateSheetItem correctly under real Postgres+RLS, and refuses a cross-org rateSheetItemId', async () => {
+    // computeCostItemDerived() is new Prisma traffic on top of an already
+    // request-scoped runWithOrg() (via attachTenant) — same "not a
+    // context-loss bug" caveat as the rate-sheet regression above. What's
+    // actually novel here: prisma.organizationRecord.findUnique({ where: {
+    // orgId } }) and prisma.rateSheetItem.findFirst({ where: { id, orgId }
+    // }) are both brand-new query shapes never exercised against real RLS
+    // before, and the rateSheetItemId cross-org check is a real security
+    // boundary (a compromised/buggy client pointing at another org's rate
+    // sheet item must not leak that org's pricing into the caller's cost
+    // item) — worth confirming RLS backs up the app-level orgId filter,
+    // not just SQLite's no-op.
+    const express = require('express');
+    const request = require('supertest');
+    const cookieParser = require('cookie-parser');
+    const { errorMiddleware } = require('../../lib/validate');
+    const { signAccessToken } = require('../../lib/security');
+    const entityRoutes = require('../../routes/entities');
+    const app = express();
+    app.use(cookieParser());
+    app.use(express.json());
+    app.use('/api', entityRoutes);
+    app.use(errorMiddleware);
+
+    const { org, user, proj } = await runWithSystemAccess(async () => {
+      const org = await prisma.organization.create({ data: { name: uid('Org') } });
+      const user = await prisma.user.create({ data: { email: `${uid('u')}@test.local`, passwordHash: 'x', role: 'user', orgId: org.id, emailVerified: true } });
+      await prisma.orgMembership.create({ data: { orgId: org.id, userId: user.id, role: 'owner', status: 'active' } });
+      await prisma.organizationRecord.create({ data: { orgId: org.id, name: 'Acme', legal_name: 'Acme LLC', default_markup: 0.2, default_tax_rate: 0.1 } });
+      const customer = await prisma.customer.create({ data: { orgId: org.id, name: uid('Customer') } });
+      const proj = await prisma.projectRecord.create({ data: { orgId: org.id, customer_id: customer.id, name: 'RLS pricing regression', userId: user.id } });
+      return { org, user, proj };
+    });
+    const bearer = `Bearer ${signAccessToken({ id: user.id, email: user.email, role: user.role, orgId: user.orgId })}`;
+
+    // Org defaults actually got read from Postgres, not silently null.
+    const priced = await request(app).post('/api/costItems').set('Authorization', bearer)
+      .send({ project_id: proj.id, category: 'material', description: 'Condenser', quantity: 2, unitCost: 500 });
+    expect(priced.status).toBe(201);
+    expect(priced.body.totalCost).toBe(1000);
+    expect(priced.body.markupAmount).toBeCloseTo(200);
+    expect(priced.body.taxAmount).toBeCloseTo(120);
+    expect(priced.body.billedTotal).toBeCloseTo(1320);
+
+    // A rate sheet item belonging to a DIFFERENT org must not be readable
+    // through this path, even though the row genuinely exists in Postgres.
+    const otherOrgItemId = await runWithSystemAccess(async () => {
+      const otherOrg = await prisma.organization.create({ data: { name: uid('OtherOrg') } });
+      const sheet = await prisma.rateSheet.create({ data: { orgId: otherOrg.id, name: 'Other org rates' } });
+      const item = await prisma.rateSheetItem.create({ data: { orgId: otherOrg.id, rateSheetId: sheet.id, description: 'Other item', unitRate: 9999 } });
+      return item.id;
+    });
+    const blocked = await request(app).post('/api/costItems').set('Authorization', bearer)
+      .send({ project_id: proj.id, category: 'material', description: 'x', quantity: 1, rateSheetItemId: otherOrgItemId });
+    expect(blocked.status).toBe(400);
+    expect(blocked.body.code).toBe('invalid_reference');
+  });
+
   test('regression: evidence-jobs.js#reconcileStuckJobs() sweeps across every org with zero ambient context (the "job creation" outbox hazard)', async () => {
     // reconcileStuckJobs() legitimately needs to see stuck runs across
     // EVERY org (a stuck job's own org isn't known ahead of time) — it's

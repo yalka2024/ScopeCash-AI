@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE "CostItem" ADD COLUMN     "billedTotal" DOUBLE PRECISION,
+ADD COLUMN     "markupAmount" DOUBLE PRECISION,
+ADD COLUMN     "taxAmount" DOUBLE PRECISION;

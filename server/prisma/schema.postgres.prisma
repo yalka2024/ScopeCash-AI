@@ -1201,6 +1201,9 @@ model CostItem {
   unitCost        Float?
   totalCost       Float?
   rateSheetItemId String?
+  markupAmount    Float?
+  taxAmount       Float?
+  billedTotal     Float?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

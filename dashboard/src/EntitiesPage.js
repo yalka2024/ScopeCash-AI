@@ -48,7 +48,12 @@ function display(type, v) {
 }
 
 export function EntitySection({ entity, refreshSignal, onSaved }) {
-  const types = entity.fieldTypes || {};
+  const types = { ...(entity.fieldTypes || {}), ...(entity.readOnlyFieldTypes || {}) };
+  // Server-computed fields shown in the table but never in the create/edit
+  // form — distinct from `entity.readOnly`, which hides the form for the
+  // whole entity (e.g. agentRunRecord). Empty for every entity but the ones
+  // that opt in (currently just costItem's markup/tax breakdown).
+  const readOnlyFields = entity.readOnlyFields || [];
   const readOnly = !!entity.readOnly;
   const [rows, setRows] = useState([]);
   const [form, setForm] = useState({});
@@ -170,6 +175,9 @@ export function EntitySection({ entity, refreshSignal, onSaved }) {
                 {entity.fields.map((f) => (
                   <th key={f} className="border-b border-border p-2 text-left text-xs font-medium text-muted-foreground">{humanize(f)}</th>
                 ))}
+                {readOnlyFields.map((f) => (
+                  <th key={f} className="border-b border-border p-2 text-left text-xs font-medium text-muted-foreground">{humanize(f)}</th>
+                ))}
                 {entity.analyze && <th className="border-b border-border p-2 text-left text-xs font-medium text-muted-foreground">Analysis</th>}
                 {!readOnly && <th className="border-b border-border" />}
               </tr>
@@ -185,6 +193,7 @@ export function EntitySection({ entity, refreshSignal, onSaved }) {
                 return (
                   <tr key={r.id} className="border-b border-border/50">
                     {entity.fields.map((f) => <td key={f} className="p-2 text-sm text-foreground">{display(types[f], r[f])}</td>)}
+                    {readOnlyFields.map((f) => <td key={f} className="p-2 text-sm text-muted-foreground">{display(types[f], r[f])}</td>)}
                     {az && (
                       <td className="whitespace-nowrap p-2 text-sm">
                         <Button size="sm" variant="outline" disabled={isBusy || isDone} onClick={() => triggerAnalyze(r)}>
@@ -204,7 +213,7 @@ export function EntitySection({ entity, refreshSignal, onSaved }) {
                 );
               })}
               {rows.length === 0 && (
-                <tr><td className="p-2 text-sm text-muted-foreground" colSpan={entity.fields.length + (entity.analyze ? 1 : 0) + (readOnly ? 0 : 1)}>
+                <tr><td className="p-2 text-sm text-muted-foreground" colSpan={entity.fields.length + readOnlyFields.length + (entity.analyze ? 1 : 0) + (readOnly ? 0 : 1)}>
                   {readOnly ? 'No records yet.' : 'No records yet — add one above.'}
                 </td></tr>
               )}

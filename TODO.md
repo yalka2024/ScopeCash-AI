@@ -430,7 +430,14 @@ is in STATUS.md. Everything below is either in progress or not started.
       `papaparse`, clone-to-new-draft, publish-and-supersede-the-prior-active
       for the same name+trade+customer lineage) plus a `RateSheetTools`
       widget on the Customers page. See STATUS.md Phase 29.
-- [ ] Tax/markup calculation engine
+- [x] Tax/markup calculation engine — nothing in the app multiplied a dollar
+      amount by a percentage anywhere; `OrganizationRecord.default_markup`/
+      `.default_tax_rate` and `CostItem.rateSheetItemId` existed but were
+      unused. New `lib/pricing.js` derives `CostItem.totalCost` (from
+      `unitCost × quantity`, or a linked rate sheet item's rate) and new
+      `markupAmount`/`taxAmount`/`billedTotal` fields from the org's rates,
+      wired into the generic create/update path — never overriding an
+      explicit value. See STATUS.md Phase 30.
 - [ ] Packet template versioning
 - [ ] PDF visual regression tests
 - [ ] Notification preference management

@@ -338,6 +338,142 @@ describe('rate sheet CSV import + versioning workflow', () => {
   });
 });
 
+describe('cost item pricing engine (quantity × unit price + markup + tax)', () => {
+  async function seedProjectWithOrg() {
+    const { user: owner, org } = await makeOrgWithMember('owner');
+    const cust = await request(app).post('/api/customers').set('Authorization', bearer(owner)).send({ name: 'C' });
+    const proj = await request(app).post('/api/projectRecords').set('Authorization', bearer(owner)).send({ customer_id: cust.body.id, name: 'P' });
+    return { owner, org, proj };
+  }
+
+  test('derives totalCost from unitCost × quantity, and markup/tax from org defaults, when not explicitly given', async () => {
+    const { owner, proj } = await seedProjectWithOrg();
+    await request(app).post('/api/organizationRecords').set('Authorization', bearer(owner))
+      .send({ name: 'Acme', legal_name: 'Acme LLC', default_markup: 0.2, default_tax_rate: 0.08 });
+
+    const res = await request(app).post('/api/costItems').set('Authorization', bearer(owner))
+      .send({ project_id: proj.body.id, category: 'material', description: 'Condenser', quantity: 2, unitCost: 500 });
+    expect(res.status).toBe(201);
+    expect(res.body.totalCost).toBe(1000);
+    expect(res.body.markupAmount).toBeCloseTo(200);   // 1000 * 0.2
+    expect(res.body.taxAmount).toBeCloseTo(96);        // (1000 + 200) * 0.08 — tax on the marked-up sell amount
+    expect(res.body.billedTotal).toBeCloseTo(1296);
+  });
+
+  test('never invents a price: no unitCost/quantity/totalCost given leaves totalCost/markup/tax/billedTotal null', async () => {
+    const { owner, proj } = await seedProjectWithOrg();
+    const res = await request(app).post('/api/costItems').set('Authorization', bearer(owner))
+      .send({ project_id: proj.body.id, category: 'labor', description: 'Scope TBD' });
+    expect(res.status).toBe(201);
+    expect(res.body.totalCost).toBeNull();
+    expect(res.body.markupAmount).toBeNull();
+    expect(res.body.taxAmount).toBeNull();
+    expect(res.body.billedTotal).toBeNull();
+  });
+
+  test('computes totalCost from unitCost × quantity even with no OrganizationRecord at all (markup/tax stay null, not a crash)', async () => {
+    const { owner, proj } = await seedProjectWithOrg();
+    const res = await request(app).post('/api/costItems').set('Authorization', bearer(owner))
+      .send({ project_id: proj.body.id, category: 'labor', description: 'x', quantity: 4, unitCost: 25 });
+    expect(res.status).toBe(201);
+    expect(res.body.totalCost).toBe(100);
+    expect(res.body.markupAmount).toBeNull();
+    expect(res.body.taxAmount).toBeNull();
+    expect(res.body.billedTotal).toBe(100);
+  });
+
+  test('an explicit totalCost override is respected, but markupAmount/taxAmount/billedTotal are always server-computed (not client-writable)', async () => {
+    const { owner, proj } = await seedProjectWithOrg();
+    await request(app).post('/api/organizationRecords').set('Authorization', bearer(owner))
+      .send({ name: 'Acme', legal_name: 'Acme LLC', default_markup: 0.5, default_tax_rate: 0.5 });
+
+    const res = await request(app).post('/api/costItems').set('Authorization', bearer(owner))
+      .send({
+        project_id: proj.body.id, category: 'material', description: 'Fixed bid',
+        unitCost: 100, quantity: 3, totalCost: 250, markupAmount: 999, taxAmount: 999, billedTotal: 999,
+      });
+    expect(res.status).toBe(201);
+    expect(res.body.totalCost).toBe(250);            // explicit override respected
+    expect(res.body.markupAmount).toBeCloseTo(125);  // 250 * 0.5 — computed, the sent 999 is ignored
+    expect(res.body.taxAmount).toBeCloseTo(187.5);    // (250 + 125) * 0.5
+    expect(res.body.billedTotal).toBeCloseTo(562.5);
+  });
+
+  test('pulls unitCost from a linked rate sheet item when unitCost is not explicitly given', async () => {
+    const { owner, proj } = await seedProjectWithOrg();
+    const sheet = await request(app).post('/api/rateSheets').set('Authorization', bearer(owner)).send({ name: 'HVAC rates' });
+    const item = await request(app).post('/api/rateSheetItems').set('Authorization', bearer(owner))
+      .send({ rateSheetId: sheet.body.id, description: 'Condenser install', unitRate: 750 });
+
+    const res = await request(app).post('/api/costItems').set('Authorization', bearer(owner))
+      .send({ project_id: proj.body.id, category: 'equipment', description: 'From rate sheet', quantity: 2, rateSheetItemId: item.body.id });
+    expect(res.status).toBe(201);
+    expect(res.body.unitCost).toBe(750);
+    expect(res.body.totalCost).toBe(1500);
+  });
+
+  test('rejects a rateSheetItemId belonging to another org (400, not a silent cross-tenant leak)', async () => {
+    const { owner, proj } = await seedProjectWithOrg();
+    const { user: otherOwner } = await makeOrgWithMember('owner');
+    const otherSheet = await request(app).post('/api/rateSheets').set('Authorization', bearer(otherOwner)).send({ name: 'Other org rates' });
+    const otherItem = await request(app).post('/api/rateSheetItems').set('Authorization', bearer(otherOwner))
+      .send({ rateSheetId: otherSheet.body.id, description: 'Other item', unitRate: 999 });
+
+    const res = await request(app).post('/api/costItems').set('Authorization', bearer(owner))
+      .send({ project_id: proj.body.id, category: 'material', description: 'x', quantity: 1, rateSheetItemId: otherItem.body.id });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('invalid_reference');
+  });
+
+  test('rejects a rateSheetItemId belonging to another org even when an explicit unitCost is also supplied in the same request', async () => {
+    // Regression: computeCostItemDerived only pulled unitCost from a rate
+    // sheet item (and, in an earlier version of this hook, only validated
+    // its cross-org ownership) when unitCost was NOT also given — sending
+    // both together must not skip validating that rateSheetItemId belongs
+    // to the caller's org. Ownership is now enforced unconditionally by
+    // assertForeignKeys()/costItem's `fk` config, ahead of the pricing hook.
+    const { owner, proj } = await seedProjectWithOrg();
+    const { user: otherOwner } = await makeOrgWithMember('owner');
+    const otherSheet = await request(app).post('/api/rateSheets').set('Authorization', bearer(otherOwner)).send({ name: 'Other org rates' });
+    const otherItem = await request(app).post('/api/rateSheetItems').set('Authorization', bearer(otherOwner))
+      .send({ rateSheetId: otherSheet.body.id, description: 'Other item', unitRate: 999 });
+
+    const res = await request(app).post('/api/costItems').set('Authorization', bearer(owner))
+      .send({ project_id: proj.body.id, category: 'material', description: 'x', quantity: 1, unitCost: 1, rateSheetItemId: otherItem.body.id });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('invalid_reference');
+  });
+
+  test('updating only quantity recomputes totalCost/markup from the existing unitCost, without re-pulling an already-linked rate sheet', async () => {
+    const { owner, proj } = await seedProjectWithOrg();
+    await request(app).post('/api/organizationRecords').set('Authorization', bearer(owner))
+      .send({ name: 'Acme', legal_name: 'Acme LLC', default_markup: 0.1, default_tax_rate: 0 });
+    const sheet = await request(app).post('/api/rateSheets').set('Authorization', bearer(owner)).send({ name: 'Rates' });
+    const item = await request(app).post('/api/rateSheetItems').set('Authorization', bearer(owner))
+      .send({ rateSheetId: sheet.body.id, description: 'x', unitRate: 100 });
+
+    const created = await request(app).post('/api/costItems').set('Authorization', bearer(owner))
+      .send({ project_id: proj.body.id, category: 'material', description: 'x', quantity: 1, rateSheetItemId: item.body.id });
+    expect(created.body.unitCost).toBe(100); // derived from the rate sheet
+    expect(created.body.totalCost).toBe(100);
+
+    const overridden = await request(app).put(`/api/costItems/${created.body.id}`).set('Authorization', bearer(owner))
+      .send({ unitCost: 40 });
+    expect(overridden.body.unitCost).toBe(40);
+    expect(overridden.body.totalCost).toBe(40);
+
+    // Changing ONLY quantity must recompute from the manually-overridden
+    // unitCost (40), not silently re-pull the rate sheet's 100 again —
+    // rateSheetItemId isn't in this request's body at all.
+    const requantified = await request(app).put(`/api/costItems/${created.body.id}`).set('Authorization', bearer(owner))
+      .send({ quantity: 3 });
+    expect(requantified.status).toBe(200);
+    expect(requantified.body.unitCost).toBe(40);
+    expect(requantified.body.totalCost).toBe(120);
+    expect(requantified.body.markupAmount).toBeCloseTo(12);
+  });
+});
+
 describe('commercial outcome six-stage ledger', () => {
   test('forward transitions succeed, backward transitions 409, ledger rows are written', async () => {
     const { owner, proj } = await seedProjectAndPacket();

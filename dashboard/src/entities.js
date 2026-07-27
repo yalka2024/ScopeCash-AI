@@ -51,7 +51,13 @@ export const ENTITIES = [
     fieldTypes: { project_id: 'String', packet_number: 'String', version: 'Int', status: 'String', recipient: 'String', executive_summary: 'String', total_potential_amount: 'Float', customer_validated_amount: 'Float', pdf_storage_uri: 'String', content_hash: 'String', approved_by_id: 'String', approved_at: 'DateTime', exported_at: 'DateTime', submission_date: 'DateTime', submission_method: 'String', external_reference: 'String' } },
   { model: 'costItem', plural: 'costItems',
     fields: ['project_id', 'change_event_id', 'scopeItemId', 'category', 'description', 'quantity', 'unit', 'unitCost', 'totalCost', 'rateSheetItemId'],
-    fieldTypes: { project_id: 'String', change_event_id: 'String', scopeItemId: 'String', category: 'String', description: 'String', quantity: 'Float', unit: 'String', unitCost: 'Float', totalCost: 'Float', rateSheetItemId: 'String' } },
+    fieldTypes: { project_id: 'String', change_event_id: 'String', scopeItemId: 'String', category: 'String', description: 'String', quantity: 'Float', unit: 'String', unitCost: 'Float', totalCost: 'Float', rateSheetItemId: 'String' },
+    // Server-computed by lib/pricing.js from quantity × unit price and the
+    // org's default_markup/default_tax_rate — shown in the table, but (like
+    // the server's own writable `fields` list, which also excludes them)
+    // never editable via the create/edit form.
+    readOnlyFields: ['markupAmount', 'taxAmount', 'billedTotal'],
+    readOnlyFieldTypes: { markupAmount: 'Float', taxAmount: 'Float', billedTotal: 'Float' } },
   { model: 'commercialOutcome', plural: 'commercialOutcomes',
     fields: ['project_id', 'change_event_id', 'packet_id', 'identified_amount', 'validated_amount', 'submitted_amount', 'approved_amount', 'invoiced_amount', 'collected_amount', 'invoice_number', 'invoice_date', 'payment_date', 'notes'],
     fieldTypes: { project_id: 'String', change_event_id: 'String', packet_id: 'String', identified_amount: 'Float', validated_amount: 'Float', submitted_amount: 'Float', approved_amount: 'Float', invoiced_amount: 'Float', collected_amount: 'Float', invoice_number: 'String', invoice_date: 'DateTime', payment_date: 'DateTime', notes: 'String' } },
