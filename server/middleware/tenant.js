@@ -13,6 +13,7 @@ const ent = require('../lib/entitlements');
 const { laneForPlan, rateBudgetForPlan } = require('../lib/lanes');
 const { runWithOrg } = require('../lib/tenant-context');
 const prisma = require('../lib/prisma');
+const apiCalls = require('../lib/api-call-meter');
 
 const BUCKETS = new Map();   // key: orgId -> { tokens, lastRefillMs, capacity }
 const WINDOW_MS = 60_000;
@@ -94,7 +95,25 @@ async function attachTenant(req, res, next) {
   });
 }
 
-function attachTenantRest(req, res, next, orgId, planId) {
+/**
+ * Paths exempt from the api_calls_per_month quota and the suspended-writes
+ * block. Locking a customer out of billing/auth when they hit a limit or
+ * fall behind on payment would strand them on the exact pages they need to
+ * fix it — the quota would enforce itself into being unfixable. Health is
+ * exempt so orchestrators keep working regardless of tenant state.
+ */
+const QUOTA_EXEMPT_PREFIXES = ['/api/billing', '/api/auth', '/api/health', '/api/me'];
+
+function isQuotaExempt(req) {
+  // Compare on path segments, not a raw startsWith: a bare prefix test would
+  // make '/api/me' also exempt a future '/api/metrics' or '/api/members',
+  // silently widening the exemption as routes are added. Query string is
+  // stripped first so '/api/billing?x=1' still matches.
+  const path = (req.originalUrl || req.url || '').split('?')[0];
+  return QUOTA_EXEMPT_PREFIXES.some(prefix => path === prefix || path.startsWith(`${prefix}/`));
+}
+
+async function attachTenantRest(req, res, next, orgId, planId) {
   // Per-tenant rate budget
   const rl = takeToken(orgId, planId);
   res.setHeader('x-tenant-rate-remaining', String(rl.remaining));
@@ -108,6 +127,45 @@ function attachTenantRest(req, res, next, orgId, planId) {
       retryAfterSeconds: Math.ceil(rl.retryAfterMs / 1000),
     });
   }
+
+  if (!isQuotaExempt(req)) {
+    // Suspended subscriptions lose writes but keep reads, so a customer can
+    // still export their data after non-payment. middleware/entitlements.js
+    // has exported blockIfSuspended() for this since it was written, but it
+    // was never mounted on any router — enforcing it here covers every
+    // authenticated route at once instead of needing 18 separate mounts.
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+      const sub = await ent.getActiveSubscription(req.user.orgId).catch(() => null);
+      if (sub && sub.status === 'suspended') {
+        const message = 'Your subscription is suspended for non-payment. Reads are still allowed; please update billing to restore writes.';
+        return res.status(402).json({
+          error: message, code: 'subscription_suspended', message,
+          upgrade_url: '/settings/billing', requestId: req.requestId,
+        });
+      }
+    }
+
+    // api_calls_per_month is an advertised per-tier limit that had no
+    // enforcement anywhere. Counted here, at the one place every
+    // authenticated API request already passes through, so "API call" means
+    // the same thing for every route.
+    const quota = await apiCalls.checkAndRecord(orgId, req.tenant.plan);
+    if (quota.limit !== -1) {
+      res.setHeader('x-quota-meter', 'api_calls_per_month');
+      res.setHeader('x-quota-used', String(quota.used));
+      res.setHeader('x-quota-limit', String(quota.limit));
+      res.setHeader('x-quota-remaining', String(quota.remaining));
+    }
+    if (!quota.allowed) {
+      const message = `Monthly API call limit reached (${quota.used}/${quota.limit}).`;
+      return res.status(402).json({
+        error: message, code: 'usage_limit_exceeded', message,
+        meter: 'api_calls_per_month', used: quota.used, limit: quota.limit,
+        remaining: quota.remaining, upgrade_url: '/settings/billing', requestId: req.requestId,
+      });
+    }
+  }
+
   // Already running inside the runWithOrg scope established by attachTenant
   // above — just continue the middleware chain.
   return next();

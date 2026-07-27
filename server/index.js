@@ -339,6 +339,11 @@ async function gracefulShutdown(signal) {
   // 4. Stop HTTP server
   await new Promise((resolve) => server.close(() => resolve()));
 
+  // 4b. Persist buffered API-call counts before the DB connection closes —
+  // lib/api-call-meter.js keeps them in memory between flush ticks, so a
+  // clean shutdown should not drop the current window.
+  try { await require('./lib/api-call-meter').flush(); } catch {}
+
   // 5. Disconnect Prisma
   try {
     const prisma = require('./lib/prisma');

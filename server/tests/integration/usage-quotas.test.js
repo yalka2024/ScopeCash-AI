@@ -218,3 +218,134 @@ describe('records_per_month ("AI use cases / month")', () => {
     expect(res.headers['x-quota-limit']).toBeUndefined(); // enforceMeter skips the headers when limit === -1
   });
 });
+
+/**
+ * The remaining advertised meters. Before this, storage_gb / webhooks /
+ * api_calls_per_month / ai_tokens_per_month appeared in the PLANS catalog and
+ * on the pricing page but were checked nowhere in the codebase — the strings
+ * existed only in the catalog literal. Suspended subscriptions were likewise
+ * never blocked from writing.
+ */
+describe('storage_gb', () => {
+  const FREE_TIER = { limits: { storage_gb: 1 } };
+
+  test('sums bytes across BOTH models that hold uploads, not just one', async () => {
+    const { org, user } = await makeOrgWithMember('owner');
+    const cust = await request(app).post('/api/customers').set('Authorization', bearer(user)).send({ name: 'C' });
+    const proj = await request(app).post('/api/projectRecords').set('Authorization', bearer(user)).send({ customer_id: cust.body.id, name: 'P' });
+    await prisma.sourceDocument.create({
+      data: {
+        orgId: org.id, userId: user.id, project_id: proj.body.id, document_type: 'contract',
+        original_filename: 'a.pdf', storage_uri: 'local://a.pdf',
+        sha256_hash: crypto.randomBytes(16).toString('hex'),
+        uploaded_at: new Date(), file_size_bytes: 400,
+      },
+    });
+    await prisma.evidenceItem.create({
+      data: {
+        orgId: org.id, project_id: proj.body.id, evidenceType: 'photo', storageUri: 'local://p.jpg',
+        sha256Hash: crypto.randomBytes(32).toString('hex'), fileSizeBytes: 600,
+      },
+    });
+    const status = await ent.checkStorageBytes(org.id, 0, FREE_TIER);
+    expect(status.used).toBe(1000);
+  });
+
+  test('rows predating the fileSizeBytes column count as 0 rather than blocking the org', async () => {
+    const { org, user } = await makeOrgWithMember('owner');
+    const cust = await request(app).post('/api/customers').set('Authorization', bearer(user)).send({ name: 'C' });
+    const proj = await request(app).post('/api/projectRecords').set('Authorization', bearer(user)).send({ customer_id: cust.body.id, name: 'P' });
+    await prisma.evidenceItem.create({
+      data: {
+        orgId: org.id, project_id: proj.body.id, evidenceType: 'photo', storageUri: 'local://legacy.jpg',
+        sha256Hash: crypto.randomBytes(32).toString('hex'), fileSizeBytes: null,
+      },
+    });
+    const status = await ent.checkStorageBytes(org.id, 0, FREE_TIER);
+    expect(status.used).toBe(0);
+    expect(status.allowed).toBe(true);
+  });
+
+  test('blocks once the requested bytes would cross the limit, and allows exactly hitting it', async () => {
+    const { org } = await makeOrgWithMember('owner');
+    const tinyTier = { limits: { storage_gb: 1 / ent.BYTES_PER_GB * 1000 } }; // exactly 1000 bytes
+    expect((await ent.checkStorageBytes(org.id, 1000, tinyTier)).allowed).toBe(true);
+    expect((await ent.checkStorageBytes(org.id, 1001, tinyTier)).allowed).toBe(false);
+  });
+
+  test('an unlimited (enterprise) plan is never blocked', async () => {
+    const { org } = await makeOrgWithMember('owner');
+    const status = await ent.checkStorageBytes(org.id, Number.MAX_SAFE_INTEGER, { limits: { storage_gb: -1 } });
+    expect(status.allowed).toBe(true);
+  });
+
+  test('the upload route returns 402 and creates no row when over quota', async () => {
+    const { user } = await makeOrgWithMember('owner');
+    const cust = await request(app).post('/api/customers').set('Authorization', bearer(user)).send({ name: 'C' });
+    const proj = await request(app).post('/api/projectRecords').set('Authorization', bearer(user)).send({ customer_id: cust.body.id, name: 'P' });
+    const spy = jest.spyOn(ent, 'checkStorageBytes').mockResolvedValue({
+      allowed: false, used: 2 * ent.BYTES_PER_GB, limit: ent.BYTES_PER_GB, limitGb: 1, remaining: 0,
+    });
+    const res = await request(app).post(`/api/projects/${proj.body.id}/evidenceItems`).set('Authorization', bearer(user))
+      .attach('file', Buffer.from([0xff, 0xd8, 0xff, 0x00, 0x01]), { filename: 'roof.jpg', contentType: 'image/jpeg' });
+    spy.mockRestore();
+    expect(res.status).toBe(402);
+    expect(res.body.code).toBe('usage_limit_exceeded');
+    expect(await prisma.evidenceItem.count({ where: { project_id: proj.body.id } })).toBe(0);
+  });
+});
+
+describe('webhooks', () => {
+  test('counts across every member of the org, not per user', async () => {
+    const { org, user: owner } = await makeOrgWithMember('owner');
+    const second = await prisma.user.create({
+      data: { email: `${uid('u')}@test.local`, passwordHash: 'x', role: 'user', orgId: org.id, emailVerified: true },
+    });
+    await prisma.webhook.create({ data: { userId: owner.id, url: 'https://a.test/h', events: '["*"]', secret: 's1' } });
+    await prisma.webhook.create({ data: { userId: second.id, url: 'https://b.test/h', events: '["*"]', secret: 's2' } });
+    const status = await ent.checkWebhooks(org.id, 1, { limits: { webhooks: 2 } });
+    expect(status.used).toBe(2);
+    expect(status.allowed).toBe(false); // a 3rd would exceed the limit of 2
+  });
+
+  test('an org with no members yet reports zero rather than throwing', async () => {
+    const org = await prisma.organization.create({ data: { name: uid('Empty') } });
+    const status = await ent.checkWebhooks(org.id, 1, { limits: { webhooks: 1 } });
+    expect(status.used).toBe(0);
+    expect(status.allowed).toBe(true);
+  });
+});
+
+describe('suspended subscriptions', () => {
+  test('a suspended subscription is actually reported as suspended (the status was previously unreachable)', async () => {
+    const { org } = await makeOrgWithMember('owner');
+    await prisma.subscription.create({ data: { orgId: org.id, planId: 'pro', status: 'suspended' } });
+    const sub = await ent.getActiveSubscription(org.id);
+    expect(sub.status).toBe('suspended');
+  });
+
+  test('a suspended org is downgraded to free-tier limits and loses paid entitlements', async () => {
+    const { org } = await makeOrgWithMember('owner');
+    await prisma.subscription.create({ data: { orgId: org.id, planId: 'pro', status: 'suspended' } });
+    expect(await ent.can(org.id, 'sso')).toBe(false);           // pro grants sso; suspended must not
+    expect(await ent.getLimit(org.id, 'seats')).toBe(1);        // free tier, not pro's 25
+  });
+
+  test('a live subscription still resolves to its real paid tier', async () => {
+    const { org } = await makeOrgWithMember('owner');
+    await prisma.subscription.create({ data: { orgId: org.id, planId: 'pro', status: 'active' } });
+    const sub = await ent.getActiveSubscription(org.id);
+    expect(sub.status).toBe('active');
+    expect(sub.tier.id).toBe('pro');
+    expect(await ent.can(org.id, 'sso')).toBe(true);
+  });
+
+  test('a status nobody enumerated (e.g. incomplete) does not hand out paid features', async () => {
+    const { org } = await makeOrgWithMember('owner');
+    await prisma.subscription.create({ data: { orgId: org.id, planId: 'pro', status: 'incomplete' } });
+    const sub = await ent.getActiveSubscription(org.id);
+    expect(sub.status).toBe('incomplete');
+    expect(sub.tier.id).toBe('free');
+    expect(await ent.can(org.id, 'sso')).toBe(false);
+  });
+});

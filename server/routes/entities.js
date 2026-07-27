@@ -106,8 +106,15 @@ const ENTITIES = [
   },
   {
     model: 'sourceDocument', plural: 'sourceDocuments',
-    fields: ['project_id', 'document_type', 'original_filename', 'storage_uri', 'mime_type', 'file_size_bytes', 'sha256_hash', 'uploaded_by_id', 'uploaded_at', 'extraction_status', 'page_count', 'document_date', 'superseded'],
-    fieldTypes: { project_id: 'String', document_type: 'String', original_filename: 'String', storage_uri: 'String', mime_type: 'String', file_size_bytes: 'Int', sha256_hash: 'String', uploaded_by_id: 'String', uploaded_at: 'DateTime', extraction_status: 'String', page_count: 'Int', document_date: 'DateTime', superseded: 'Boolean' },
+    // file_size_bytes is deliberately NOT client-writable. It is set
+    // server-side from the real byte count at upload (routes/evidence.js) and
+    // is now summed by lib/entitlements.js#checkStorageBytes to enforce the
+    // storage_gb plan quota. Leaving it in this allowlist let any member with
+    // the lowest write role PUT {file_size_bytes: 0} to zero out their usage,
+    // or a negative value to drive the whole org's total below zero and mint
+    // arbitrary headroom — a full bypass of the quota it backs.
+    fields: ['project_id', 'document_type', 'original_filename', 'storage_uri', 'mime_type', 'sha256_hash', 'uploaded_by_id', 'uploaded_at', 'extraction_status', 'page_count', 'document_date', 'superseded'],
+    fieldTypes: { project_id: 'String', document_type: 'String', original_filename: 'String', storage_uri: 'String', mime_type: 'String', sha256_hash: 'String', uploaded_by_id: 'String', uploaded_at: 'DateTime', extraction_status: 'String', page_count: 'Int', document_date: 'DateTime', superseded: 'Boolean' },
     required: ['project_id', 'document_type', 'original_filename', 'storage_uri', 'sha256_hash', 'uploaded_at'],
     writeRoles: ['owner', 'admin', 'project_manager', 'estimator', 'field_user'],
     fk: { project_id: 'projectRecord' },

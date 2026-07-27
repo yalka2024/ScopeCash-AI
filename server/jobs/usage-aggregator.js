@@ -18,6 +18,7 @@ const ent = require('../lib/entitlements');
 const dunning = require('../lib/billing/dunning');
 const stripe = require('../lib/billing/stripe');
 const costAttribution = require('../lib/cost-attribution');
+const storage = require('../lib/storage');
 const { runWithSystemAccess } = require('../lib/tenant-context');
 
 async function reconcileCounters() {
@@ -69,12 +70,112 @@ async function reportMeteredUsageToStripe() {
   return { sent: 0 };
 }
 
+/**
+ * data_retention_days enforcement.
+ *
+ * REPORT-ONLY BY DEFAULT. This is the one meter whose enforcement means
+ * irreversibly destroying customer evidence — the exact material a contractor
+ * would need in a payment dispute. A silent auto-deleter shipped without an
+ * operator explicitly turning it on is not a safe default, so the sweep
+ * computes and logs what is past each org's window and only deletes when
+ * DATA_RETENTION_ENFORCE=1 is set.
+ *
+ * Enterprise (2555 days ≈ 7 years) is included rather than special-cased:
+ * that IS its retention promise, and treating "very long" as "forever" would
+ * quietly break the compliance claim the tier is sold on.
+ */
+/**
+ * Retention window from the org's CONTRACTED plan, never its effective one.
+ *
+ * ent.getLimit() deliberately downgrades a suspended/canceled org to free-tier
+ * limits — correct for gating features, catastrophic here. runOnce() calls
+ * dunning.sweepLifecycles() (which escalates past_due -> grace -> suspend)
+ * immediately before this sweep, so an Enterprise org that missed one payment
+ * would be suspended and then, three lines later, have its retention window
+ * read as free's 30 days instead of the contracted 2555 — deleting nearly
+ * seven years of evidence as a side effect of a billing hiccup. Retention is
+ * a promise about data the customer already gave us; it must not shrink
+ * because of payment state.
+ */
+async function contractedRetentionDays(orgId) {
+  const sub = await prisma.subscription.findFirst({ where: { orgId } }).catch(() => null);
+  const tier = sub ? ent.getTier(sub.planId) : ent.getTier(ent.FREE_TIER_ID);
+  return Number((tier.limits && tier.limits.data_retention_days) || 0);
+}
+
+async function enforceDataRetention() {
+  const enforcing = process.env.DATA_RETENTION_ENFORCE === '1';
+  const orgs = await prisma.organization.findMany({ select: { id: true } }).catch(() => []);
+  const out = { enforcing, orgsScanned: orgs.length, expired: 0, deleted: 0, orgsAffected: 0 };
+
+  for (const org of orgs) {
+    const days = await contractedRetentionDays(org.id);
+    if (!days || days <= 0) continue;
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const where = { orgId: org.id, createdAt: { lt: cutoff } };
+
+    // Both models hold customer uploads and both are counted by
+    // checkStorageBytes, so sweeping only one would leave contracts and
+    // estimates past their window while claiming the window was enforced.
+    const [allEvidence, allDocuments, holds] = await Promise.all([
+      prisma.evidenceItem.findMany({ where, select: { id: true, storageUri: true } }).catch(() => []),
+      prisma.sourceDocument.findMany({ where, select: { id: true, storage_uri: true } }).catch(() => []),
+      // An active legal hold outranks the retention window — destroying
+      // material under hold is the one outcome worse than keeping it too
+      // long. lib/org-deletion.js honours the same model for the same reason.
+      prisma.retentionLegalHold.findMany({
+        where: { orgId: org.id, releasedAt: null, resourceType: { in: ['evidenceItem', 'sourceDocument'] } },
+        select: { resourceType: true, resourceId: true },
+      }).catch(() => []),
+    ]);
+    const heldIds = new Set(holds.map(h => `${h.resourceType}:${h.resourceId}`));
+    const evidence = allEvidence.filter(e => !heldIds.has(`evidenceItem:${e.id}`));
+    const documents = allDocuments.filter(d => !heldIds.has(`sourceDocument:${d.id}`));
+    const heldBack = (allEvidence.length - evidence.length) + (allDocuments.length - documents.length);
+
+    const count = evidence.length + documents.length;
+    if (count === 0) continue;
+
+    out.expired += count;
+    out.orgsAffected += 1;
+    if (enforcing) {
+      // Delete the stored objects too. Removing only the rows would leave the
+      // bytes in the bucket while reporting them as deleted — the retention
+      // promise would be false, and the space would silently come off the
+      // org's storage quota while still being occupied. Objects go first: a
+      // failure there leaves the row in place so the next sweep retries,
+      // whereas deleting the row first would orphan the object permanently.
+      for (const e of evidence) {
+        if (e.storageUri) await storage.deleteObject(e.storageUri).catch(() => {});
+      }
+      for (const d of documents) {
+        if (d.storage_uri) await storage.deleteObject(d.storage_uri).catch(() => {});
+      }
+      // Deleted by explicit id, NOT by the date filter: re-running the broad
+      // `where` here would sweep up the legally-held rows just excluded.
+      const [de, dd] = await Promise.all([
+        prisma.evidenceItem.deleteMany({ where: { id: { in: evidence.map(e => e.id) } } }).catch(() => ({ count: 0 })),
+        prisma.sourceDocument.deleteMany({ where: { id: { in: documents.map(d => d.id) } } }).catch(() => ({ count: 0 })),
+      ]);
+      out.deleted += de.count + dd.count;
+    }
+    console.warn(JSON.stringify({
+      type: 'data_retention_expired', orgId: org.id, retentionDays: days,
+      cutoff: cutoff.toISOString(), expiredCount: count,
+      evidenceItems: evidence.length, sourceDocuments: documents.length,
+      heldBackByLegalHold: heldBack, enforcing,
+    }));
+  }
+  return out;
+}
+
 async function runOnce() {
   const out = { startedAt: new Date().toISOString() };
   out.reconcile = await reconcileCounters();
   out.lifecycle = await dunning.sweepLifecycles();
   out.stripeUsage = await reportMeteredUsageToStripe();
   out.aiSpendReconciliation = await checkAiSpendReconciliation();
+  out.dataRetention = await runWithSystemAccess(() => enforceDataRetention());
   out.completedAt = new Date().toISOString();
   console.log(JSON.stringify({ type: 'usage_aggregator_run', ...out }));
   return out;
@@ -90,5 +191,5 @@ function startScheduler({ intervalMs = 60 * 60 * 1000 } = {}) {
   return () => { clearTimeout(kick); clearInterval(handle); };
 }
 
-module.exports = { runOnce, reconcileCounters, reportMeteredUsageToStripe, checkAiSpendReconciliation, startScheduler };
+module.exports = { runOnce, reconcileCounters, reportMeteredUsageToStripe, checkAiSpendReconciliation, enforceDataRetention, startScheduler };
 

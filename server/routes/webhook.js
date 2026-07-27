@@ -2,8 +2,10 @@ const express = require('express');
 const crypto = require('crypto');
 const prisma = require('../lib/prisma');
 const { authMiddleware } = require('../middleware/auth');
+const attachTenant = require('../middleware/tenant');
 const { z, validate, asyncHandler, HttpError } = require('../lib/validate');
 const { audit } = require('../lib/audit');
+const ent = require('../lib/entitlements');
 const router = express.Router();
 
 const KNOWN_EVENTS = ['*', 'project.created', 'project.deleted', 'project.completed'];
@@ -13,8 +15,25 @@ const CreateSchema = z.object({
     `events must be one of ${KNOWN_EVENTS.join(', ')}`),
 });
 
-router.post('/', authMiddleware, validate(CreateSchema), asyncHandler(async (req, res) => {
+// attachTenant is required here, not optional: on Postgres, RLS is
+// fail-closed, so without it establishing app.org_id the Subscription lookup
+// inside checkWebhooks sees ZERO rows and every org — including Enterprise —
+// resolves to the free tier's limit of 1. routes/billing.js carries the same
+// note for the same reason; this is that bug, not a new one.
+router.post('/', authMiddleware, attachTenant, validate(CreateSchema), asyncHandler(async (req, res) => {
   const { url, events } = req.body;
+  // Plan quota: `webhooks` is an advertised per-tier limit (lib/entitlements.js
+  // PLANS) that had no enforcement anywhere — a free-tier org could configure
+  // unlimited endpoints. Gauge-style like seats/storage, since endpoints are a
+  // live count rather than a monthly flow.
+  const orgId = req.tenant?.orgId || req.user?.orgId || null;
+  const quota = await ent.checkWebhooks(orgId, 1, req.tenant?.plan);
+  if (!quota.allowed) {
+    throw new HttpError(402,
+      `Webhook endpoint limit reached (${quota.used}/${quota.limit}). Upgrade your plan to add more.`,
+      'usage_limit_exceeded',
+      { meter: 'webhooks', used: quota.used, limit: quota.limit, remaining: quota.remaining });
+  }
   const secret = `whsec_${crypto.randomBytes(32).toString('hex')}`;
   const webhook = await prisma.webhook.create({
     data: { userId: req.user.id, url, events: JSON.stringify(events), secret }

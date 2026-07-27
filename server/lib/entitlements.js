@@ -41,15 +41,28 @@ function listPlans() {
  *   { tier, status, trialEndsAt, currentPeriodStart, currentPeriodEnd, cancelAt }
  * Falls back to the free tier when there is no subscription row.
  */
+const LIVE_STATUSES = ['trialing', 'active', 'past_due', 'grace'];
+
 async function getActiveSubscription(orgId) {
   if (!orgId) return { tier: getTier(FREE_TIER_ID), status: 'none' };
-  const sub = await prisma.subscription.findFirst({
-    where: { orgId, status: { in: ['trialing', 'active', 'past_due', 'grace'] } },
-    orderBy: { createdAt: 'desc' },
-  });
+  // Subscription.orgId is @unique, so there is at most one row per org — this
+  // IS the org's subscription and no ordering or tie-breaking is needed.
+  //
+  // Deliberately unfiltered by status. Filtering to live statuses (as this
+  // did originally) meant a suspended or canceled row looked identical to
+  // having no subscription at all, so `status` could never come back as
+  // 'suspended'/'canceled' — while `can()`, `getLimit()` and
+  // middleware/entitlements.js#blockIfSuspended all branch on exactly those
+  // values. Every one of those branches was unreachable, and suspended orgs
+  // silently kept working. Reporting the real status is what makes them run.
+  //
+  // The paid tier is granted only for a live status, so reading the row
+  // unfiltered cannot accidentally hand paid features to a non-live
+  // subscription in some state nobody enumerated.
+  const sub = await prisma.subscription.findFirst({ where: { orgId } });
   if (!sub) return { tier: getTier(FREE_TIER_ID), status: 'none' };
   return {
-    tier: getTier(sub.planId),
+    tier: LIVE_STATUSES.includes(sub.status) ? getTier(sub.planId) : getTier(FREE_TIER_ID),
     status: sub.status,
     trialEndsAt: sub.trialEndsAt,
     currentPeriodStart: sub.currentPeriodStart,
@@ -125,6 +138,65 @@ async function checkSeats(orgId, additional = 1, knownTier) {
   return { allowed: (used + Number(additional)) <= limit, used, limit, remaining };
 }
 
+/**
+ * Gauge-style storage check, same rationale as checkSeats(): bytes on disk
+ * are a live total, not a monthly flow, so routing them through
+ * UsageCounter would let a full org upload its whole quota again every
+ * time the period rolled over. Sums the two models that actually own
+ * uploaded bytes. Rows predating the fileSizeBytes column count as 0
+ * rather than blocking the org — undercounting legacy rows is the
+ * conservative failure here, since the alternative is refusing uploads
+ * based on a number we can't compute.
+ */
+const BYTES_PER_GB = 1024 * 1024 * 1024;
+
+async function checkStorageBytes(orgId, additionalBytes = 0, knownTier) {
+  const limitGb = await getLimit(orgId, 'storage_gb', knownTier);
+  if (limitGb === -1) return { allowed: true, used: 0, limit: -1, remaining: Infinity };
+  const limitBytes = limitGb * BYTES_PER_GB;
+  const [docs, evidence] = await Promise.all([
+    prisma.sourceDocument.aggregate({ where: { orgId }, _sum: { file_size_bytes: true } }).catch(() => null),
+    prisma.evidenceItem.aggregate({ where: { orgId }, _sum: { fileSizeBytes: true } }).catch(() => null),
+  ]);
+  // Clamped at zero defensively: a negative total would silently grant
+  // headroom rather than fail closed, so even if some future path writes a
+  // bad size the quota degrades to "count nothing" instead of "allow
+  // anything". The columns are server-set and not client-writable.
+  const used = Math.max(0,
+    Number(docs?._sum?.file_size_bytes || 0) + Number(evidence?._sum?.fileSizeBytes || 0));
+  const remaining = Math.max(0, limitBytes - used);
+  return {
+    allowed: (used + Number(additionalBytes)) <= limitBytes,
+    used, limit: limitBytes, limitGb, remaining,
+  };
+}
+
+/**
+ * Gauge-style webhook-endpoint check — a live count of configured
+ * endpoints, for the same reason seats and storage are gauges.
+ *
+ * The `webhooks` limit is per PLAN, i.e. per org, but the Webhook model is
+ * user-scoped (`userId`, no orgId column and no `user` relation to filter
+ * through), so the org's members are resolved first and the count is taken
+ * across all of them. Counting per-user instead would let an N-seat org
+ * create N times its actual plan limit.
+ */
+async function checkWebhooks(orgId, additional = 1, knownTier) {
+  // Guard the falsy case explicitly: `findMany({ where: { orgId: null } })`
+  // is `WHERE orgId IS NULL`, which would pool every org-less user in the
+  // deployment into one shared bucket — the first of them to add a webhook
+  // would block all the others, and their usage would be cross-attributed.
+  if (!orgId) return { allowed: false, used: 0, limit: 0, remaining: 0 };
+  const limit = await getLimit(orgId, 'webhooks', knownTier);
+  if (limit === -1) return { allowed: true, used: 0, limit: -1, remaining: Infinity };
+  const members = await prisma.user.findMany({ where: { orgId }, select: { id: true } });
+  const used = members.length
+    ? await prisma.webhook.count({ where: { userId: { in: members.map(u => u.id) } } })
+    : 0;
+  const remaining = Math.max(0, limit - used);
+  return { allowed: (used + Number(additional)) <= limit, used, limit, remaining };
+}
+
 /** Current monthly period key in UTC, e.g. "2026-04". */
 function currentPeriodKey() {
   const d = new Date();
@@ -143,6 +215,9 @@ module.exports = {
   getLimit,
   checkUsage,
   checkSeats,
+  checkStorageBytes,
+  checkWebhooks,
   currentPeriodKey,
+  BYTES_PER_GB,
 };
 

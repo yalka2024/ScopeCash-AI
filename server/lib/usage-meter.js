@@ -15,14 +15,18 @@ const ent = require('./entitlements');
  * audit and replay. Never throws into the caller's request path — instead
  * logs and returns { ok:false }.
  */
-async function recordUsage({ orgId, userId, meter, quantity = 1, metadata = null }) {
+async function recordUsage({ orgId, userId, meter, quantity = 1, metadata = null, period: explicitPeriod = null }) {
   if (!orgId || !meter || !Number.isFinite(Number(quantity))) {
     return { ok: false, reason: 'invalid_args' };
   }
   const qty = Math.max(0, Math.floor(Number(quantity)));
   if (qty === 0) return { ok: true, recorded: 0 };
 
-  const period = ent.currentPeriodKey();
+  // `period` is normally now, but a buffered caller (lib/api-call-meter.js)
+  // must be able to attribute units to the period they were *incurred* in —
+  // otherwise traffic just before a month boundary lands on the next month's
+  // counter when the flush happens to cross midnight UTC.
+  const period = explicitPeriod || ent.currentPeriodKey();
   try {
     await prisma.$transaction([
       prisma.usageEvent.create({

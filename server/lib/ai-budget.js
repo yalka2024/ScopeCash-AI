@@ -11,6 +11,7 @@
  * aggregations.
  */
 const prisma = require('./prisma');
+const ent = require('./entitlements');
 
 const DEFAULT_BUDGETS_USD = Object.freeze({
   free:           5,
@@ -97,6 +98,21 @@ async function aiBudgetGuard(req, res, next) {
         spent_usd: status.spent_usd,
       });
     }
+
+    // Separate ceiling from the USD budget above: ai_tokens_per_month is an
+    // advertised plan limit, checked here so an org on a token-capped tier
+    // is stopped even when the operator's USD budget still has headroom.
+    // 402 (not 429) — this is "your plan is out", not "slow down".
+    const tokens = await ent.checkUsage(req.tenant.orgId, 'ai_tokens_per_month', 1, req.tenant.plan);
+    if (!tokens.allowed) {
+      const message = `Monthly AI token limit reached (${tokens.used}/${tokens.limit}).`;
+      return res.status(402).json({
+        error: message, code: 'usage_limit_exceeded', message,
+        meter: 'ai_tokens_per_month', used: tokens.used, limit: tokens.limit,
+        remaining: tokens.remaining, upgrade_url: '/settings/billing',
+      });
+    }
+
     req.aiBudget = status;
     return next();
   } catch (err) {
@@ -153,6 +169,24 @@ async function recordAiSpend({ orgId, userId, modelId, provider, promptTokens, c
     } catch (err) {
       if (process.env.NODE_ENV !== 'test') {
         console.error(JSON.stringify({ type: 'cost_attribution_mirror_error', orgId, error: err.message }));
+      }
+    }
+
+    // Feed the advertised ai_tokens_per_month plan meter. The USD budget
+    // guard above (aiBudgetGuard) is a separate control on a different unit:
+    // it caps spend, this caps the token allowance the plan actually sells.
+    // An org can hit either one first depending on which models it uses.
+    try {
+      const usageMeter = require('./usage-meter');
+      await usageMeter.recordUsage({
+        orgId, userId: userId || null,
+        meter: 'ai_tokens_per_month',
+        quantity: (promptTokens || 0) + (completionTokens || 0),
+        metadata: { model: modelId, provider },
+      });
+    } catch (err) {
+      if (process.env.NODE_ENV !== 'test') {
+        console.error(JSON.stringify({ type: 'ai_token_meter_error', orgId, error: err.message }));
       }
     }
 

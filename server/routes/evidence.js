@@ -30,6 +30,7 @@ const pipeline = require('../lib/evidence-pipeline');
 const evidenceJobs = require('../lib/evidence-jobs');
 const { attachApiKeyProjectScope } = require('../lib/api-key-scope');
 const { enforceMeter } = require('../middleware/entitlements');
+const ent = require('../lib/entitlements');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -62,12 +63,30 @@ async function validateBuffer(buffer, ext) {
   return { sniff, sha256 };
 }
 
+/**
+ * Enforce the plan's storage_gb quota before any bytes are written. Checked
+ * here rather than in a route-level middleware because the size isn't known
+ * until the body has been parsed, and it must cover both upload paths
+ * (multipart and signed-upload confirm) that funnel through persistFile.
+ */
+async function assertStorageQuota(req, byteLength) {
+  const status = await ent.checkStorageBytes(req.tenant?.orgId, byteLength, req.tenant?.plan);
+  if (!status.allowed) {
+    const usedGb = (status.used / ent.BYTES_PER_GB).toFixed(2);
+    throw new HttpError(402,
+      `Storage limit reached (${usedGb} GB of ${status.limitGb} GB used). Upgrade your plan or delete files to free space.`,
+      'usage_limit_exceeded',
+      { meter: 'storage_gb', used: status.used, limit: status.limit, remaining: status.remaining });
+  }
+}
+
 async function persistFile(req, file) {
   const ext = path.extname(file.originalname).slice(1).toLowerCase();
   const { sniff, sha256 } = await validateBuffer(file.buffer, ext);
+  await assertStorageQuota(req, file.buffer.length);
   const key = storage.newKey(req.user.id, file.originalname);
   const put = await storage.putObject({ key, body: file.buffer, contentType: sniff.mime });
-  return { key, provider: put.provider, mime: sniff.mime, sha256, ext };
+  return { key, provider: put.provider, mime: sniff.mime, sha256, ext, sizeBytes: file.buffer.length };
 }
 
 async function streamToBuffer(stream) {
@@ -79,7 +98,7 @@ async function streamToBuffer(stream) {
 /** Confirms a signed-upload-URL staging key really has the bytes the
  * client claims (re-fetches and re-validates — never trusted on the
  * client's word alone), or throws and cleans up the staged object. */
-async function validateStagedUpload(stagingKey, originalFilename) {
+async function validateStagedUpload(req, stagingKey, originalFilename) {
   const ext = path.extname(originalFilename || '').slice(1).toLowerCase();
   let buffer;
   try {
@@ -89,6 +108,11 @@ async function validateStagedUpload(stagingKey, originalFilename) {
   }
   try {
     const { sniff, sha256 } = await validateBuffer(buffer, ext);
+    // Quota is checked here rather than at upload-url issue time because the
+    // real byte count isn't known until the client has actually uploaded.
+    // Over-quota staged bytes are deleted below by the same cleanup path
+    // that handles a failed signature/AV check, so they can't accumulate.
+    await assertStorageQuota(req, buffer.length);
     return { mime: sniff.mime, sha256, fileSize: buffer.length };
   } catch (err) {
     await storage.deleteObject(stagingKey).catch(() => {});
@@ -235,7 +259,7 @@ router.post('/projects/:projectId/sourceDocuments/confirm-upload', requireAnyOrg
   const existing = await prisma.sourceDocument.findFirst({ where: { storage_uri: req.body.stagingKey } });
   if (existing) throw new HttpError(409, 'This staged upload has already been confirmed', 'already_confirmed', { sourceDocumentId: existing.id });
 
-  const { mime, sha256, fileSize } = await validateStagedUpload(req.body.stagingKey, req.body.originalFilename);
+  const { mime, sha256, fileSize } = await validateStagedUpload(req, req.body.stagingKey, req.body.originalFilename);
   const dup = await prisma.sourceDocument.findFirst({ where: { orgId: req.tenant.orgId, sha256_hash: sha256, ...apiKeyDedupScope(req) } });
   if (dup) {
     await storage.deleteObject(req.body.stagingKey).catch(() => {});
@@ -273,6 +297,7 @@ router.post('/projects/:projectId/evidenceItems', requireAnyOrgRole(...UPLOAD_RO
       data: {
         orgId: req.tenant.orgId, project_id: project.id, evidenceType, storageUri: persisted.key,
         sha256Hash: persisted.sha256, mimeType: persisted.mime, uploadedById: req.user.id,
+        fileSizeBytes: persisted.sizeBytes,
         duplicateOfId: existing ? existing.id : null,
         quality: existing ? 'ok' : null,
       },
@@ -308,7 +333,7 @@ router.post('/projects/:projectId/evidenceItems/confirm-upload', requireAnyOrgRo
   const evidenceType = IMAGE_EXTS.has(ext) ? 'photo' : AUDIO_EXTS.has(ext) ? 'audio' : DOCUMENT_EXTS.has(ext) ? 'receipt' : null;
   if (!evidenceType) throw new HttpError(400, `Unsupported evidence file type ".${ext}"`, 'unsupported_file_type');
 
-  const { mime, sha256 } = await validateStagedUpload(req.body.stagingKey, req.body.originalFilename);
+  const { mime, sha256, fileSize } = await validateStagedUpload(req, req.body.stagingKey, req.body.originalFilename);
   // Deliberately NOT rejected as a conflict, unlike sourceDocuments: a field
   // worker genuinely re-photographing the same thing twice must still be
   // able to upload both — see the identical comment on EvidenceItem.sha256Hash
@@ -319,6 +344,7 @@ router.post('/projects/:projectId/evidenceItems/confirm-upload', requireAnyOrgRo
     data: {
       orgId: req.tenant.orgId, project_id: project.id, evidenceType, storageUri: req.body.stagingKey,
       sha256Hash: sha256, mimeType: mime, uploadedById: req.user.id,
+      fileSizeBytes: fileSize,
       duplicateOfId: existing ? existing.id : null,
       quality: existing ? 'ok' : null,
     },

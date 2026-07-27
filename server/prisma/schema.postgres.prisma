@@ -1345,6 +1345,7 @@ model EvidenceItem {
   evidenceType     String   // photo|audio|receipt|message|video|document
   storageUri       String
   sha256Hash       String
+  fileSizeBytes    Int?     // byte size of the stored object — set at upload; feeds the storage_gb plan quota (lib/entitlements.js#checkStorageBytes). Null on rows predating the column, which count as 0.
   mimeType         String?  // real sniffed content-type (e.g. image/heic) — set at upload; older rows may be null
   capturedAt       DateTime?
   gpsLat           Float?
