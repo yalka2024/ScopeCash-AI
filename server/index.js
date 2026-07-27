@@ -37,6 +37,7 @@ const { startWebhookWorker, stopWebhookWorker } = require('./lib/webhook-deliver
 const { startReconciler: startEvidenceJobReconciler, stopReconciler: stopEvidenceJobReconciler } = require('./lib/evidence-jobs');
 const lifecycle = require('./lib/lifecycle');
 const metrics = require('./lib/metrics');
+const gcpLogging = require('./lib/gcp-logging');
 
 const authRoutes = require('./routes/auth');
 const healthRoutes = require('./routes/health');
@@ -168,11 +169,9 @@ app.use((req, res, next) => {
   res.on('finish', () => {
     const ms = Date.now() - start;
     if (process.env.NODE_ENV !== 'test') {
-      console.log(JSON.stringify({
-        type: 'http', requestId: req.requestId,
-        method: req.method, path: req.originalUrl,
-        status: res.statusCode, ms,
-      }));
+      // Adds Cloud Logging's special fields (severity, httpRequest, trace
+      // correlation) on top of the original shape — see lib/gcp-logging.js.
+      console.log(JSON.stringify(gcpLogging.accessLogEntry(req, res, ms)));
     }
   });
   next();

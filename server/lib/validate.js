@@ -52,8 +52,14 @@ function errorMiddleware(err, req, res, next) {
     requestId: req.requestId,
   };
   if (!isProd && status >= 500) body.stack = err.stack;
-  console.error(JSON.stringify({ type: 'error', requestId: req.requestId, status,
-    message: err.message, stack: isProd ? undefined : err.stack }));
+  // `severity` is a Cloud Logging special field: without it every line is
+  // ingested as DEFAULT, so severity-based filters and alert policies match
+  // nothing. 4xx is a client mistake (WARNING), 5xx is ours (ERROR).
+  console.error(JSON.stringify({
+    severity: status >= 500 ? 'ERROR' : 'WARNING',
+    type: 'error', requestId: req.requestId, status,
+    message: err.message, stack: isProd ? undefined : err.stack,
+  }));
   res.status(status).json(body);
 }
 

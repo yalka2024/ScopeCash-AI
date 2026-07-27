@@ -103,6 +103,7 @@ resource "google_project_service" "apis" {
     "vpcaccess.googleapis.com",
     "servicenetworking.googleapis.com",
     "compute.googleapis.com",
+    "monitoring.googleapis.com",
   ])
   service            = each.key
   disable_on_destroy = false
@@ -480,6 +481,151 @@ resource "google_cloud_run_v2_service_iam_member" "public_invoker" {
   name     = google_cloud_run_v2_service.app[0].name
   role     = "roles/run.invoker"
   member   = "allUsers"
+}
+
+# --- Cloud Monitoring: log-based metrics, alerts, SLO -----------------------
+# Previously the module provisioned infrastructure with no observability on it
+# at all: no alert policies, no log-based metrics, no notification channel and
+# no SLO, so nothing would have told anyone the service was failing.
+#
+# The two log-based metrics below extract from the fields the app really emits
+# (server/lib/gcp-logging.js): `severity` on every line, and `jsonPayload.type`
+# for the specific events worth counting. They are only meaningful because that
+# module sets severity — without it every line is DEFAULT and these match zero.
+
+variable "alert_email" {
+  type        = string
+  description = "Address to send monitoring alerts to. No notification channel or alert policy is created when this is null, so the module stays usable without one."
+  default     = null
+}
+
+resource "google_monitoring_notification_channel" "email" {
+  count        = var.alert_email == null ? 0 : 1
+  display_name = "${var.name}-${var.environment} alerts"
+  type         = "email"
+  labels       = { email_address = var.alert_email }
+}
+
+# 5xx responses, counted from the access log's own severity.
+resource "google_logging_metric" "server_errors" {
+  name   = "${var.name}-${var.environment}-server-errors"
+  filter = <<-EOT
+    resource.type="cloud_run_revision"
+    jsonPayload.type="http"
+    jsonPayload.status>=500
+  EOT
+  metric_descriptor {
+    metric_kind = "DELTA"
+    value_type  = "INT64"
+    unit        = "1"
+  }
+}
+
+# Requests rejected for exceeding a plan quota. Not an outage — a product
+# signal (customers hitting limits) that is easy to miss without a metric.
+resource "google_logging_metric" "quota_rejections" {
+  name   = "${var.name}-${var.environment}-quota-rejections"
+  filter = <<-EOT
+    resource.type="cloud_run_revision"
+    jsonPayload.type="error"
+    jsonPayload.status=402
+  EOT
+  metric_descriptor {
+    metric_kind = "DELTA"
+    value_type  = "INT64"
+    unit        = "1"
+  }
+}
+
+resource "google_monitoring_alert_policy" "server_errors" {
+  count        = var.alert_email == null ? 0 : 1
+  display_name = "${var.name}-${var.environment}: elevated 5xx rate"
+  combiner     = "OR"
+  conditions {
+    display_name = "5xx responses > 5 in 5 minutes"
+    condition_threshold {
+      filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.server_errors.name}\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 5
+      duration        = "300s"
+      aggregations {
+        alignment_period   = "300s"
+        per_series_aligner = "ALIGN_SUM"
+      }
+    }
+  }
+  notification_channels = [google_monitoring_notification_channel.email[0].id]
+  documentation {
+    content = "Cloud Run is returning 5xx. Check the Logs Explorer for jsonPayload.type=\"error\" with severity=ERROR; each entry carries a requestId and a Cloud Trace link."
+  }
+}
+
+resource "google_monitoring_alert_policy" "request_latency" {
+  count        = var.alert_email == null ? 0 : 1
+  display_name = "${var.name}-${var.environment}: p95 request latency"
+  combiner     = "OR"
+  conditions {
+    display_name = "p95 latency > 2s for 5 minutes"
+    condition_threshold {
+      filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"run.googleapis.com/request_latencies\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 2000
+      duration        = "300s"
+      aggregations {
+        alignment_period   = "300s"
+        per_series_aligner = "ALIGN_PERCENTILE_95"
+      }
+    }
+  }
+  notification_channels = [google_monitoring_notification_channel.email[0].id]
+}
+
+resource "google_monitoring_alert_policy" "cloud_sql_disk" {
+  count        = var.alert_email == null ? 0 : 1
+  display_name = "${var.name}-${var.environment}: Cloud SQL disk utilization"
+  combiner     = "OR"
+  conditions {
+    display_name = "Disk > 85% for 15 minutes"
+    condition_threshold {
+      filter          = "resource.type=\"cloudsql_database\" AND metric.type=\"cloudsql.googleapis.com/database/disk/utilization\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 0.85
+      duration        = "900s"
+      aggregations {
+        alignment_period   = "300s"
+        per_series_aligner = "ALIGN_MEAN"
+      }
+    }
+  }
+  notification_channels = [google_monitoring_notification_channel.email[0].id]
+  documentation {
+    content = "disk_autoresize is on, so this is a cost/throttling warning rather than an imminent outage — but investigate growth before it compounds."
+  }
+}
+
+# Availability SLO (99.9% of requests non-5xx over 28 days). Cloud Run's own
+# request metrics back this, so it needs no application change. Gated on the
+# service existing, which itself depends on var.container_image.
+resource "google_monitoring_slo" "availability" {
+  count               = var.container_image == null ? 0 : 1
+  service             = google_monitoring_custom_service.app[0].service_id
+  slo_id              = "${var.name}-${var.environment}-availability"
+  display_name        = "99.9% of requests succeed (28d rolling)"
+  goal                = 0.999
+  rolling_period_days = 28
+
+  request_based_sli {
+    good_total_ratio {
+      total_service_filter = "resource.type=\"cloud_run_revision\" metric.type=\"run.googleapis.com/request_count\""
+      good_service_filter  = "resource.type=\"cloud_run_revision\" metric.type=\"run.googleapis.com/request_count\" metric.label.\"response_code_class\"!=\"5xx\""
+    }
+  }
+}
+
+resource "google_monitoring_custom_service" "app" {
+  count        = var.container_image == null ? 0 : 1
+  service_id   = "${var.name}-${var.environment}"
+  display_name = "${var.name} (${var.environment})"
 }
 
 # --- Outputs ---------------------------------------------------------------
