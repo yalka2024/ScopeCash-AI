@@ -21,9 +21,12 @@
  * Read-only entities (agentRunRecord) only get the two GET routes.
  */
 const express = require('express');
+const crypto = require('crypto');
 const multer = require('multer');
 const Papa = require('papaparse');
 const prisma = require('../lib/prisma');
+const storage = require('../lib/storage');
+const pdfPacketRenderer = require('../lib/tools/pdfpacketrenderer');
 const { authMiddleware } = require('../middleware/auth');
 const attachTenant = require('../middleware/tenant');
 const { requireAnyOrgRole, PACKET_APPROVE_ROLES } = require('../lib/roles');
@@ -524,15 +527,86 @@ router.post('/evidencePackets/:id/submit', requireAnyOrgRole(...PACKET_APPROVE_R
   res.json(row);
 }));
 
-const ExportSchema = z.object({ pdf_storage_uri: z.string().max(2000).optional() });
-router.post('/evidencePackets/:id/export', requireAnyOrgRole(...PACKET_APPROVE_ROLES), validate(ExportSchema), asyncHandler(async (req, res) => {
+/**
+ * Export: actually renders the packet PDF, applying the org's packet template.
+ *
+ * This route used to stamp `exported_at` and store whatever
+ * `pdf_storage_uri` string the caller sent — it never rendered anything and
+ * never read a PacketTemplate, so the template-versioning feature had a full
+ * data model, lifecycle routes and a working renderer with nothing joining
+ * them. Two consequences beyond "the feature didn't work": an exported packet
+ * could be pointed at any object in the bucket by the client, and
+ * `exported_at` claimed an export that had not happened.
+ *
+ * Template resolution: the packet's own pinned `packetTemplateId` if it has
+ * one (so a packet exported twice renders the same way even after the org
+ * publishes a new template version), otherwise the org's current `active`
+ * template. With neither, the renderer's own default section order applies.
+ */
+router.post('/evidencePackets/:id/export', requireAnyOrgRole(...PACKET_APPROVE_ROLES), asyncHandler(async (req, res) => {
   const packet = await prisma.evidencePacket.findFirst({ where: scope(req, EVIDENCE_PACKET_ENTITY, { id: req.params.id }) });
   if (!packet) return res.status(404).json({ error: 'not_found' });
+
+  const template = packet.packetTemplateId
+    ? await prisma.packetTemplate.findFirst({ where: { id: packet.packetTemplateId, orgId: req.tenant.orgId } })
+    : await prisma.packetTemplate.findFirst({
+      where: { orgId: req.tenant.orgId, status: 'active' },
+      orderBy: { version: 'desc' },
+    });
+
+  // PacketTemplate.sections is stored as a comma-separated string; the
+  // renderer wants an array. Resolving that is documented as the caller's
+  // job (lib/tools/pdfpacketrenderer.js) precisely so the tool never queries
+  // the database itself.
+  const sections = template && template.sections
+    ? template.sections.split(',').map(s => s.trim()).filter(Boolean)
+    : undefined;
+
+  const packetData = {
+    packet_number: packet.packet_number,
+    version: packet.version,
+    status: packet.status,
+    recipient: packet.recipient,
+    executive_summary: packet.executive_summary,
+    total_potential_amount: packet.total_potential_amount,
+    customer_validated_amount: packet.customer_validated_amount,
+    approval: packet.approved_at
+      ? { approved_by_id: packet.approved_by_id, approved_at: packet.approved_at }
+      : null,
+  };
+
+  const prevMode = process.env.INTEGRATION_PDFPACKETRENDERER_MODE;
+  process.env.INTEGRATION_PDFPACKETRENDERER_MODE = 'live';
+  let rendered;
+  try {
+    rendered = await pdfPacketRenderer.run(
+      { packet_data_json: JSON.stringify(packetData), template_id: template ? template.id : 'default', sections },
+      { orgId: req.tenant.orgId, userId: req.user.id },
+    );
+  } finally {
+    if (prevMode === undefined) delete process.env.INTEGRATION_PDFPACKETRENDERER_MODE;
+    else process.env.INTEGRATION_PDFPACKETRENDERER_MODE = prevMode;
+  }
+
+  const pdfBuf = Buffer.isBuffer(rendered.pdf_bytes) ? rendered.pdf_bytes : Buffer.from(rendered.pdf_bytes);
+  const key = storage.newKey(req.user.id, `packet-${packet.packet_number}-v${packet.version}.pdf`);
+  await storage.putObject({ key, body: pdfBuf, contentType: 'application/pdf' });
+
   const row = await prisma.evidencePacket.update({
     where: { id: packet.id },
-    data: { exported_at: new Date(), pdf_storage_uri: req.body.pdf_storage_uri || packet.pdf_storage_uri },
+    data: {
+      exported_at: new Date(),
+      pdf_storage_uri: key,
+      // Pin the template actually used, so a re-export is reproducible and
+      // the packet records which layout produced its PDF.
+      packetTemplateId: template ? template.id : packet.packetTemplateId,
+      content_hash: crypto.createHash('sha256').update(pdfBuf).digest('hex'),
+    },
   });
-  await audit(req, 'evidencePackets.export', { resource: 'evidencePacket', resourceId: packet.id });
+  await audit(req, 'evidencePackets.export', {
+    resource: 'evidencePacket', resourceId: packet.id,
+    details: { packetTemplateId: template ? template.id : null, sections: sections || 'renderer_default', bytes: pdfBuf.length },
+  });
   res.json(row);
 }));
 

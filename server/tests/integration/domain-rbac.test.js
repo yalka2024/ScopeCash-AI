@@ -226,6 +226,69 @@ describe('evidence packet approval workflow', () => {
   });
 });
 
+/**
+ * Export used to stamp exported_at and store whatever pdf_storage_uri string
+ * the caller sent — no PDF was rendered and PacketTemplate was never read, so
+ * template versioning had a model, lifecycle routes and a renderer with
+ * nothing connecting them.
+ */
+describe('evidence packet export renders a real PDF through the active template', () => {
+  const storage = require('../../lib/storage');
+
+  async function readStored(key) {
+    const chunks = [];
+    for await (const c of await storage.getStream(key)) chunks.push(c);
+    return Buffer.concat(chunks);
+  }
+
+  test('produces real PDF bytes in storage and records their hash', async () => {
+    const { owner, packet } = await seedProjectAndPacket();
+    const res = await request(app).post(`/api/evidencePackets/${packet.body.id}/export`).set('Authorization', bearer(owner));
+    expect(res.status).toBe(200);
+    expect(res.body.exported_at).toBeTruthy();
+    expect(res.body.pdf_storage_uri).toBeTruthy();
+
+    const bytes = await readStored(res.body.pdf_storage_uri);
+    expect(bytes.slice(0, 5).toString()).toBe('%PDF-');       // a real PDF, not a placeholder
+    expect(res.body.content_hash)
+      .toBe(require('crypto').createHash('sha256').update(bytes).digest('hex'));
+  });
+
+  test('applies the org\'s ACTIVE template: a body-only template yields a smaller PDF than the four-block default, and pins the template used', async () => {
+    const { owner, proj, packet } = await seedProjectAndPacket();
+    const full = await request(app).post(`/api/evidencePackets/${packet.body.id}/export`).set('Authorization', bearer(owner));
+    const fullBytes = await readStored(full.body.pdf_storage_uri);
+    expect(full.body.packetTemplateId).toBeNull();  // no template yet -> renderer default
+
+    const draft = await request(app).post('/api/packetTemplates').set('Authorization', bearer(owner))
+      .send({ name: 'Body only', sections: 'body' });
+    expect(draft.status).toBe(201);
+    await request(app).post(`/api/packetTemplates/${draft.body.id}/publish`).set('Authorization', bearer(owner));
+
+    // A second packet in the SAME org, so it resolves the template just
+    // published above rather than landing in a fresh org with none.
+    const packet2 = await request(app).post('/api/evidencePackets').set('Authorization', bearer(owner))
+      .send({ project_id: proj.body.id, packet_number: 'PK-2', version: 1 });
+    expect(packet2.status).toBe(201);
+    const scoped = await request(app).post(`/api/evidencePackets/${packet2.body.id}/export`).set('Authorization', bearer(owner));
+    expect(scoped.status).toBe(200);
+    // The published template is recorded on the packet, and actually changed
+    // the output — dropping three of four blocks must shrink the document.
+    expect(scoped.body.packetTemplateId).toBe(draft.body.id);
+    const scopedBytes = await readStored(scoped.body.pdf_storage_uri);
+    expect(scopedBytes.length).toBeLessThan(fullBytes.length);
+  });
+
+  test('a caller-supplied pdf_storage_uri is ignored, not stored', async () => {
+    const { owner, packet } = await seedProjectAndPacket();
+    const res = await request(app).post(`/api/evidencePackets/${packet.body.id}/export`).set('Authorization', bearer(owner))
+      .send({ pdf_storage_uri: 'someone-elses/object.pdf' });
+    expect(res.status).toBe(200);
+    expect(res.body.pdf_storage_uri).not.toBe('someone-elses/object.pdf');
+    expect(await readStored(res.body.pdf_storage_uri)).toBeInstanceOf(Buffer);
+  });
+});
+
 describe('rate sheet CSV import + versioning workflow', () => {
   const CSV_HEADER = 'code,description,unit,unitRate,category';
   const CSV_ROWS = `${CSV_HEADER}\nHVAC-01,Replace 3-ton condenser,ea,4500,equipment\nHVAC-02,Duct sealing,lf,12.5,labor`;
