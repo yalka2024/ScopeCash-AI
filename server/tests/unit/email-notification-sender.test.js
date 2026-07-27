@@ -96,17 +96,18 @@ describe('EmailNotificationSender: real approval verification', () => {
     const { org, user, project } = await makeOrgUserProject();
     const approver = await prisma.user.create({ data: { email: `${uid('a')}@test.local`, name: 'Real Approver', passwordHash: 'x', role: 'user', orgId: org.id, emailVerified: true } });
     const packet = await prisma.evidencePacket.create({
-      data: { orgId: org.id, project_id: project.id, packet_number: 'PK-3', version: 1, userId: user.id, status: 'approved', approved_by_id: approver.id, approved_at: new Date() },
+      data: { orgId: org.id, project_id: project.id, packet_number: 'PK-3', version: 1, userId: user.id, status: 'approved', approved_by_id: approver.id, approved_at: new Date(), recipient: 'customer@test.local' },
     });
 
     const result = await tool.run(
-      { recipient_email: 'customer@test.local', evidence_packet_id: packet.id, template_vars: { subject: 'Your packet is ready' } },
+      { recipient_email: 'customer@test.local', evidence_packet_id: packet.id, template_id: 'packet-ready' },
       { userId: user.id, orgId: org.id },
     );
     expect(result.delivery_status).toBe('sent');
-    expect(email.send).toHaveBeenCalledTimes(1);
-    const sentArgs = email.send.mock.calls[0][0];
-    expect(sentArgs.to).toBe('customer@test.local');
+    expect(email.sendTemplate).toHaveBeenCalledTimes(1);
+    const [tplId, to] = email.sendTemplate.mock.calls[0];
+    expect(tplId).toBe('packet-ready');
+    expect(to).toBe('customer@test.local');
 
     const activity = await prisma.activity.findFirst({ where: { action: 'tool.email_notification.sent', resourceId: packet.id }, orderBy: { createdAt: 'desc' } });
     expect(activity).toBeTruthy();
@@ -158,7 +159,7 @@ describe('EmailNotificationSender: caller must themselves hold an approving role
     const pm = await prisma.user.create({ data: { email: `${uid('pm')}@test.local`, passwordHash: 'x', role: 'user', orgId: org.id, emailVerified: true } });
     await prisma.orgMembership.create({ data: { orgId: org.id, userId: pm.id, role: 'project_manager', status: 'active' } });
 
-    const result = await tool.run({ recipient_email: 'x@test.local', evidence_packet_id: packet.id }, { userId: pm.id, orgId: org.id });
+    const result = await tool.run({ recipient_email: pm.email, evidence_packet_id: packet.id, template_id: 'packet-ready' }, { userId: pm.id, orgId: org.id });
     expect(result.delivery_status).toBe('sent');
   });
 
@@ -171,7 +172,7 @@ describe('EmailNotificationSender: caller must themselves hold an approving role
     const admin = await prisma.user.create({ data: { email: `${uid('adm')}@test.local`, passwordHash: 'x', role: 'admin', orgId: org.id, emailVerified: true } });
     // Deliberately no OrgMembership row for this admin — platform admin
     // status alone is sufficient, matching requireAnyOrgRole's own convention.
-    const result = await tool.run({ recipient_email: 'x@test.local', evidence_packet_id: packet.id }, { userId: admin.id, orgId: org.id, role: 'admin' });
+    const result = await tool.run({ recipient_email: admin.email, evidence_packet_id: packet.id, template_id: 'packet-ready' }, { userId: admin.id, orgId: org.id, role: 'admin' });
     expect(result.delivery_status).toBe('sent');
   });
 });
@@ -188,5 +189,86 @@ describe('EmailNotificationSender: no longer platform-admin-only', () => {
   test('genuinely platform-infrastructure tools are still admin-only', () => {
     expect(() => toolRegistry.assertToolAccess('SecretManagerClient', { role: 'user' })).toThrow();
     expect(toolRegistry.ADMIN_ONLY_TOOLS.has('SecretManagerClient')).toBe(true);
+  });
+});
+
+/**
+ * Outbound content/recipient authorization. Previously an org member holding
+ * any approved packet could send caller-authored subject/html/text to any
+ * address — the packet acted as a bare key for using the platform's sending
+ * reputation. Content is now templated-only and the recipient must be bound
+ * to the packet or the org.
+ */
+describe('EmailNotificationSender: outbound authorization', () => {
+  async function approvedPacket(overrides = {}) {
+    const { org, user, project } = await makeOrgUserProject('owner');
+    const packet = await prisma.evidencePacket.create({
+      data: {
+        orgId: org.id, project_id: project.id, packet_number: uid('PK'), version: 1,
+        userId: user.id, status: 'approved', approved_by_id: user.id, approved_at: new Date(),
+        ...overrides,
+      },
+    });
+    return { org, user, project, packet };
+  }
+
+  test('refuses an arbitrary external recipient', async () => {
+    const { org, user, packet } = await approvedPacket();
+    await expect(tool.run(
+      { recipient_email: 'attacker@evil.test', evidence_packet_id: packet.id, template_id: 'packet-ready' },
+      { userId: user.id, orgId: org.id },
+    )).rejects.toMatchObject({ code: 'recipient_not_allowed', statusCode: 403 });
+    expect(email.sendTemplate).not.toHaveBeenCalled();
+  });
+
+  test('allows the packet\'s own recorded recipient', async () => {
+    const { org, user, packet } = await approvedPacket({ recipient: 'gc@customer.test' });
+    const res = await tool.run(
+      { recipient_email: 'GC@Customer.Test', evidence_packet_id: packet.id, template_id: 'packet-ready' },
+      { userId: user.id, orgId: org.id },
+    );
+    expect(res.delivery_status).toBe('sent'); // case-insensitive match
+  });
+
+  test('refuses a send with no template_id (the old free-form path)', async () => {
+    const { org, user, packet } = await approvedPacket({ recipient: 'gc@customer.test' });
+    await expect(tool.run(
+      { recipient_email: 'gc@customer.test', evidence_packet_id: packet.id, template_vars: { subject: 'hi', html: '<b>x</b>' } },
+      { userId: user.id, orgId: org.id },
+    )).rejects.toMatchObject({ code: 'invalid_input' });
+    expect(email.send).not.toHaveBeenCalled();
+  });
+
+  test('refuses an unknown template_id', async () => {
+    const { org, user, packet } = await approvedPacket({ recipient: 'gc@customer.test' });
+    await expect(tool.run(
+      { recipient_email: 'gc@customer.test', evidence_packet_id: packet.id, template_id: 'made-up' },
+      { userId: user.id, orgId: org.id },
+    )).rejects.toMatchObject({ code: 'invalid_input' });
+  });
+
+  test('strips subject/html/text from template_vars so free-form content cannot be smuggled through a template', async () => {
+    const { org, user, packet } = await approvedPacket({ recipient: 'gc@customer.test' });
+    await tool.run({
+      recipient_email: 'gc@customer.test', evidence_packet_id: packet.id, template_id: 'packet-ready',
+      template_vars: { subject: 'PWNED', html: '<script>x</script>', text: 'evil', project_name: 'Roof' },
+    }, { userId: user.id, orgId: org.id });
+
+    const vars = email.sendTemplate.mock.calls[0][2];
+    expect(vars.subject).toBeUndefined();
+    expect(vars.html).toBeUndefined();
+    expect(vars.text).toBeUndefined();
+    expect(vars.project_name).toBe('Roof');   // legitimate vars still pass through
+  });
+
+  test('every advertised template id actually exists and renders', () => {
+    const templates = require('../../lib/email-templates');
+    for (const id of ['upload-complete', 'analysis-complete', 'finding-review', 'packet-ready', 'payment']) {
+      expect(typeof templates[id]).toBe('function');
+      const out = templates[id]({ platform_name: 'ScopeCash AI', support_email: 's@x.test', packet_number: 'PK-1' });
+      expect(out.subject).toBeTruthy();
+      expect(out.html).toContain('<!doctype html>');
+      expect(out.text).toBeTruthy();
+    }
   });
 });

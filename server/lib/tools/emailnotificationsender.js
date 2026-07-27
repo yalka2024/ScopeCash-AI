@@ -57,6 +57,38 @@ async function mockRun(input, ctx) {
 // by the role-gated POST /evidencePackets/:id/approve route (owner/admin/
 // project_manager — routes/entities.js), which stamps approved_by_id with
 // the ACTUAL authenticated approver's id, not anything the caller asserts.
+// The template ids this tool advertises, all real (lib/email-templates.js).
+const ALLOWED_TEMPLATES = ['upload-complete', 'analysis-complete', 'finding-review', 'packet-ready', 'payment'];
+// Template variables a caller may supply. Deliberately excludes subject/html/
+// text: forwarding those would reopen the free-form-content path through the
+// template branch.
+const TEMPLATE_VAR_ALLOWLIST = ['project_name', 'message', 'link_url', 'amount'];
+
+function normalizeEmail(s) {
+  return String(s == null ? '' : s).trim().toLowerCase();
+}
+
+/**
+ * A send may go to the packet's own recorded recipient, or to an active
+ * member of the sending org — nowhere else. Without this an org member with
+ * any approved packet could mail arbitrary outside addresses using the
+ * platform's own sending reputation.
+ */
+async function assertRecipientAllowed(ctx, packet, recipientEmail) {
+  const target = normalizeEmail(recipientEmail);
+  if (normalizeEmail(packet.recipient) === target && target) return;
+
+  const member = await runWithOrg(ctx.orgId, () => prisma.tenantTransaction((tx) => tx.user.findFirst({
+    where: { orgId: ctx.orgId, email: target },
+    select: { id: true },
+  })));
+  if (member) return;
+
+  const err = new Error(`${NAME}: recipient_email must be the packet's own recipient or a member of this organization. Set the packet's recipient first if you need to notify an external party.`);
+  err.code = 'recipient_not_allowed'; err.statusCode = 403;
+  throw err;
+}
+
 // Every notification this tool sends must now reference a real, org-owned,
 // already-approved packet — the tool looks up who really approved it
 // itself, instead of accepting a claim.
@@ -145,30 +177,44 @@ async function realRun(input, ctx) {
   })));
   const approved_by = approver ? (approver.name || approver.email) : packet.approved_by_id;
 
-  const result = template_id
-    ? await email.sendTemplate(template_id, recipient_email, { ...(template_vars || {}), approved_by })
-    : await email.send({
-        to: recipient_email,
-        subject: (template_vars && template_vars.subject) || 'ScopeCash AI notification',
-        html: template_vars && template_vars.html,
-        text: (template_vars && template_vars.text) || 'Notification from ScopeCash AI.',
-        tags: ['tool:EmailNotificationSender'],
-      });
-  // The packet-approval check above still leaves a real, though much
-  // narrower, gap: an org member with a genuinely approved packet can send
-  // arbitrary content (when template_id is omitted) to an arbitrary
-  // recipient, not just the packet's own customer — closing that would mean
-  // building the 5 real templates the tool's own description names (none of
-  // upload-complete/analysis-complete/finding-review/packet-ready/payment
-  // exist in lib/email-templates.js today; calling with those names throws),
-  // which is a materially bigger effort than this fix. A permanent,
-  // tamper-evident record of exactly who triggered which send, to whom,
-  // referencing which approved packet, is the proportionate mitigation
-  // available without that larger undertaking.
+  // Recipient authorization. Previously any address was accepted, so an
+  // approved packet acted as a bare key for sending to arbitrary third
+  // parties. A send must now go either to the packet's own recorded
+  // recipient, or to an active member of the sending org.
+  await assertRecipientAllowed(ctx, packet, recipient_email);
+
+  // Templated content only. The former free-form branch (subject/html/text
+  // straight from template_vars) existed because the five template ids this
+  // tool advertises did not exist yet; they do now, in
+  // lib/email-templates.js, so arbitrary caller-authored bodies are no
+  // longer needed and no longer accepted.
+  if (!template_id) {
+    const err = new Error(`${NAME}: template_id is required. Allowed: ${ALLOWED_TEMPLATES.join(', ')}.`);
+    err.code = 'invalid_input'; err.statusCode = 400;
+    throw err;
+  }
+  if (!ALLOWED_TEMPLATES.includes(template_id)) {
+    const err = new Error(`${NAME}: unknown template_id "${template_id}". Allowed: ${ALLOWED_TEMPLATES.join(', ')}.`);
+    err.code = 'invalid_input'; err.statusCode = 400;
+    throw err;
+  }
+
+  // Only the fields the templates actually render are forwarded — a caller
+  // cannot smuggle `html`/`subject` through template_vars to regain
+  // free-form content.
+  const safeVars = {};
+  for (const k of TEMPLATE_VAR_ALLOWLIST) {
+    if (template_vars && template_vars[k] !== undefined) safeVars[k] = template_vars[k];
+  }
+  const result = await email.sendTemplate(template_id, recipient_email, {
+    ...safeVars,
+    approved_by,
+    packet_number: packet.packet_number,
+  });
   await audit({}, 'tool.email_notification.sent', {
     userId: ctx.userId, orgId: ctx.orgId,
     resource: 'evidencePacket', resourceId: evidence_packet_id,
-    details: { recipient_email, template_id: template_id || null, approved_by },
+    details: { recipient_email, template_id, approved_by },
   });
   return { message_id: result.id || null, delivery_status: 'sent' };
 }

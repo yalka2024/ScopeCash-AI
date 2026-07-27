@@ -179,5 +179,95 @@ function test(v) {
   return { subject, html: shell({ ...v, preheader: 'Email delivery is working.', bodyHtml }), text };
 }
 
-module.exports = { verifyEmail, passwordReset, welcome, invite, invoice, alert, test };
+// ─── Packet/evidence notifications (EmailNotificationSender) ──────────
+// The five templates lib/tools/emailnotificationsender.js has always named in
+// its own description but which did not exist — calling with any of them threw
+// "unknown template". Their absence is why that tool had to allow a free-form
+// subject/html/text path, which let a caller send arbitrary content to an
+// arbitrary address. With these in place the tool sends templated content only.
+//
+// Every variable is escaped by these builders; callers pass plain values.
+
+function packetSection(v) {
+  const rows = [
+    ['Packet', v.packet_number],
+    ['Project', v.project_name],
+    ['Approved by', v.approved_by],
+  ].filter(([, val]) => val);
+  if (!rows.length) return '';
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:16px 0;font-size:14px;">
+    ${rows.map(([k, val]) => `<tr><td style="padding:4px 16px 4px 0;color:#64748b;">${escapeHtml(k)}</td><td style="padding:4px 0;font-weight:600;">${escapeHtml(val)}</td></tr>`).join('')}
+  </table>`;
+}
+
+function notice({ v, heading, lead, cta, preheader }) {
+  const bodyHtml = `
+    <h2 style="margin:0 0 12px;font-size:20px;font-weight:600;">${escapeHtml(heading)}</h2>
+    <p>${escapeHtml(lead)}</p>
+    ${packetSection(v)}
+    ${v.message ? `<p style="padding:12px 16px;background:#f8fafc;border-left:3px solid #cbd5e1;">${escapeHtml(v.message)}</p>` : ''}
+    ${cta && v.link_url ? button(v.link_url, cta) : ''}`;
+  const textLines = [heading, '', lead];
+  if (v.packet_number) textLines.push(`Packet: ${v.packet_number}`);
+  if (v.project_name) textLines.push(`Project: ${v.project_name}`);
+  if (v.approved_by) textLines.push(`Approved by: ${v.approved_by}`);
+  if (v.message) textLines.push('', v.message);
+  if (v.link_url) textLines.push('', v.link_url);
+  return { subject: '', html: shell({ ...v, preheader: preheader || lead, bodyHtml }), text: textLines.join('\n') };
+}
+
+function uploadComplete(v) {
+  const t = notice({
+    v, heading: 'Upload complete',
+    lead: 'The files you sent have finished uploading and are stored against the project.',
+    cta: 'View project',
+  });
+  return { ...t, subject: `Upload complete${v.project_name ? ` — ${v.project_name}` : ''}` };
+}
+
+function analysisComplete(v) {
+  const t = notice({
+    v, heading: 'Analysis complete',
+    lead: 'Evidence analysis has finished. The extracted detail is ready to review.',
+    cta: 'Review analysis',
+  });
+  return { ...t, subject: `Analysis complete${v.project_name ? ` — ${v.project_name}` : ''}` };
+}
+
+function findingReview(v) {
+  const t = notice({
+    v, heading: 'A finding needs your review',
+    lead: 'A finding has been raised and is waiting on a decision before it can move forward.',
+    cta: 'Review finding',
+  });
+  return { ...t, subject: `Finding awaiting review${v.project_name ? ` — ${v.project_name}` : ''}` };
+}
+
+function packetReady(v) {
+  const t = notice({
+    v, heading: 'Your evidence packet is ready',
+    lead: 'An evidence packet has been approved and is ready to review.',
+    cta: 'Open packet',
+  });
+  return { ...t, subject: `Evidence packet ready${v.packet_number ? ` — ${v.packet_number}` : ''}` };
+}
+
+function payment(v) {
+  const t = notice({
+    v, heading: 'Payment update',
+    lead: v.amount ? `A payment of ${v.amount} has been recorded.` : 'There is an update on payment for this work.',
+    cta: 'View details',
+  });
+  return { ...t, subject: `Payment update${v.packet_number ? ` — ${v.packet_number}` : ''}` };
+}
+
+module.exports = {
+  verifyEmail, passwordReset, welcome, invite, invoice, alert, test,
+  // Registered under the exact ids EmailNotificationSender advertises.
+  'upload-complete': uploadComplete,
+  'analysis-complete': analysisComplete,
+  'finding-review': findingReview,
+  'packet-ready': packetReady,
+  payment,
+};
 
