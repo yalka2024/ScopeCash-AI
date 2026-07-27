@@ -152,6 +152,25 @@ describe('executeOrgDeletion', () => {
     expect(otherUser.orgId).toBe(other.org.id);
   });
 
+  test('regression: a pre-registered collision on the deterministic anon-email does not permanently block deletion', async () => {
+    // The anon email is deterministic from userId alone (any org member can
+    // read another's id via GET /members), so it's guessable in advance.
+    // Simulates someone squatting that exact address before deletion runs —
+    // deletion must still succeed (falling back to a randomized suffix),
+    // not abort the whole org's deletion and silently stay stuck forever.
+    const seeded = await seedFullOrg();
+    const anonId = `erased-${crypto.createHash('sha256').update(seeded.user.id).digest('hex').slice(0, 16)}`;
+    await prisma.user.create({ data: { email: `${anonId}@erased.invalid`, passwordHash: 'x', emailVerified: true } });
+
+    const result = await orgDeletion.executeOrgDeletion({ orgId: seeded.org.id });
+    expect(result.deleted).toBe(true);
+
+    const anonymizedUser = await prisma.user.findUnique({ where: { id: seeded.user.id } });
+    expect(anonymizedUser.role).toBe('erased');
+    expect(anonymizedUser.email).toMatch(/^erased-.+@erased\.invalid$/);
+    expect(anonymizedUser.email).not.toBe(`${anonId}@erased.invalid`); // fell back to a randomized suffix
+  });
+
   test('a guest membership in a DIFFERENT (surviving) org is untouched when the home org is deleted', async () => {
     const seeded = await seedFullOrg();
     const otherOrg = await prisma.organization.create({ data: { name: uid('OtherOrg') } });

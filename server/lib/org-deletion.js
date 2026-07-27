@@ -89,17 +89,42 @@ async function findOrgsDueForDeletion({ now = new Date() } = {}) {
  * must stop working too).
  */
 async function anonymizeUser(tx, userId) {
-  const anonId = `erased-${crypto.createHash('sha256').update(userId).digest('hex').slice(0, 16)}`;
-  await tx.user.update({
-    where: { id: userId },
-    data: {
-      email: `${anonId}@erased.invalid`,
-      name: 'erased user',
-      passwordHash: crypto.randomBytes(32).toString('hex'),
-      role: 'erased',
-      orgId: null,
-    },
-  });
+  const base = `erased-${crypto.createHash('sha256').update(userId).digest('hex').slice(0, 16)}`;
+  let anonId = base;
+  // The deterministic anon-email is guessable from a userId alone (any org
+  // member can read another's id via GET /members) — someone could
+  // pre-register that exact address before deletion ever runs. Without a
+  // fallback, that collision (a unique-constraint violation) would abort
+  // THIS WHOLE ORG'S deletion transaction, and since sweepOrgsForDeletion
+  // only logs the failure (no owner-facing surface the way the request/
+  // cancel routes have), the org would silently stay "due" and fail
+  // identically on every future sweep, forever. Retry with an unguessable
+  // random suffix instead of letting one squatted address block deletion
+  // permanently. Needs its own SAVEPOINT — same reason as
+  // deleteOrgScopedRows: Postgres aborts the whole surrounding transaction
+  // on the first error within it, so a retry without one would just fail
+  // again with "transaction aborted" rather than getting a fresh attempt.
+  for (let attempt = 0; ; attempt++) {
+    await tx.$executeRawUnsafe('SAVEPOINT anonymize_user_attempt');
+    try {
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          email: `${anonId}@erased.invalid`,
+          name: 'erased user',
+          passwordHash: crypto.randomBytes(32).toString('hex'),
+          role: 'erased',
+          orgId: null,
+        },
+      });
+      await tx.$executeRawUnsafe('RELEASE SAVEPOINT anonymize_user_attempt');
+      break;
+    } catch (err) {
+      await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT anonymize_user_attempt');
+      if (err.code !== 'P2002' || attempt >= 4) throw err;
+      anonId = `${base}-${crypto.randomBytes(4).toString('hex')}`;
+    }
+  }
   await tx.apiKey.updateMany({ where: { userId }, data: { active: false } });
   return anonId;
 }

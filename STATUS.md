@@ -1663,6 +1663,27 @@ this, since SQLite has no RLS at all. Re-verified the full Postgres+RLS
 suite (9/9) after the fix. Full suite: 20/20 server test suites, 199
 passing.
 
+A second `/security-review` pass (after the fix above) on the combined
+diff found no cross-org leak from widening the `runWithSystemAccess`
+window, confirmed both routes still correctly gate on the caller's own
+org, confirmed the SAVEPOINT names are fixed string literals (no
+injection surface), but flagged one more real, if narrower, reliability
+gap: `anonymizeUser`'s anon email is deterministic from `userId` alone
+(`erased-${sha256(userId).slice(0,16)}@erased.invalid`) — any org member
+can read another's `userId` via `GET /members`, making that address
+guessable and pre-registerable in advance. A pre-registered collision
+would hit a P2002 unique-constraint violation that aborts the *entire*
+org's deletion transaction, and since `sweepOrgsForDeletion` only
+`console.error`s a failed org (unlike the request/cancel routes, which
+notify members), the org would silently stay "due" and fail identically,
+forever, with no owner-facing signal. Fixed by retrying with an
+unguessable random suffix on a P2002 collision (needs its own `SAVEPOINT`
+too, same reason as `deleteOrgScopedRows`) instead of letting one squatted
+address permanently block deletion. New regression test pre-registers the
+exact deterministic collision and confirms deletion still succeeds,
+falling back to a randomized email. Full suite: 20/20 server test suites,
+200 passing; re-verified against real Postgres+RLS (9/9) once more.
+
 ## Not yet started
 
 See TODO.md.
