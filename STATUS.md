@@ -1266,6 +1266,37 @@ to avoid.
 
 Full suite: 16/16 server test suites, 155 passing (9 new).
 
+**Pre-push `/security-review` on this whole phase's diff (be3da10 + 99e3edf)
+found one more real, environment-dependent gap**, this time in the
+sourceDocuments duplicate-content check, not the ownership check above:
+`prisma.sourceDocument.findUnique({where:{sha256_hash}})` — in both the new
+confirm-upload route AND the pre-existing classic multipart route — matches
+against `sha256_hash`, a table-wide `@unique` column with no `orgId` in the
+key, so it's not actually scoped to the caller's own org. On SQLite (this
+repo's dev/test/CI default, no RLS at all) or any Postgres deployment that
+skipped applying `rls.sql`, an authenticated user in an unrelated org could
+get a 409 whose body includes the real internal `sourceDocumentId` of a
+byte-identical document belonging to a completely different org — a
+cross-tenant existence oracle plus ID-harvesting primitive. Notably, this
+PR's own sibling `EvidenceItem` confirm-upload route already scoped its
+equivalent check by `orgId` (`findFirst({where:{orgId, sha256Hash}})`) —
+the fix was applying that same, already-established pattern consistently.
+On real Postgres+RLS (this repo's actual deploy path per `Dockerfile`/
+`fly.toml`/`railway.json`, which all run the RLS migration before boot)
+another org's row is invisible to the query either way, so the leak itself
+was already masked there — but doing the org-scoped `findFirst` first and
+handling `create()`'s underlying P2002 as a fallback closes it for every
+configuration, not just the ones RLS happens to cover, and also fixes a
+related bug the review surfaced: when RLS masks the pre-check's visibility
+of another org's row, the DB-level unique index still fires for real at
+`create()` time — previously an unhandled 500, now converted to the same
+clean 409 (without leaking the other org's document id). Added a dedicated
+cross-org test that uploads byte-identical content from two separate orgs
+and asserts the response never carries the other org's real document id,
+whichever code path (org-scoped pre-check vs. P2002 fallback) ends up
+firing depending on the DB driver under test. Full suite: 16/16 server test
+suites, 156 passing.
+
 ## Not yet started
 
 See TODO.md.

@@ -88,6 +88,27 @@ async function validateStagedUpload(stagingKey, originalFilename) {
   }
 }
 
+/** sha256_hash is a table-wide unique column (not compound with orgId), so
+ * two different orgs can never hold a byte-identical SourceDocument even
+ * though the app-level pre-checks above are org-scoped for tenant isolation
+ * (never expose another org's document id in a 409). Under Postgres+RLS
+ * that pre-check is invisible to another org's row, so a real collision
+ * still surfaces here as a P2002 at create() time — converted to the same
+ * conflict response, without leaking the other org's document id. */
+async function createSourceDocumentOrDuplicate409(data) {
+  try {
+    return await prisma.sourceDocument.create({ data });
+  } catch (err) {
+    // Target shape differs by connector (Postgres: array of column names in
+    // err.meta.target; SQLite: only present in err.message) — check both.
+    const detail = `${(err && err.meta && err.meta.target) || ''} ${(err && err.message) || ''}`;
+    if (err && err.code === 'P2002' && detail.includes('sha256_hash')) {
+      throw new HttpError(409, 'A document with this exact content already exists', 'duplicate_document');
+    }
+    throw err;
+  }
+}
+
 // storage.newKey()'s second segment only ever contains [stamp]-[hex]-[sanitized name].
 const STAGING_KEY_REST_RE = /^[a-zA-Z0-9._-]{1,255}$/;
 
@@ -129,17 +150,16 @@ router.post('/projects/:projectId/sourceDocuments', requireAnyOrgRole(...UPLOAD_
     const ext = path.extname(req.file.originalname).slice(1).toLowerCase();
     if (!DOCUMENT_EXTS.has(ext)) throw new HttpError(400, `Unsupported document type ".${ext}"`, 'unsupported_file_type');
 
-    const existing = await prisma.sourceDocument.findUnique({ where: { sha256_hash: crypto.createHash('sha256').update(req.file.buffer).digest('hex') } });
+    const sha256 = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
+    const existing = await prisma.sourceDocument.findFirst({ where: { orgId: req.tenant.orgId, sha256_hash: sha256 } });
     if (existing) throw new HttpError(409, 'A document with this exact content already exists', 'duplicate_document', { sourceDocumentId: existing.id });
 
     const persisted = await persistFile(req, req.file);
-    const row = await prisma.sourceDocument.create({
-      data: {
-        orgId: req.tenant.orgId, project_id: project.id, document_type: req.body.document_type,
-        original_filename: req.file.originalname, storage_uri: persisted.key, mime_type: persisted.mime,
-        file_size_bytes: req.file.buffer.length, sha256_hash: persisted.sha256, uploaded_by_id: req.user.id,
-        uploaded_at: new Date(), extraction_status: 'pending', userId: req.user.id,
-      },
+    const row = await createSourceDocumentOrDuplicate409({
+      orgId: req.tenant.orgId, project_id: project.id, document_type: req.body.document_type,
+      original_filename: req.file.originalname, storage_uri: persisted.key, mime_type: persisted.mime,
+      file_size_bytes: req.file.buffer.length, sha256_hash: persisted.sha256, uploaded_by_id: req.user.id,
+      uploaded_at: new Date(), extraction_status: 'pending', userId: req.user.id,
     });
     await audit(req, 'sourceDocuments.upload', { resource: 'sourceDocument', resourceId: row.id });
     res.status(201).json(row);
@@ -176,20 +196,24 @@ router.post('/projects/:projectId/sourceDocuments/confirm-upload', requireAnyOrg
   if (existing) throw new HttpError(409, 'This staged upload has already been confirmed', 'already_confirmed', { sourceDocumentId: existing.id });
 
   const { mime, sha256, fileSize } = await validateStagedUpload(req.body.stagingKey, req.body.originalFilename);
-  const dup = await prisma.sourceDocument.findUnique({ where: { sha256_hash: sha256 } });
+  const dup = await prisma.sourceDocument.findFirst({ where: { orgId: req.tenant.orgId, sha256_hash: sha256 } });
   if (dup) {
     await storage.deleteObject(req.body.stagingKey).catch(() => {});
     throw new HttpError(409, 'A document with this exact content already exists', 'duplicate_document', { sourceDocumentId: dup.id });
   }
 
-  const row = await prisma.sourceDocument.create({
-    data: {
+  let row;
+  try {
+    row = await createSourceDocumentOrDuplicate409({
       orgId: req.tenant.orgId, project_id: project.id, document_type: req.body.document_type,
       original_filename: req.body.originalFilename, storage_uri: req.body.stagingKey, mime_type: mime,
       file_size_bytes: fileSize, sha256_hash: sha256, uploaded_by_id: req.user.id,
       uploaded_at: new Date(), extraction_status: 'pending', userId: req.user.id,
-    },
-  });
+    });
+  } catch (err) {
+    await storage.deleteObject(req.body.stagingKey).catch(() => {});
+    throw err;
+  }
   await audit(req, 'sourceDocuments.upload', { resource: 'sourceDocument', resourceId: row.id, details: { method: 'direct_signed_url' } });
   res.status(201).json(row);
 }));

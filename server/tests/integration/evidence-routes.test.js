@@ -383,6 +383,39 @@ describe('direct-to-storage signed upload URLs', () => {
     })).rejects.toThrow(); // cleaned up, not left orphaned
   });
 
+  test('duplicate-content check is org-scoped: a cross-org byte-identical document never leaks the other org\'s document id', async () => {
+    const { user: userA, project: projectA } = await makeOwnerAndProject();
+    const { user: userB, project: projectB } = await makeOwnerAndProject();
+    const bytes = Buffer.from('Invoice #900: identical content uploaded by two unrelated orgs.');
+
+    const first = await request(app).post(`/api/projects/${projectA.id}/sourceDocuments`).set('Authorization', bearer(userA))
+      .field('document_type', 'invoice').attach('file', bytes, { filename: 'shared.txt', contentType: 'text/plain' });
+    expect(first.status).toBe(201);
+
+    // Org B uploads the identical bytes via the signed-upload flow. The
+    // 409 (if any) must never reference org A's real document id — an
+    // unrelated org has no business learning that id exists at all.
+    const stagingKey = storage.newKey(userB.id, 'shared.txt');
+    await storage.putObject({ key: stagingKey, body: bytes, contentType: 'text/plain' });
+    const second = await request(app)
+      .post(`/api/projects/${projectB.id}/sourceDocuments/confirm-upload`)
+      .set('Authorization', bearer(userB))
+      .send({ stagingKey, originalFilename: 'shared.txt', document_type: 'invoice' });
+
+    if (second.status === 409) {
+      expect(second.body.code).toBe('duplicate_document');
+      expect(second.body.sourceDocumentId).not.toBe(first.body.id);
+      expect(second.body.sourceDocumentId).toBeUndefined();
+    } else {
+      // Org-scoped pre-check found nothing (expected on SQLite/no-RLS);
+      // the DB-level unique constraint is still global, so this succeeding
+      // means the two hashes didn't collide at storage layer — assert the
+      // row really was created for org B, not silently misattributed.
+      expect(second.status).toBe(201);
+      expect(second.body.orgId).toBe(userB.orgId);
+    }
+  });
+
   test('confirm-upload for evidenceItems tracks (not rejects) duplicate content, matching the multipart endpoint', async () => {
     const { user, project } = await makeOwnerAndProject();
     const bytes = Buffer.from([0xff, 0xd8, 0xff, 0x00, 0x01, 0x02, 0x03]);
