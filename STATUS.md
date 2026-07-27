@@ -2003,6 +2003,72 @@ for the chat feature too, since there's no 'vertex' option in
 server test suites, 231 passing. Pre-push `/security-review` caught the
 region-bucketing bug above before it shipped.
 
+## Phase 24 — EmailNotificationSender: real approval verification (DONE, 2026-07-27)
+
+Closes the stopgap from Phase 11: `lib/tools/emailnotificationsender.js#realRun()`
+used to trust a caller-supplied `approved_by` free-text string as proof of
+human approval — any authenticated caller could type any name and the tool
+would send a real email as if it had been approved. Replaced with a real
+server-side check: the tool now requires a real `evidence_packet_id`,
+verifies the referenced `EvidencePacket` actually has `status === 'approved'`
+with a real `approved_by_id` (set only by the role-gated `POST
+/evidencePackets/:id/approve` route), and looks up who really approved it
+server-side for the email content instead of accepting the caller's claim.
+Removed `EmailNotificationSender` from `ADMIN_ONLY_TOOLS` (`lib/tool-registry.js`)
+now that this real verification exists, per the TODO item's own stated exit
+condition — a blanket platform-admin gate was actually wrong relative to
+the real product roles anyway (a `project_manager`, an org-level role, can
+legitimately approve a packet but couldn't previously ever invoke this tool
+for one they approved themselves).
+
+Hit the exact same lazy-PrismaPromise-escapes-AsyncLocalStorage bug as
+Phase 21's `lib/audit.js` fix, in a new file, immediately after having just
+learned the lesson: this tool is reachable via the background async-runner
+path (`POST /api/agents/:name/run/async` → `lib/async-runner.js`'s
+BullMQ/`setImmediate` dispatch), which runs with zero ambient tenant
+context. First attempt wrapped the bare Prisma call as
+`runWithOrg(orgId, () => prisma.evidencePacket.findFirst(...))` — failed
+empirically against a real non-superuser Postgres+RLS role for the
+identical reason as the audit() bug (the lazy PrismaPromise's `$allOperations`
+read happens outside `storage.run()`'s synchronous frame). Fixed by routing
+through `prisma.tenantTransaction()` instead. New committed regression test
+in `tests/postgres/rls.test.js` (11/11 passing).
+
+Pre-push `/security-review` found a second, more serious gap in the first
+version of this fix: removing the tool from `ADMIN_ONLY_TOOLS` let ANY
+authenticated org member — regardless of their own role, down to the
+lowest-privilege `field_user` — trigger the tool as long as their org had
+*some* approved packet, since the check only verified the packet's approval
+state, never whether the *caller* had any part in approving anything (or
+any approval-capable role at all). Since `recipient_email`/freeform
+`html`/`text` content remain fully caller-controlled when `template_id` is
+omitted, this would have made the tool a broadly-reachable phishing/spam
+relay from the platform's verified sending domain — a real widening
+compared to the old (overly blunt but at least narrow) admin-only gate.
+Fixed by additionally requiring the caller's own `OrgMembership` role in
+that org be one of `PACKET_APPROVE_ROLES` (or platform admin) — extracted
+that constant to `lib/roles.js` (previously a private local const in
+`routes/entities.js`) so both the real approval route and this check share
+one source of truth, not two lists that can drift. A follow-up
+`/security-review` pass confirmed the gap is closed.
+
+### Known gap found, not fixed here
+
+Even with both checks, a caller who genuinely CAN approve packets can still
+send arbitrary content (when `template_id` is omitted) to an arbitrary
+external recipient, not just the packet's own customer — closing that
+fully would mean building the 5 real templates the tool's own description
+names (`upload-complete`/`analysis-complete`/`finding-review`/`packet-ready`/
+`payment` — none exist in `lib/email-templates.js` today; calling
+`sendTemplate()` with any of those names throws `unknown template`), which
+is a materially bigger effort than this fix. Mitigated, not eliminated, by
+a new `audit()` call recording every send (who, to whom, referencing which
+approved packet) for permanent accountability.
+
+4 new/updated test files (13 unit tests, 1 Postgres regression test). Full
+suite: 25/25 server test suites, 244 passing. Re-verified against a real
+non-superuser Postgres+RLS role (11/11).
+
 ## Not yet started
 
 See TODO.md.

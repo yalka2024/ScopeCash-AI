@@ -57,5 +57,13 @@ function requireAnyOrgRole(...allowed) {
   };
 }
 
-module.exports = { ROLES, roleNames, isKnownRole, isWriteRole, requireRole, requireWrite, requireAnyOrgRole };
+// Org-level roles allowed to move an EvidencePacket to 'approved'
+// (routes/entities.js's POST /evidencePackets/:id/approve) — shared here
+// so anything that needs to know "can this org member actually approve a
+// packet" (e.g. lib/tools/emailnotificationsender.js, which must not let a
+// caller trigger a notification off a packet THEY had no part in
+// approving) uses the exact same list, not a second copy that can drift.
+const PACKET_APPROVE_ROLES = ['owner', 'admin', 'project_manager'];
+
+module.exports = { ROLES, roleNames, isKnownRole, isWriteRole, requireRole, requireWrite, requireAnyOrgRole, PACKET_APPROVE_ROLES };
 

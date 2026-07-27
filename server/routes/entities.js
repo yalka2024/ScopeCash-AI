@@ -24,7 +24,7 @@ const express = require('express');
 const prisma = require('../lib/prisma');
 const { authMiddleware } = require('../middleware/auth');
 const attachTenant = require('../middleware/tenant');
-const { requireAnyOrgRole } = require('../lib/roles');
+const { requireAnyOrgRole, PACKET_APPROVE_ROLES } = require('../lib/roles');
 const { z, validate, asyncHandler, HttpError } = require('../lib/validate');
 const { audit } = require('../lib/audit');
 const { attachApiKeyProjectScope } = require('../lib/api-key-scope');
@@ -432,7 +432,6 @@ for (const e of ENTITIES) {
 // Kept out of the generic PUT above: those routes only gate "can this role
 // write this entity at all," which every non-viewer role satisfies. Approval
 // is a state transition with its own, tighter role gate and audit trail.
-const PACKET_APPROVE_ROLES = ['owner', 'admin', 'project_manager'];
 const EVIDENCE_PACKET_ENTITY = { model: 'evidencePacket', fields: ['project_id'] };
 
 router.post('/evidencePackets/:id/approve', requireAnyOrgRole(...PACKET_APPROVE_ROLES), asyncHandler(async (req, res) => {

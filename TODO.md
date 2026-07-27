@@ -371,10 +371,18 @@ is in STATUS.md. Everything below is either in progress or not started.
       Verified it has teeth by deliberately reintroducing the Final
       phase's unmounted-help.js-router bug and confirming it fails (and,
       after a fix, fails on the *right* test). See STATUS.md Phase 22.
-- [ ] `EmailNotificationSender` is admin-gated as a stopgap (Phase 11) —
-      revisit removing it from `ADMIN_ONLY_TOOLS` once `realRun()`
-      verifies `approved_by` against a real approval object instead of
-      trusting the caller's own free-text claim.
+- [x] `EmailNotificationSender`'s admin-gate stopgap (Phase 11) replaced with
+      real verification: `realRun()` now requires a real
+      `evidence_packet_id`, checks the packet is actually `status ===
+      'approved'` (set only by the role-gated approve route), AND that the
+      CALLER themselves holds an approving org role (not just anyone in
+      their org) — the second check came from a pre-push `/security-review`
+      catching that the first version let any org member, including a
+      field_user, ride someone else's approved packet as a key. Removed
+      from `ADMIN_ONLY_TOOLS`. Known gap, not fixed: freeform email content
+      to an arbitrary recipient is still possible for a caller who
+      genuinely can approve packets — the 5 templates the tool's own
+      description names don't actually exist yet. See STATUS.md Phase 24.
 
 ## P2 — maturity (not started, lower priority)
 

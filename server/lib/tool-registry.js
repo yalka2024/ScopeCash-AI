@@ -33,16 +33,22 @@ function toolNames() { _load(); return Array.from(_tools.keys()); }
 // tool," so any authenticated user could ask an agent to call
 // SecretManagerClient on their behalf). Both call sites now import and
 // enforce this same check — see assertToolAccess below.
-// EmailNotificationSender is also admin-only: its "approved_by" field is
-// self-asserted free text from the same caller invoking it, not a real
-// server-verified approval record, so treating it as safe-for-any-user
-// let any authenticated account (including a brand-new, unverified
+// EmailNotificationSender used to be admin-only too: its "approved_by"
+// field was self-asserted free text from the same caller invoking it, not
+// a real server-verified approval record, so treating it as safe-for-any-
+// user let any authenticated account (including a brand-new, unverified
 // self-registered one) send arbitrary outbound email — including
 // attacker-controlled HTML — to an arbitrary external address from the
-// platform's own verified sending domain. Revisit removing it from this
-// set only once realRun() checks approved_by against a real approval
-// object instead of trusting the caller's own claim.
-const ADMIN_ONLY_TOOLS = new Set(['SecretManagerClient', 'StripeClient', 'CloudTasksEnqueuer', 'EmailNotificationSender']);
+// platform's own verified sending domain. Removed from this set now that
+// lib/tools/emailnotificationsender.js#realRun() verifies a real,
+// server-recorded EvidencePacket approval (approved_by_id, set only by the
+// role-gated POST /evidencePackets/:id/approve route) instead of trusting
+// the caller's own claim — a blanket platform-admin gate was actually
+// WRONG relative to the real product roles anyway, since a project_manager
+// (an org-level role, not a platform admin) can legitimately approve a
+// packet but couldn't previously ever invoke this tool for one they
+// approved themselves.
+const ADMIN_ONLY_TOOLS = new Set(['SecretManagerClient', 'StripeClient', 'CloudTasksEnqueuer']);
 
 /**
  * Throws if `ctx.role` isn't a platform admin and `toolName` is

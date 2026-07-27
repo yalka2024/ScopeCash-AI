@@ -362,6 +362,67 @@ d('Postgres RLS', () => {
     expect(after.ok).toBe(true);
     expect(after.total).toBe(before.total + 1);
   });
+
+  test('regression: EmailNotificationSender verifies a real packet approval with zero ambient context (background async-runner path)', async () => {
+    // Same bug shape as the audit() regression above, hit again while fixing
+    // a different item: lib/tools/emailnotificationsender.js#realRun() looks
+    // up the referenced EvidencePacket to verify a real, server-recorded
+    // approval instead of trusting a caller-asserted claim (see STATUS.md).
+    // The tool is reachable via POST /api/agents/:name/run/async ->
+    // lib/async-runner.js's BullMQ/setImmediate dispatch, which runs with NO
+    // ambient AsyncLocalStorage context at all. First fix attempt wrapped the
+    // bare Prisma call as `runWithOrg(orgId, () => prisma.evidencePacket
+    // .findFirst(...))` — failed empirically for the identical reason as the
+    // audit() bug: a lazy PrismaPromise doesn't dispatch (or invoke
+    // withRls's $allOperations) until awaited, which happens outside
+    // storage.run()'s synchronous frame. Fixed by routing through
+    // prisma.tenantTransaction() instead.
+    const tool = require('../../lib/tools/emailnotificationsender');
+    const email = require('../../lib/email');
+    const sendSpy = jest.spyOn(email, 'send').mockResolvedValue({ id: 'msg_test' });
+    jest.spyOn(email, 'isConfigured').mockReturnValue(true);
+    const prevMode = process.env.INTEGRATION_EMAILNOTIFICATIONSENDER_MODE;
+    process.env.INTEGRATION_EMAILNOTIFICATIONSENDER_MODE = 'live';
+
+    const { org, otherOrg, user, outsider, packet } = await runWithSystemAccess(async () => {
+      const org = await prisma.organization.create({ data: { name: uid('Org') } });
+      const otherOrg = await prisma.organization.create({ data: { name: uid('OtherOrg') } });
+      const user = await prisma.user.create({ data: { email: `${uid('u')}@test.local`, passwordHash: 'x', role: 'user', orgId: org.id, emailVerified: true } });
+      await prisma.orgMembership.create({ data: { orgId: org.id, userId: user.id, role: 'owner', status: 'active' } });
+      const approver = await prisma.user.create({ data: { email: `${uid('a')}@test.local`, name: 'Real Approver', passwordHash: 'x', role: 'user', orgId: org.id, emailVerified: true } });
+      const customer = await prisma.customer.create({ data: { orgId: org.id, name: uid('Customer') } });
+      const project = await prisma.projectRecord.create({ data: { orgId: org.id, customer_id: customer.id, name: uid('Project'), userId: user.id } });
+      const packet = await prisma.evidencePacket.create({
+        data: { orgId: org.id, project_id: project.id, packet_number: 'PK-1', version: 1, userId: user.id, status: 'approved', approved_by_id: approver.id, approved_at: new Date() },
+      });
+      // A real approving member of otherOrg — isolates the cross-org
+      // check below to "wrong org's packet id," not the separate
+      // caller-role gate (which outsider legitimately passes, in their OWN org).
+      const outsider = await prisma.user.create({ data: { email: `${uid('o')}@test.local`, passwordHash: 'x', role: 'user', orgId: otherOrg.id, emailVerified: true } });
+      await prisma.orgMembership.create({ data: { orgId: otherOrg.id, userId: outsider.id, role: 'owner', status: 'active' } });
+      return { org, otherOrg, user, outsider, packet };
+    });
+
+    // No runWithOrg/runWithSystemAccess anywhere around this call — the point.
+    const result = await tool.run(
+      { recipient_email: 'customer@test.local', evidence_packet_id: packet.id },
+      { userId: user.id, orgId: org.id },
+    );
+    expect(result.delivery_status).toBe('sent');
+    expect(sendSpy).toHaveBeenCalledTimes(1);
+
+    // Cross-tenant: a real approving member of a DIFFERENT org referencing
+    // this packet must be rejected as not_found, not fall through to a
+    // zero-rows-means-"try the other org" bug.
+    await expect(tool.run(
+      { recipient_email: 'customer@test.local', evidence_packet_id: packet.id },
+      { userId: outsider.id, orgId: otherOrg.id },
+    )).rejects.toMatchObject({ code: 'not_found' });
+
+    process.env.INTEGRATION_EMAILNOTIFICATIONSENDER_MODE = prevMode;
+    sendSpy.mockRestore();
+    email.isConfigured.mockRestore();
+  });
 });
 
 if (!isPg) {
