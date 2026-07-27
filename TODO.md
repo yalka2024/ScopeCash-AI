@@ -447,7 +447,14 @@ is in STATUS.md. Everything below is either in progress or not started.
       used, though nothing yet auto-applies it at export time (the export
       route doesn't generate a PDF server-side at all today — documented,
       not silently implied). See STATUS.md Phase 31.
-- [ ] PDF visual regression tests
+- [x] PDF visual regression tests — pdfpacketrenderer.js hand-crafts a raw
+      PDF byte stream (no library); a refactor could corrupt the actual
+      layout while keeping every substring the existing text-presence tests
+      check. New `dashboard/pdf-visual/` suite renders real output via
+      pdfjs-dist onto canvas (no native/browser PDF plugin available in
+      Playwright's bundled Chromium) and pixel-diffs against committed
+      baselines — verified it actually catches a regression, not just a
+      rubber-stamp pass. `npm run test:pdf-visual`. See STATUS.md Phase 32.
 - [ ] Notification preference management
 - [ ] Usage quotas matching stated prices
 - [ ] Success-fee/earned-revenue accounting

@@ -22,6 +22,7 @@
     "@playwright/test": "^1.62.0",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
+    "pdfjs-dist": "^5.4.624",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
     "vite": "^6.0.5"
@@ -33,7 +34,8 @@
     "preview": "vite preview",
     "test:a11y": "playwright test --config=playwright.config.cjs",
     "test:a11y:authed": "playwright test --config=playwright.authed.config.cjs",
-    "test:e2e": "playwright test --config=playwright.e2e.config.cjs"
+    "test:e2e": "playwright test --config=playwright.e2e.config.cjs",
+    "test:pdf-visual": "playwright test --config=playwright.pdf-visual.config.cjs"
   },
   "browserslist": {
     "production": [

@@ -28,4 +28,5 @@ coverage/
 dashboard/a11y/.authed-state.json
 dashboard/playwright-report/
 dashboard/test-results/
+dashboard/pdf-visual/.tmp/
 server/data-exports/

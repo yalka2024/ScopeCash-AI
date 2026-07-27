@@ -1,0 +1,50 @@
+<!doctype html>
+<!--
+  Renders a PDF onto a <canvas> via pdfjs-dist, entirely inside the browser
+  page — no native browser PDF plugin involved (a direct file:// navigation
+  downloads instead of rendering; an <embed type="application/pdf"> shows
+  "Couldn't load plugin." in Playwright's bundled Chromium; a real
+  installed Chrome would work but isn't portable to CI). Served over http
+  (see pdf-visual/static-server.cjs) rather than file:// so the ES module
+  import below doesn't hit Chromium's file:// CORS restriction. Pass the
+  PDF's URL as ?src=<encoded url>. Sets data-rendered="true"/"error" on
+  <body> once done, so the test can wait for a real signal instead of a guess.
+-->
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>html, body { margin: 0; padding: 0; background: #fff; }</style>
+</head>
+<body>
+  <div id="pages"></div>
+  <script type="module">
+    import * as pdfjsLib from '/node_modules/pdfjs-dist/build/pdf.mjs';
+    pdfjsLib.GlobalWorkerOptions.workerSrc = '/node_modules/pdfjs-dist/build/pdf.worker.mjs';
+
+    try {
+      const src = new URLSearchParams(location.search).get('src');
+      const doc = await pdfjsLib.getDocument(src).promise;
+      const pagesEl = document.getElementById('pages');
+
+      // Every page, not just the first — a multi-page PDF (e.g. sections
+      // producing several blocks) needs every page rendered for a pixel
+      // diff to mean anything, not just whatever happens to be page 1.
+      for (let n = 1; n <= doc.numPages; n++) {
+        const page = await doc.getPage(n);
+        const viewport = page.getViewport({ scale: 1.5 });
+        const canvas = document.createElement('canvas');
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        canvas.style.display = 'block';
+        pagesEl.appendChild(canvas);
+        await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+      }
+
+      document.body.dataset.rendered = 'true';
+    } catch (e) {
+      document.body.dataset.rendered = 'error';
+      document.body.dataset.error = String(e && e.message || e);
+    }
+  </script>
+</body>
+</html>
