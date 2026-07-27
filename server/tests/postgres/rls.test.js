@@ -31,6 +31,10 @@ jest.mock('../../lib/storage', () => ({
   getStream: jest.fn(async () => require('stream').Readable.from([Buffer.from('Invoice #1: real content for the RLS regression test.')])),
   gcsUri: jest.fn(() => null),
 }));
+jest.mock('../../lib/vertex-ai', () => ({
+  generate: jest.fn(),
+  isConfigured: jest.fn(() => true),
+}));
 
 const isPg = !!(process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith('postgres'));
 const d = isPg ? describe : describe.skip;
@@ -154,6 +158,59 @@ d('Postgres RLS', () => {
     expect(finalRun.error_message).toBeFalsy();
     const finalDoc = await runWithSystemAccess(async () => prisma.sourceDocument.findUnique({ where: { id: sourceDocument.id } }));
     expect(finalDoc.extraction_status).toBe('extracted');
+  });
+
+  test('regression: evidenceItem.analyze near-duplicate detection runs correctly with zero ambient context', async () => {
+    // Same shape as the processJob() regression above, for a DIFFERENT job
+    // kind: lib/evidence-pipeline.js#interpretImage's new near-duplicate
+    // check (findNearDuplicate) is a plain awaited prisma.evidenceItem
+    // .findMany() call made from INSIDE processJob()'s already-established
+    // runWithOrg() context — unlike the audit()/EmailNotificationSender
+    // bugs found earlier this session, this does NOT open its own NEW
+    // runWithOrg/runWithSystemAccess scope, so it should just inherit the
+    // ambient context correctly. Verified here rather than assumed, given
+    // how many times that exact assumption was wrong elsewhere this
+    // session in subtly different ways.
+    const evidenceJobs = require('../../lib/evidence-jobs');
+    const vertex = require('../../lib/vertex-ai');
+    const { org, project, earlier, newer, run } = await runWithSystemAccess(async () => {
+      const org = await prisma.organization.create({ data: { name: uid('Org') } });
+      const user = await prisma.user.create({ data: { email: `${uid('u')}@test.local`, passwordHash: 'x', orgId: org.id, emailVerified: true } });
+      const customer = await prisma.customer.create({ data: { orgId: org.id, name: uid('Customer') } });
+      const project = await prisma.projectRecord.create({ data: { orgId: org.id, customer_id: customer.id, name: 'RLS regression project', userId: user.id } });
+      const earlier = await prisma.evidenceItem.create({
+        data: {
+          orgId: org.id, project_id: project.id, evidenceType: 'photo', storageUri: 'local://a.jpg', sha256Hash: uid('sha'),
+          extractedText: 'Roof shingles removed exposing plywood decking with visible water staining near the chimney flashing',
+        },
+      });
+      const newer = await prisma.evidenceItem.create({
+        data: { orgId: org.id, project_id: project.id, evidenceType: 'photo', storageUri: 'local://b.jpg', sha256Hash: uid('sha') },
+      });
+      const run = await prisma.agentRunRecord.create({
+        data: { orgId: org.id, project_id: project.id, agent_type: 'evidenceItem_analyze_job', status: 'queued' },
+      });
+      return { org, project, earlier, newer, run };
+    });
+    vertex.generate.mockResolvedValueOnce({
+      json: { description: 'Plywood decking exposed after roof shingle removal, water staining visible near chimney flashing area', quality: 'ok' },
+      modelVersion: 'test', usage: {}, costUsd: 0,
+    });
+
+    // No runWithOrg/runWithSystemAccess anywhere around this call — the point.
+    await evidenceJobs.processJob({
+      runId: run.id, kind: 'evidenceItem.analyze',
+      evidenceItemId: newer.id, orgId: org.id, projectId: project.id,
+    });
+
+    const finalRun = await runWithSystemAccess(async () => prisma.agentRunRecord.findUnique({ where: { id: run.id } }));
+    expect(finalRun.status).toBe('completed');
+    expect(finalRun.error_message).toBeFalsy();
+    const finalItem = await runWithSystemAccess(async () => prisma.evidenceItem.findUnique({ where: { id: newer.id } }));
+    expect(finalItem.analysisStatus).toBe('completed');
+    // The real, load-bearing assertion: the near-duplicate query found the
+    // earlier item in the SAME org/project, not a fail-closed empty result.
+    expect(finalItem.nearDuplicateOfId).toBe(earlier.id);
   });
 
   test('regression: the real Stripe webhook route establishes its own tenant context when invoked with zero ambient context', async () => {

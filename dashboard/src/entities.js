@@ -27,8 +27,8 @@ export const ENTITIES = [
     // change_order types) via lib/evidence-jobs.js — async, poll agentRunId.
     analyze: { path: (id) => `/sourceDocuments/${id}/analyze`, label: 'Analyze', statusField: 'extraction_status', doneValues: ['extracted'], failedValues: ['failed'] } },
   { model: 'evidenceItem', plural: 'evidenceItems',
-    fields: ['project_id', 'sourceDocumentId', 'evidenceType', 'storageUri', 'sha256Hash', 'mimeType', 'capturedAt', 'gpsLat', 'gpsLng', 'deviceMetadata', 'transcript', 'extractedText', 'uploadedById', 'duplicateOfId', 'quality', 'analysisStatus'],
-    fieldTypes: { project_id: 'String', sourceDocumentId: 'String', evidenceType: 'String', storageUri: 'String', sha256Hash: 'String', mimeType: 'String', capturedAt: 'DateTime', gpsLat: 'Float', gpsLng: 'Float', deviceMetadata: 'String', transcript: 'String', extractedText: 'String', uploadedById: 'String', duplicateOfId: 'String', quality: 'String', analysisStatus: 'String' },
+    fields: ['project_id', 'sourceDocumentId', 'evidenceType', 'storageUri', 'sha256Hash', 'mimeType', 'capturedAt', 'gpsLat', 'gpsLng', 'deviceMetadata', 'transcript', 'extractedText', 'uploadedById', 'duplicateOfId', 'nearDuplicateOfId', 'quality', 'analysisStatus'],
+    fieldTypes: { project_id: 'String', sourceDocumentId: 'String', evidenceType: 'String', storageUri: 'String', sha256Hash: 'String', mimeType: 'String', capturedAt: 'DateTime', gpsLat: 'Float', gpsLng: 'Float', deviceMetadata: 'String', transcript: 'String', extractedText: 'String', uploadedById: 'String', duplicateOfId: 'String', nearDuplicateOfId: 'String', quality: 'String', analysisStatus: 'String' },
     // Transcribes audio / interprets photos via Gemini — async, poll agentRunId.
     analyze: { path: (id) => `/evidenceItems/${id}/analyze`, label: 'Analyze', statusField: 'analysisStatus', doneValues: ['completed'], failedValues: ['failed'] } },
   { model: 'changeEvent', plural: 'changeEvents',

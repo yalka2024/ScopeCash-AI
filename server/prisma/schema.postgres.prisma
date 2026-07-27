@@ -1251,6 +1251,16 @@ model EvidenceItem {
   extractedText    String?  // OCR / extracted text
   uploadedById     String?
   duplicateOfId    String?
+  // Set by lib/evidence-pipeline.js#interpretImage after Gemini analysis —
+  // a same-project photo whose generated description is textually similar
+  // enough to this one to likely be a near-duplicate (re-shot, re-cropped,
+  // re-compressed — same content, different bytes, so sha256Hash/
+  // duplicateOfId above can never catch it). Not a perceptual-image-hash
+  // comparison (would need pixel decoding, a native build step — this repo
+  // has deliberately avoided that, see lib/image-convert.js's own
+  // "pure JS, no native build" rationale for heic-convert); reuses text
+  // Gemini already generates for every photo, no extra AI call.
+  nearDuplicateOfId String?
   quality          String?  // ok|low_quality|unreadable
   analysisStatus   String?  // null=never analyzed|queued|processing|completed|failed — Cloud Tasks idempotency gate
   createdAt        DateTime @default(now())
@@ -1265,6 +1275,12 @@ model EvidenceItem {
   @@index([orgId, sha256Hash])
   @@index([orgId, project_id])
   @@index([project_id, evidenceType])
+  // Supports findNearDuplicate's `orderBy: createdAt desc, take: 8` candidate
+  // lookup (lib/evidence-pipeline.js) as an index-ordered range scan —
+  // without createdAt in the index, Postgres has to collect every matching
+  // row for the project and sort in memory before truncating to 8, defeating
+  // the whole point of bounding the candidate set.
+  @@index([project_id, evidenceType, createdAt])
 }
 
 model ConsentRecord {

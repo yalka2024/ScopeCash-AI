@@ -410,7 +410,14 @@ is in STATUS.md. Everything below is either in progress or not started.
       (mp3/wav/ogg/m4a/webm) — real binary audio content fails the
       magic-byte check with a 400 regardless of extension. Audio evidence
       upload likely does not work today for genuine audio files.
-- [ ] Near-duplicate image detection
+- [x] Near-duplicate image detection — no perceptual-image-hash dependency
+      added (would need native pixel decoding, unlike everything else this
+      codebase deliberately keeps pure-JS). Instead reuses Gemini's own
+      per-photo description (already generated for every photo, zero new AI
+      calls) with a new dependency-free Jaccard word-similarity check
+      against the 8 most recent same-project photos, above a tuned 0.5
+      threshold, recorded in a new `EvidenceItem.nearDuplicateOfId` column.
+      See STATUS.md Phase 27.
 - [ ] OCR quality scoring
 - [ ] Rate-sheet import/versioning UI
 - [ ] Tax/markup calculation engine

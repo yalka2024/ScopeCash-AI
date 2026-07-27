@@ -21,6 +21,7 @@ const mammoth = require('mammoth');
 const { Type } = require('@google/genai');
 const vertex = require('./vertex-ai');
 const prisma = require('./prisma');
+const { tokenize, jaccardFromTokens } = require('./text-similarity');
 
 // ── AgentRunRecord bookkeeping ──────────────────────────────────────────
 async function withAgentRun({ orgId, projectId, agentType, inputRefs }, fn) {
@@ -273,6 +274,37 @@ const IMAGE_SCHEMA = {
   required: ['description', 'quality'],
 };
 
+// Jaccard-similarity bar for flagging two photos' Gemini-generated
+// descriptions as a likely near-duplicate. Tuned against short, structured
+// jobsite-photo descriptions (see IMAGE_SCHEMA's system instruction) —
+// high enough that two genuinely different photos sharing common jobsite
+// vocabulary ("roof", "shingles", "photo") don't false-positive, low
+// enough to catch two shots of the same defect described in slightly
+// different words.
+const NEAR_DUPLICATE_THRESHOLD = 0.5;
+// Only the most recent few same-project photos, not the whole project
+// history — near-duplicates in practice are almost always a burst of
+// shots taken seconds apart, and comparing against every historical photo
+// would grow unboundedly with project size for no real benefit.
+const NEAR_DUPLICATE_CANDIDATE_LIMIT = 8;
+
+async function findNearDuplicate({ orgId, projectId, excludeId, text }) {
+  if (!text) return null;
+  const candidates = await prisma.evidenceItem.findMany({
+    where: { orgId, project_id: projectId, evidenceType: 'photo', id: { not: excludeId }, extractedText: { not: null } },
+    orderBy: { createdAt: 'desc' },
+    take: NEAR_DUPLICATE_CANDIDATE_LIMIT,
+    select: { id: true, extractedText: true },
+  });
+  const textTokens = tokenize(text); // tokenized once, reused across every candidate below
+  let best = null, bestScore = 0;
+  for (const c of candidates) {
+    const score = jaccardFromTokens(textTokens, c.extractedText);
+    if (score > bestScore) { bestScore = score; best = c.id; }
+  }
+  return bestScore >= NEAR_DUPLICATE_THRESHOLD ? best : null;
+}
+
 async function interpretImage({ orgId, evidenceItem, gcsUri, base64, mimeType, model }) {
   return withAgentRun(
     { orgId, projectId: evidenceItem.project_id, agentType: 'image_interpretation', inputRefs: { evidenceItemId: evidenceItem.id } },
@@ -285,9 +317,16 @@ async function interpretImage({ orgId, evidenceItem, gcsUri, base64, mimeType, m
         responseSchema: IMAGE_SCHEMA,
       });
       const { description = '', visibleText = '', quality = 'ok' } = result.json || {};
+      const extractedText = [description, visibleText].filter(Boolean).join('\n\n');
+      // An exact-hash duplicate (evidenceItem.duplicateOfId, set at upload
+      // time) already IS the strongest possible duplicate signal — skip the
+      // weaker textual check on top of it.
+      const nearDuplicateOfId = evidenceItem.duplicateOfId
+        ? null
+        : await findNearDuplicate({ orgId, projectId: evidenceItem.project_id, excludeId: evidenceItem.id, text: extractedText });
       const row = await prisma.evidenceItem.update({
         where: { id: evidenceItem.id },
-        data: { extractedText: [description, visibleText].filter(Boolean).join('\n\n'), quality },
+        data: { extractedText, quality, nearDuplicateOfId },
       });
       return {
         evidenceItem: row, modelVersion: result.modelVersion, usage: result.usage, costUsd: result.costUsd,

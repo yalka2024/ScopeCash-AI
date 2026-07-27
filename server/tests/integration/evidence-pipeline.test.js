@@ -306,3 +306,81 @@ describe('validateCitations', () => {
     expect(results[0].reason).toBe('ok');
   });
 });
+
+describe('interpretImage — near-duplicate detection', () => {
+  function mockDescribe({ description, visibleText = '', quality = 'ok' }) {
+    vertex.generate.mockResolvedValueOnce({ json: { description, visibleText, quality }, modelVersion: 'test', usage: {}, costUsd: 0 });
+  }
+
+  test('flags a textually similar recent same-project photo as a near-duplicate', async () => {
+    const { org, project } = await makeOrgProjectCustomer();
+    const earlier = await prisma.evidenceItem.create({
+      data: {
+        orgId: org.id, project_id: project.id, evidenceType: 'photo', storageUri: 'local://a.jpg', sha256Hash: uid('sha'),
+        extractedText: 'Roof shingles removed exposing plywood decking with visible water staining near the chimney flashing',
+      },
+    });
+    const newer = await prisma.evidenceItem.create({
+      data: { orgId: org.id, project_id: project.id, evidenceType: 'photo', storageUri: 'local://b.jpg', sha256Hash: uid('sha') },
+    });
+    mockDescribe({ description: 'Plywood decking exposed after roof shingle removal, water staining visible near chimney flashing area' });
+
+    const result = await pipeline.interpretImage({ orgId: org.id, evidenceItem: newer, base64: 'x', mimeType: 'image/jpeg' });
+    expect(result.evidenceItem.nearDuplicateOfId).toBe(earlier.id);
+  });
+
+  test('does NOT flag a clearly different photo in the same project', async () => {
+    const { org, project } = await makeOrgProjectCustomer();
+    await prisma.evidenceItem.create({
+      data: {
+        orgId: org.id, project_id: project.id, evidenceType: 'photo', storageUri: 'local://a.jpg', sha256Hash: uid('sha'),
+        extractedText: 'Roof shingles removed exposing plywood decking with visible water staining near the chimney flashing',
+      },
+    });
+    const newer = await prisma.evidenceItem.create({
+      data: { orgId: org.id, project_id: project.id, evidenceType: 'photo', storageUri: 'local://b.jpg', sha256Hash: uid('sha') },
+    });
+    mockDescribe({ description: 'New electrical panel installed in the basement utility room, breakers labeled' });
+
+    const result = await pipeline.interpretImage({ orgId: org.id, evidenceItem: newer, base64: 'x', mimeType: 'image/jpeg' });
+    expect(result.evidenceItem.nearDuplicateOfId).toBeNull();
+  });
+
+  test('does NOT flag a similar photo from a DIFFERENT project (no cross-project false positive)', async () => {
+    const { org, project: projectA } = await makeOrgProjectCustomer();
+    const { project: projectB } = await makeOrgProjectCustomer();
+    await prisma.evidenceItem.create({
+      data: {
+        orgId: org.id, project_id: projectA.id, evidenceType: 'photo', storageUri: 'local://a.jpg', sha256Hash: uid('sha'),
+        extractedText: 'Roof shingles removed exposing plywood decking with visible water staining near the chimney flashing',
+      },
+    });
+    const newer = await prisma.evidenceItem.create({
+      data: { orgId: org.id, project_id: projectB.id, evidenceType: 'photo', storageUri: 'local://b.jpg', sha256Hash: uid('sha') },
+    });
+    mockDescribe({ description: 'Plywood decking exposed after roof shingle removal, water staining visible near chimney flashing area' });
+
+    const result = await pipeline.interpretImage({ orgId: org.id, evidenceItem: newer, base64: 'x', mimeType: 'image/jpeg' });
+    expect(result.evidenceItem.nearDuplicateOfId).toBeNull();
+  });
+
+  test('an exact-hash duplicate (duplicateOfId already set) skips the near-duplicate check entirely', async () => {
+    const { org, project } = await makeOrgProjectCustomer();
+    const earlier = await prisma.evidenceItem.create({
+      data: {
+        orgId: org.id, project_id: project.id, evidenceType: 'photo', storageUri: 'local://a.jpg', sha256Hash: uid('sha'),
+        extractedText: 'Roof shingles removed exposing plywood decking with visible water staining near the chimney flashing',
+      },
+    });
+    const exactDup = await prisma.evidenceItem.create({
+      data: {
+        orgId: org.id, project_id: project.id, evidenceType: 'photo', storageUri: 'local://b.jpg', sha256Hash: uid('sha'),
+        duplicateOfId: earlier.id,
+      },
+    });
+    mockDescribe({ description: 'Plywood decking exposed after roof shingle removal, water staining visible near chimney flashing area' });
+
+    const result = await pipeline.interpretImage({ orgId: org.id, evidenceItem: exactDup, base64: 'x', mimeType: 'image/jpeg' });
+    expect(result.evidenceItem.nearDuplicateOfId).toBeNull();
+  });
+});
