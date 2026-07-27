@@ -1901,6 +1901,41 @@ against a real non-superuser Postgres+RLS role (10/10 postgres suite).
 Pre-push `/security-review` found no exploitable vulnerabilities in this
 diff.
 
+## Phase 22 — Authenticated nav-smoke e2e suite (DONE, 2026-07-27)
+
+Promoted the ad hoc Playwright nav-smoke script used during the Final
+phase's nav rewrite (never committed — see that phase's "Known gaps") into
+a real, committed suite: `dashboard/e2e/nav-smoke.spec.cjs` +
+`dashboard/playwright.e2e.config.cjs` (own disposable SQLite DB + port,
+same boot pattern as the existing authenticated a11y config), wired into
+`ci.yml`'s dashboard job (`npm run test:e2e`).
+
+Registers a real (non-admin) user through the actual UI register flow, then
+clicks every nav destination that role can see (14, matching what the
+original ad hoc script covered), asserting on each: no new browser console
+errors, no uncaught page errors, no failed (5xx) network responses, and
+that the main content area actually rendered non-empty content. That last
+check matters on its own: a page that crashes and mounts nothing would
+trivially pass an axe scan (zero DOM, zero violations) — this suite is
+deliberately a different failure signal than `authenticated-pages.spec.cjs`
+(WCAG/keyboard-a11y, admin session), not a duplicate of it.
+
+Verified the suite actually has teeth, not just that it runs: deliberately
+reintroduced one of the exact bugs this class of test caught during the
+Final phase (commented out `app.use('/api/help', helpRoutes)` in
+`index.js`), re-ran, confirmed it failed with a clear 404 in the error
+message, then reverted and confirmed a clean run again. The first run of
+that reproduction surfaced the failure on the wrong test (the *next* nav
+item after Help centre, not Help centre itself) — a real race between
+`waitForLoadState('networkidle')` resolving and the Help Centre page's
+`fetch()` calls actually completing. Fixed with a short settle wait after
+`networkidle` on every nav-item test; re-verified the same deliberate
+breakage now correctly attributes to the right test.
+
+Full suite: 16/16 e2e tests passing (clean run), confirmed failing
+correctly on a deliberately reintroduced regression, clean again after
+revert.
+
 ## Not yet started
 
 See TODO.md.

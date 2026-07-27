@@ -350,11 +350,15 @@ is in STATUS.md. Everything below is either in progress or not started.
       the same tool objects the first fix never covered), and
       `EmailNotificationSender` having no admin gate at all despite its
       `approved_by` field being caller-asserted, not server-verified.
-- [ ] Promote the ad hoc Playwright nav-smoke script used to QA the Final
+- [x] Promoted the ad hoc Playwright nav-smoke script used to QA the Final
       phase's nav rewrite into a real, committed authenticated-app e2e
-      suite (`dashboard/e2e/` or similar) — it registers a user and clicks
-      every nav item asserting no error boundaries/console errors; only
-      existed as a throwaway script this session.
+      suite: `dashboard/e2e/nav-smoke.spec.cjs` +
+      `playwright.e2e.config.cjs`, wired into `ci.yml`. Registers a
+      non-admin user, clicks all 14 nav destinations, asserts no console
+      errors/uncaught page errors/failed 5xx responses/blank renders.
+      Verified it has teeth by deliberately reintroducing the Final
+      phase's unmounted-help.js-router bug and confirming it fails (and,
+      after a fix, fails on the *right* test). See STATUS.md Phase 22.
 - [ ] `EmailNotificationSender` is admin-gated as a stopgap (Phase 11) —
       revisit removing it from `ADMIN_ONLY_TOOLS` once `realRun()`
       verifies `approved_by` against a real approval object instead of

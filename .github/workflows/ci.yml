@@ -165,4 +165,17 @@ jobs:
         env:
           JWT_SECRET: ci-jwt-secret-must-be-at-least-32-characters-long-ok
         run: npm run test:a11y:authed
+      # Authenticated nav-smoke e2e: registers a real (non-admin) user and
+      # walks every nav destination that role can see, asserting no console
+      # errors, no uncaught page errors, and no failed (5xx) responses. A
+      # different failure signal than the WCAG scan above -- a crashed page
+      # that renders nothing would trivially pass an axe scan (zero DOM,
+      # zero violations) but fails here. Promoted from an ad hoc QA script
+      # that caught three real regressions during the nav rewrite (two
+      # 500s, an unmounted router, a route-ordering bug) -- see TODO.md.
+      - name: Authenticated nav-smoke e2e
+        working-directory: dashboard
+        env:
+          JWT_SECRET: ci-jwt-secret-must-be-at-least-32-characters-long-ok
+        run: npm run test:e2e
 
