@@ -3,6 +3,23 @@
 Prioritized against the 2026-07-25 production-readiness audit. Phase 1 (done)
 is in STATUS.md. Everything below is either in progress or not started.
 
+## How to read the checkboxes
+
+A 2026-07-27 re-audit found `[x]` was carrying four different meanings —
+"code written", "locally verified", "integrated end to end", and "proven in
+production" — which let items read as finished when only the first applied.
+Two were outright misleading (an `[x]` on real paying customers whose own
+text said the evidence doesn't exist). Markers are now explicit:
+
+- `[x]` — implemented **and** verified by a passing command in-session.
+- `[~]` — partially done, or done but not verified at the level the item
+  actually asks for. The gap is stated inline; these are NOT finished.
+- `[ ]` — not started, or blocked on something code cannot do.
+
+Anything needing a live GCP project, real customers, or a human signature
+is blocked by definition — those live in the last section and can never be
+`[x]` from an engineering session alone.
+
 ## P0 — core product (next up)
 
 - [x] **Phase 2 — Gemini/Vertex AI evidence pipeline.** See STATUS.md for
@@ -586,8 +603,12 @@ These showed up in the audit as P0/P1 items but are not things code can do:
   available locally, on top of no project to apply it to), and
   reconciling AI spend against the real GCP Billing API rather than just
   internal tracking.
-- [x] Physical backup-restore drills and RPO/RTO evidence — **partially
-      closed in Phase 12**: ran a real drill against a dedicated, disposable
+- [~] Physical backup-restore drills and RPO/RTO evidence — **partially
+      closed in Phase 12** (marker corrected from `[x]` in the 2026-07-27
+      re-audit: the local engineering half is genuinely done and verified,
+      but the item as written asks for *production* RPO/RTO evidence, which
+      needs a live Cloud SQL instance that does not exist yet): ran a real
+      drill against a dedicated, disposable
       Postgres container (not production, since none exists yet), found
       and fixed 3 real bugs, and documented measured RPO/RTO per deployment
       path. See `ops/backup/DR-DRILL-RESULTS.md`. Still needs: the same
@@ -603,8 +624,17 @@ These showed up in the audit as P0/P1 items but are not things code can do:
   authenticated nav being keyboard/screen-reader-unreachable. See
   `dashboard/a11y/MANUAL-AT-TESTING-PROTOCOL.md` for the concrete checklist
   a human tester should run for final sign-off.
-- [x] Real arms-length paying customers, real earned revenue, and production
-      customer testimonials with real consent — a third follow-up asked for
+- [ ] Real arms-length paying customers, real earned revenue, and production
+      customer testimonials with real consent — **NOT DONE, and cannot be
+      done by an engineering session.** (Was wrongly marked `[x]` until the
+      2026-07-27 re-audit caught it: the checkbox claimed completion while
+      the text below it said the opposite. Database state, queried directly
+      against the seeded `server/dev.db` on 2026-07-27 rather than taken on
+      faith: **0 invoices, 0 subscriptions, 0 testimonials, 0 feedback
+      records, 0 agent-run records** — the 9 users / 8 orgs present are
+      seed and demo fixtures, not customers. The capture *infrastructure*
+      is built and verified; the real-world business evidence does not
+      exist.) — a third follow-up asked for
       these explicitly, framed around what XPRIZE judges require. Refused
       to fabricate any of them: this requires actual people, actual
       transactions, and actual signed consent, and presenting invented data
