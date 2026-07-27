@@ -12,6 +12,7 @@ const express = require('express');
 const oauthApps = require('../lib/oauth-apps');
 const { authMiddleware } = require('../middleware/auth');
 const { z, validate, asyncHandler } = require('../lib/validate');
+const { audit } = require('../lib/audit');
 
 const router = express.Router();
 
@@ -39,6 +40,7 @@ router.get('/authorize', authMiddleware, validate(AuthorizeSchema, 'query'), asy
     codeChallenge: q.code_challenge || null,
     codeChallengeMethod: q.code_challenge_method || null,
   });
+  await audit(req, 'oauth.authorize.granted', { resource: 'oauth_client', resourceId: q.client_id, details: { scope: q.scope || app.scopes } });
   const url = new URL(q.redirect_uri);
   url.searchParams.set('code', code);
   if (q.state) url.searchParams.set('state', q.state);
@@ -64,20 +66,22 @@ const TokenSchema = z.discriminatedUnion('grant_type', [
 router.post('/token', validate(TokenSchema), asyncHandler(async (req, res) => {
   try {
     if (req.body.grant_type === 'authorization_code') {
-      const tokens = await oauthApps.exchangeCode({
+      const { _userId, ...tokens } = await oauthApps.exchangeCode({
         code: req.body.code,
         clientId: req.body.client_id,
         clientSecret: req.body.client_secret,
         redirectUri: req.body.redirect_uri,
         codeVerifier: req.body.code_verifier || null,
       });
+      await audit(req, 'oauth.token.issued', { userId: _userId, resource: 'oauth_client', resourceId: req.body.client_id, details: { grantType: 'authorization_code' } });
       return res.json(tokens);
     }
-    const tokens = await oauthApps.refreshTokens({
+    const { _userId, ...tokens } = await oauthApps.refreshTokens({
       refreshToken: req.body.refresh_token,
       clientId: req.body.client_id,
       clientSecret: req.body.client_secret,
     });
+    await audit(req, 'oauth.token.issued', { userId: _userId, resource: 'oauth_client', resourceId: req.body.client_id, details: { grantType: 'refresh_token' } });
     res.json(tokens);
   } catch (err) {
     res.status(400).json({ error: err.message || 'invalid_request' });
@@ -90,11 +94,13 @@ const RevokeSchema = z.object({
   client_secret: z.string().min(1),
 });
 router.post('/revoke', validate(RevokeSchema), asyncHandler(async (req, res) => {
+  let result;
   try {
-    await oauthApps.revokeToken({ token: req.body.token, clientId: req.body.client_id, clientSecret: req.body.client_secret });
+    result = await oauthApps.revokeToken({ token: req.body.token, clientId: req.body.client_id, clientSecret: req.body.client_secret });
   } catch (err) {
     return res.status(400).json({ error: err.message || 'invalid_client' });
   }
+  await audit(req, 'oauth.token.revoked', { userId: result.userId, resource: 'oauth_client', resourceId: req.body.client_id, details: { revokedCount: result.revokedCount } });
   res.json({ revoked: true });
 }));
 

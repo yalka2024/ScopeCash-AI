@@ -329,6 +329,39 @@ d('Postgres RLS', () => {
     const orgRow = await runWithSystemAccess(async () => prisma.organization.findUnique({ where: { id: held.org.id } }));
     expect(orgRow).toBeTruthy(); // must survive — the hold is real and active
   });
+
+  test('regression: audit() writes successfully with zero ambient context, and its own internal runWithSystemAccess() actually takes effect', async () => {
+    // A sharper variant of this file's own header-comment gotcha: audit()
+    // originally wrapped its internal write as
+    // `runWithSystemAccess(() => prisma.activity.create(...))` — a bare
+    // arrow returning prisma's OWN lazy PrismaPromise directly. That promise
+    // doesn't dispatch (and doesn't invoke withRls's $allOperations, which
+    // is what reads the ALS store) until something awaits it — which
+    // happens on the OUTER `await runWithSystemAccess(...)` expression,
+    // by which point storage.run()'s synchronous callback has already
+    // returned and popped the system-access context. $allOperations then
+    // sees no context at all, and Postgres rejects the insert with a real
+    // RLS violation (42501) — silently, since audit() only console.errors
+    // on write failure rather than throwing. Fixed by routing through
+    // prisma.tenantTransaction() instead, which reads isSystemAccess()
+    // synchronously before its own first await (same reason
+    // routes/auth.js's registration flow already relies on it). Most real
+    // callers of audit() (e.g. everything in routes/auth.js) have NO
+    // ambient tenant context at all, so this must pass with none either.
+    const { audit, verifyChain } = require('../../lib/audit');
+    const before = await verifyChain();
+    expect(before.ok).toBe(true);
+
+    const orgId = uid('org');
+    await audit({}, 'test.rls_regression.no_context', { orgId, resource: 'probe' });
+
+    const row = await runWithSystemAccess(async () => prisma.activity.findFirst({ where: { action: 'test.rls_regression.no_context', orgId } }));
+    expect(row).toBeTruthy(); // must have actually been written, not silently swallowed
+
+    const after = await verifyChain();
+    expect(after.ok).toBe(true);
+    expect(after.total).toBe(before.total + 1);
+  });
 });
 
 if (!isPg) {

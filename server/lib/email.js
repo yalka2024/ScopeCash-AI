@@ -83,17 +83,27 @@ async function _sendSendGrid(envelope) {
 }
 
 function _sendConsole(envelope) {
-  // Dev fallback — never actually sends. Logs structured envelope so devs can
-  // copy the verification/reset link out of stdout.
-  console.log(JSON.stringify({
+  // Dev fallback — never actually sends. `text`/`html` frequently embed a raw
+  // verification/reset/invite token (see email-templates.js) — that's only
+  // safe to print outside production. This path isn't dev-only by construction:
+  // it also runs in production as the `send()` failure fallback (line below)
+  // and whenever no provider is configured at all, so an unconditional log
+  // here would leak every such token to centralized prod logs the moment
+  // either of those happens. Everything but the token-bearing fields is still
+  // logged in every environment for delivery observability.
+  const safe = {
     type: 'email.send',
     provider: 'console',
     from: FROM,
     to: envelope.to,
     subject: envelope.subject,
-    text: envelope.text,
     tags: envelope.tags || [],
-  }));
+  };
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(JSON.stringify({ ...safe, text: envelope.text }));
+  } else {
+    console.warn(JSON.stringify(safe));
+  }
   return { provider: 'console', id: null };
 }
 

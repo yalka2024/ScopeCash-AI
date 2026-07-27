@@ -281,13 +281,25 @@ is in STATUS.md. Everything below is either in progress or not started.
         constant string (sliced the wrong part of the raw key), useless
         for its display/lookup purpose. 17 new integration tests. See
         STATUS.md.
-  - [ ] **Audit coverage + log-redaction tests**: no systematic audit of
-        which sensitive actions call `lib/audit.js#audit(...)` and which
-        don't exists yet — this needs a route-by-route pass (similar in
-        shape to the Phase 10 tenant/RBAC audit, could reuse the same
-        "three parallel research agents, verify every finding" approach)
-        plus new tests asserting secrets/PII never reach
-        `console.log`/`console.error`/the structured HTTP access log.
+  - [x] **Audit coverage + log-redaction tests** — added `audit()` calls to
+        `admin.js`, `stripe-webhook.js`, `billing.js`, `oauth.js`, and
+        `auth.js` logout. Found a much bigger pre-existing bug in the
+        process: `lib/audit.js`'s own internal Activity read/write had
+        never worked under real Postgres+RLS for the majority of existing
+        call sites (everything in `auth.js`, which never mounts
+        `attachTenant`) — silently swallowed by `audit()`'s own
+        catch-and-console.error. Root cause was two-layered: no ambient
+        tenant context at most call sites, AND (found on the first, wrong
+        fix attempt) `prisma.model.create()` returns a lazy PrismaPromise
+        whose actual dispatch happens outside `runWithSystemAccess()`'s
+        synchronous callback frame, silently losing the ALS context even
+        when wrapped. Fixed via `prisma.tenantTransaction()` instead
+        (reads `isSystemAccess()` synchronously before its first await).
+        New committed Postgres RLS regression test + log-redaction fixes
+        in `lib/email.js` (`_sendConsole` no longer leaks tokens in prod)
+        and `prisma/seed.js` (admin password auto-print now also gated on
+        `DATABASE_URL` being Postgres, not just `NODE_ENV`). See STATUS.md
+        Phase 21.
 - [ ] Real backup/restore drills, RPO/RTO — see non-code items, this needs a
       real target environment first.
 - [ ] Cloud Monitoring alert policies, SLOs, on-call — folds into Phase 3.

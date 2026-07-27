@@ -15,6 +15,16 @@ const prisma = require('../lib/prisma');
 const { runWithSystemAccess } = require('../lib/tenant-context');
 
 const PROD = process.env.NODE_ENV === 'production';
+// db:postgres:deploy runs this script against a real Postgres database —
+// that alone means "treat this as production" for credential-safety
+// purposes, same as PROD. Relying on NODE_ENV alone left a single point of
+// failure: a deploy pipeline that points DATABASE_URL at real Postgres but
+// forgets to also set NODE_ENV=production would fall through every guard
+// below and auto-generate + print a real initial admin password straight
+// into deploy logs. lib/prisma.js already treats "DATABASE_URL starts with
+// postgres" as the canonical real-deployment signal; reuse it here too.
+const IS_POSTGRES = !!(process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith('postgres'));
+const STRICT = PROD || IS_POSTGRES;
 const DEFAULT_ORG = process.env.DEFAULT_ORG_NAME || 'ScopeCash AI';
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'admin@example.com').toLowerCase();
 let   ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
@@ -41,10 +51,10 @@ async function ensureAdmin(org) {
     return existing;
   }
 
-  if (PROD && (PLACEHOLDERS.has(ADMIN_EMAIL) || ADMIN_EMAIL === 'admin@example.com')) {
+  if (STRICT && (PLACEHOLDERS.has(ADMIN_EMAIL) || ADMIN_EMAIL === 'admin@example.com')) {
     throw new Error('Refusing to seed: ADMIN_EMAIL is a placeholder in production. Set ADMIN_EMAIL.');
   }
-  if (PROD && PLACEHOLDERS.has(ADMIN_PASSWORD)) {
+  if (STRICT && PLACEHOLDERS.has(ADMIN_PASSWORD)) {
     throw new Error('Refusing to seed: ADMIN_PASSWORD is a placeholder in production. Set ADMIN_PASSWORD.');
   }
 

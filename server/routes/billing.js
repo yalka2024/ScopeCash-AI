@@ -5,6 +5,7 @@ const ent = require('../lib/entitlements');
 const meter = require('../lib/usage-meter');
 const stripe = require('../lib/billing/stripe');
 const dunning = require('../lib/billing/dunning');
+const { audit } = require('../lib/audit');
 
 const router = express.Router();
 
@@ -74,6 +75,7 @@ router.post('/checkout', async (req, res, next) => {
       successUrl: `${base}/settings/billing?status=success&session_id={CHECKOUT_SESSION_ID}`,
       cancelUrl:  `${base}/settings/billing?status=cancelled`,
     });
+    await audit(req, 'billing.checkout.started', { resource: 'subscription', resourceId: req.user.orgId, details: { tierId, cadence } });
     res.json({ url: session.url, id: session.id });
   } catch (err) { next(err); }
 });
@@ -89,6 +91,7 @@ router.post('/portal', async (req, res, next) => {
       orgId: req.user.orgId,
       returnUrl: `${base}/settings/billing`,
     });
+    await audit(req, 'billing.portal.opened', { resource: 'subscription', resourceId: req.user.orgId });
     res.json({ url: session.url });
   } catch (err) { next(err); }
 });
@@ -97,6 +100,7 @@ router.post('/portal', async (req, res, next) => {
 router.post('/cancel', async (req, res, next) => {
   try {
     const sub = await dunning.cancel({ orgId: req.user.orgId, atPeriodEnd: true });
+    await audit(req, 'billing.subscription.cancel_requested', { resource: 'subscription', resourceId: req.user.orgId, details: { status: sub?.status, cancelAt: sub?.cancelAt } });
     res.json({ ok: true, status: sub?.status, cancelAt: sub?.cancelAt });
   } catch (err) { next(err); }
 });

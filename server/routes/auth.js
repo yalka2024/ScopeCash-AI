@@ -177,10 +177,12 @@ router.post('/refresh', asyncHandler(async (req, res) => {
 router.post('/logout', asyncHandler(async (req, res) => {
   const raw = req.cookies && req.cookies[REFRESH_COOKIE];
   if (raw) {
+    const stored = await prisma.refreshToken.findUnique({ where: { tokenHash: hashToken(raw) } }).catch(() => null);
     await prisma.refreshToken.updateMany({
       where: { tokenHash: hashToken(raw), revokedAt: null },
       data:  { revokedAt: new Date() },
     }).catch(() => {});
+    if (stored) await audit(req, 'auth.logout', { userId: stored.userId });
   }
   res.clearCookie(ACCESS_COOKIE);
   res.clearCookie(REFRESH_COOKIE);

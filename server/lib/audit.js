@@ -19,6 +19,7 @@
  */
 const crypto = require('crypto');
 const prisma = require('./prisma');
+const { runWithSystemAccess } = require('./tenant-context');
 
 const GENESIS = '0'.repeat(64);
 const MAX_RETRIES = 3;
@@ -42,11 +43,39 @@ function computeHash(prevHash, row) {
   return h.digest('hex');
 }
 
+// The chain is ONE sequence spanning every org (Activity has no per-org
+// sub-chain), so both the read and the write below always run under
+// system access regardless of the caller's ambient context. Most callers
+// (e.g. everything in routes/auth.js, which never mounts attachTenant) have
+// NO tenant context at all when audit() runs; without this, RLS's
+// fail-closed USING/WITH CHECK policy would make _getLatestHash() see zero
+// rows (silently rebasing the chain to GENESIS on every call) and would
+// reject the INSERT outright for any payload whose orgId doesn't literally
+// equal whatever GUC happens to be ambient — which for a null orgId (e.g.
+// a failed login before a user is resolved) can never be satisfied even
+// WITH context. audit() already decides the payload's own orgId before
+// this point, so granting system access here only lets the write proceed;
+// it never changes what gets stored.
+//
+// Must go through prisma.tenantTransaction(), NOT a bare
+// runWithSystemAccess(() => prisma.activity.xxx(...)) — verified the hard
+// way against a real non-superuser Postgres+RLS role: prisma.activity.create()
+// returns a lazy PrismaPromise that doesn't actually dispatch (and doesn't
+// invoke withRls's $allOperations, which is what reads the ALS store) until
+// something awaits it, which happens on the OUTER `await runWithSystemAccess(...)`
+// expression — by then storage.run()'s synchronous callback has already
+// returned and popped the system-access context, so $allOperations sees no
+// context at all and Postgres rejects the insert with a real RLS violation
+// (42501). tenantTransaction() sidesteps this because it's a hand-written
+// async function whose isSystemAccess()/currentOrgId() reads happen
+// synchronously, before its own first await, capturing the decision into a
+// plain closure variable that no longer depends on ALS timing — the same
+// reason routes/auth.js's registration flow already relies on it.
 async function _getLatestHash() {
-  const row = await prisma.activity.findFirst({
+  const row = await runWithSystemAccess(() => prisma.tenantTransaction((tx) => tx.activity.findFirst({
     orderBy: { createdAt: 'desc' },
     select: { hash: true },
-  });
+  })));
   return (row && row.hash) || GENESIS;
 }
 
@@ -56,7 +85,7 @@ async function _writeChained(payload) {
     const prevHash = await _getLatestHash();
     const hash     = computeHash(prevHash, payload);
     try {
-      return await prisma.activity.create({ data: { ...payload, prevHash, hash } });
+      return await runWithSystemAccess(() => prisma.tenantTransaction((tx) => tx.activity.create({ data: { ...payload, prevHash, hash } })));
     } catch (err) {
       lastErr = err;
       // P2002 = Prisma unique constraint violation. Retry with fresh tail.
@@ -102,11 +131,16 @@ async function verifyChain({ batchSize = 1000 } = {}) {
   let cursor   = null;
 
   while (true) {
-    const rows = await prisma.activity.findMany({
+    // Same reasoning as _getLatestHash above (including the tenantTransaction
+    // requirement — a bare runWithSystemAccess(() => prisma.activity.findMany())
+    // would silently see zero rows on real Postgres+RLS): this must see the
+    // WHOLE table, not whatever slice the caller's ambient org context (if
+    // any) would otherwise restrict it to.
+    const rows = await runWithSystemAccess(() => prisma.tenantTransaction((tx) => tx.activity.findMany({
       take: batchSize,
       orderBy: { createdAt: 'asc' },
       ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
-    });
+    })));
     if (!rows.length) break;
     for (const row of rows) {
       const { id, hash, prevHash: storedPrev, createdAt, ...payload } = row;

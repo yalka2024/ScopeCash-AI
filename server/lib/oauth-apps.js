@@ -126,6 +126,7 @@ async function exchangeCode({ code, clientId, clientSecret, redirectUri, codeVer
     token_type: 'bearer',
     expires_in: Math.floor(ACCESS_TTL_MS / 1000),
     scope: grant.scopes,
+    _userId: grant.userId, // internal only — caller must strip before responding to the OAuth client
   };
 }
 
@@ -147,6 +148,7 @@ async function refreshTokens({ refreshToken, clientId, clientSecret }) {
     token_type: 'bearer',
     expires_in: Math.floor(ACCESS_TTL_MS / 1000),
     scope: grant.scopes,
+    _userId: grant.userId, // internal only — caller must strip before responding to the OAuth client
   };
 }
 
@@ -166,7 +168,10 @@ async function verifyAccessToken(accessToken) {
 async function revokeToken({ token, clientId, clientSecret }) {
   const app = await getApp(clientId);
   if (!app || app.clientSecretHash !== _hash(clientSecret || '')) throw new Error('invalid_client');
-  await prisma.oAuthGrant.deleteMany({ where: { tokenHash: _hash(token), clientId } }).catch(() => {});
+  const tokenHash = _hash(token);
+  const grant = await prisma.oAuthGrant.findFirst({ where: { tokenHash, clientId } }).catch(() => null);
+  const result = await prisma.oAuthGrant.deleteMany({ where: { tokenHash, clientId } }).catch(() => ({ count: 0 }));
+  return { revokedCount: result.count, userId: grant ? grant.userId : null };
 }
 
 module.exports = {

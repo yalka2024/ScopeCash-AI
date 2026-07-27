@@ -1800,6 +1800,107 @@ find two real, concrete gaps in the project-scoping's own guarantees:
 
 Full suite: 21/21 server test suites, 220 passing.
 
+## Phase 21 — Operational hardening: audit coverage + log-redaction (DONE, 2026-07-27)
+
+Added `audit()` calls to routes that previously mutated security-sensitive
+state with no audit trail: `admin.js` (role change, user delete, backup
+run/prune, email test), `stripe-webhook.js` (subscription upsert/cancel,
+invoice payment succeeded/failed), `billing.js` (checkout started, portal
+opened, cancel requested), `oauth.js` (authorize granted, token issued,
+token revoked), `auth.js` (logout — every other auth.js action was already
+audited).
+
+While wiring this up, found and fixed a much bigger, pre-existing bug than
+the TODO item's own premise suggested: **`lib/audit.js`'s own internal
+Activity-table read/write had never worked correctly under real
+Postgres+RLS for the large majority of existing call sites.** `Activity`'s
+hash chain is ONE sequence spanning every org (no per-org sub-chain,
+`_getLatestHash()`/`verifyChain()` carry no `where` clause at all), but
+`audit()` ran its read and write with whatever ambient tenant context (if
+any) the *caller* happened to be in. Most existing callers — every single
+one in `auth.js`, which never mounts `attachTenant` — have NO ambient
+context at all. Under real Postgres+RLS (fail-closed `FORCE ROW LEVEL
+SECURITY`), that meant: `_getLatestHash()` silently saw zero rows (quietly
+re-basing the "chain" to GENESIS on every single call, defeating the
+tamper-evidence property), and the actual `INSERT` was rejected outright by
+the RLS `WITH CHECK` policy for any payload whose `orgId` didn't literally
+equal whatever GUC happened to be set — which a `null` orgId (e.g. a failed
+login before a user is resolved) can never satisfy even *with* context.
+`audit()`'s own catch only `console.error`s on write failure rather than
+throwing, so this has been silently swallowing essentially the entire audit
+trail for auth events on any real Postgres deployment, with the app
+reporting success throughout. Verified empirically: reproduced the RLS
+violation against a real non-superuser Postgres+RLS role via a minimal
+repro script before touching the fix.
+
+First fix attempt was itself wrong in a subtle way, also caught empirically
+before landing: wrapping the internal call as
+`runWithSystemAccess(() => prisma.activity.create(...))` still failed with
+the identical RLS violation. Root cause: `prisma.activity.create(...)`
+returns a lazy PrismaPromise — the actual query dispatch (and the
+`$allOperations` extension that reads the AsyncLocalStorage store) only
+fires when something `await`s it, which happens on the *outer*
+`await runWithSystemAccess(...)` expression — by then `storage.run()`'s own
+synchronous callback has already returned and popped the system-access
+context, so `$allOperations` sees no context at all. This is a sharper
+instance of a gotcha this codebase already documents (see
+`tests/postgres/rls.test.js`'s own header comment from Phase 1) but hadn't
+yet been applied to `audit.js`. Fixed by routing through
+`prisma.tenantTransaction()` instead (already used successfully by
+`auth.js`'s registration flow) — a hand-written async function whose
+`isSystemAccess()`/`currentOrgId()` reads happen synchronously, before its
+own first `await`, capturing the decision into a plain closure variable
+that no longer depends on ALS timing at all. Added a dedicated regression
+test to the committed `tests/postgres/rls.test.js` suite for this exact
+failure mode (10/10 passing against a real non-superuser Postgres+RLS
+role), plus a SQLite-level test asserting the hash chain stays globally
+consistent across writes issued from mismatched/absent ambient org
+contexts.
+
+`lib/oauth-apps.js`'s `exchangeCode()`/`refreshTokens()` now also return an
+internal `_userId` field (stripped by `routes/oauth.js` before the HTTP
+response reaches the third-party OAuth client) and `revokeToken()` returns
+the revoked grant's `userId` + count — needed so the new audit rows can
+attribute OAuth token issuance/revocation to the right ScopeCash user even
+though those endpoints authenticate via `client_id`/`client_secret`, not a
+session.
+
+Also closed two log-redaction gaps found during research:
+
+1. **`lib/email.js`'s console fallback (`_sendConsole`) unconditionally
+   logged the full envelope — including `text`, which templates embed a
+   raw verification/reset/invite token in — regardless of `NODE_ENV`. This
+   path isn't dev-only: it's also the `send()` failure fallback for a
+   *real* configured provider (Resend/SendGrid outage) and the
+   no-provider-configured path, both of which can hit in production. Fixed
+   to only log the token-bearing fields outside production; safe metadata
+   (to/subject/provider) still logs everywhere via `console.warn` for
+   delivery observability. 3 new unit tests.
+2. **`prisma/seed.js`'s auto-generate-and-print initial admin password**
+   turned out to already be gated correctly for `NODE_ENV=production` (the
+   empty-string default for `ADMIN_PASSWORD` is itself in the placeholder
+   set, so the `PROD` guard already threw before ever reaching the print
+   path) — the original TODO research claim of an "unconditional" leak
+   didn't hold up under direct verification. But the gate had a real,
+   narrower single point of failure: `db:postgres:deploy` runs this script
+   against a real Postgres database without itself setting
+   `NODE_ENV=production` — a deploy pipeline that points `DATABASE_URL` at
+   real Postgres but forgets to also set `NODE_ENV` would fall through
+   every guard and print a real initial admin password into deploy logs.
+   Fixed by reusing the same "`DATABASE_URL` starts with `postgres`" signal
+   `lib/prisma.js` already treats as canonical for real-deployment
+   detection, OR'd with the existing `NODE_ENV` check. Verified against a
+   real Postgres container: refuses to seed with placeholder
+   `ADMIN_EMAIL`/empty `ADMIN_PASSWORD` even without `NODE_ENV` set, never
+   prints a password, and the legitimate real-password path still succeeds
+   normally.
+
+Full suite: 23/23 server test suites, 228 passing (2 new files, 1 new
+Postgres RLS regression test). Re-verified the full RLS-sensitive surface
+against a real non-superuser Postgres+RLS role (10/10 postgres suite).
+Pre-push `/security-review` found no exploitable vulnerabilities in this
+diff.
+
 ## Not yet started
 
 See TODO.md.

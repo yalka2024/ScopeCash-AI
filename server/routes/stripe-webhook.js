@@ -12,6 +12,7 @@ const prisma = require('../lib/prisma');
 const stripe = require('../lib/billing/stripe');
 const dunning = require('../lib/billing/dunning');
 const { runWithSystemAccess } = require('../lib/tenant-context');
+const { audit } = require('../lib/audit');
 
 router.post(
   '/stripe',
@@ -36,6 +37,13 @@ router.post(
     // without an extra round trip for the common case of a first delivery.
     const seen = await prisma.stripeEvent.findUnique({ where: { id: event.id } });
     if (seen) return res.status(200).json({ received: true, duplicate: true });
+
+    // Set inside the transaction below, read after it commits — audit()
+    // does its own separate write (not part of `tx`), so it must run only
+    // once the state mutation has actually committed, never from inside
+    // the transaction callback itself (a later case throwing would roll
+    // the mutation back while an audit row for it had already landed).
+    let auditInfo = null;
 
     try {
       // Stripe webhooks aren't tied to any authenticated org's session — the
@@ -106,13 +114,17 @@ router.post(
                   cancelAt:    s.cancel_at ? new Date(s.cancel_at * 1000) : null,
                 },
               });
+              auditInfo = { action: 'billing.subscription.upserted', orgId, resource: 'subscription', resourceId: orgId, details: { stripeEventType: event.type, planId, status } };
               break;
             }
             case 'invoice.payment_failed': {
               const inv = event.data.object;
               const orgId = inv.subscription_details?.metadata?.orgId
                          || inv.lines?.data?.[0]?.metadata?.orgId;
-              if (orgId) await dunning.markPastDue({ orgId }, tx);
+              if (orgId) {
+                await dunning.markPastDue({ orgId }, tx);
+                auditInfo = { action: 'billing.invoice.payment_failed', orgId, resource: 'subscription', resourceId: orgId, details: { stripeInvoiceId: inv.id } };
+              }
               break;
             }
             case 'invoice.payment_succeeded': {
@@ -146,13 +158,17 @@ router.post(
                   },
                   update: { status: 'paid', amountCents: inv.amount_paid },
                 });
+                auditInfo = { action: 'billing.invoice.payment_succeeded', orgId, resource: 'invoice', resourceId: inv.id, details: { amountCents: inv.amount_paid } };
               }
               break;
             }
             case 'customer.subscription.deleted': {
               const s = event.data.object;
               const orgId = s.metadata?.orgId;
-              if (orgId) await dunning.cancel({ orgId, atPeriodEnd: false }, tx);
+              if (orgId) {
+                await dunning.cancel({ orgId, atPeriodEnd: false }, tx);
+                auditInfo = { action: 'billing.subscription.canceled', orgId, resource: 'subscription', resourceId: orgId, details: { stripeSubId: s.id } };
+              }
               break;
             }
             default:
@@ -176,6 +192,16 @@ router.post(
       return res.status(500).json({ error: 'handler_failed' });
     }
 
+    // Only now, after the transaction has actually committed — audit() is
+    // its own separate write, never part of `tx`, so logging it any
+    // earlier could record a mutation that a later case in the switch
+    // then rolled back. (audit() always writes under its own system-access
+    // grant internally — see lib/audit.js — so no ambient context is
+    // needed here even though the outer runWithSystemAccess above has
+    // already returned by this point.)
+    if (auditInfo) {
+      await audit(req, auditInfo.action, { orgId: auditInfo.orgId, resource: auditInfo.resource, resourceId: auditInfo.resourceId, details: auditInfo.details });
+    }
     return res.status(200).json({ received: true });
   }
 );

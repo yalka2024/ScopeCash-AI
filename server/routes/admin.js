@@ -2,6 +2,7 @@ const express = require('express');
 const prisma = require('../lib/prisma');
 const { authMiddleware } = require('../middleware/auth');
 const attachTenant = require('../middleware/tenant');
+const { audit } = require('../lib/audit');
 const router = express.Router();
 router.use(authMiddleware);
 router.use(attachTenant);
@@ -34,6 +35,7 @@ router.patch('/users/:id/role', requireAdmin, async (req, res, next) => {
     });
     if (!result.count) return res.status(404).json({ error: 'User not found' });
     const user = await prisma.user.findUnique({ where: { id: req.params.id } });
+    await audit(req, 'admin.user.role_changed', { resource: 'user', resourceId: user.id, details: { role } });
     res.json({ id: user.id, email: user.email, role: user.role });
   } catch (err) { next(err); }
 });
@@ -45,6 +47,7 @@ router.delete('/users/:id', requireAdmin, async (req, res, next) => {
       where: { id: req.params.id, orgId: req.user.orgId }    // org-scoped
     });
     if (!result.count) return res.status(404).json({ error: 'User not found' });
+    await audit(req, 'admin.user.deleted', { resource: 'user', resourceId: req.params.id });
     res.json({ message: 'User deleted' });
   } catch (err) { next(err); }
 });
@@ -84,13 +87,19 @@ router.get('/backups', requireAdmin, async (_req, res, next) => {
   try { res.json({ backups: await dbBackup.listBackups(), destination: dbBackup.destConfig() }); }
   catch (err) { next(err); }
 });
-router.post('/backups/run', requireAdmin, async (_req, res, next) => {
-  try { res.json(await dbBackup.runBackup()); }
-  catch (err) { next(err); }
+router.post('/backups/run', requireAdmin, async (req, res, next) => {
+  try {
+    const result = await dbBackup.runBackup();
+    await audit(req, 'admin.backup.run', { resource: 'backup', details: { name: result && result.name, size: result && result.size } });
+    res.json(result);
+  } catch (err) { next(err); }
 });
-router.post('/backups/prune', requireAdmin, async (_req, res, next) => {
-  try { res.json(await dbBackup.prune()); }
-  catch (err) { next(err); }
+router.post('/backups/prune', requireAdmin, async (req, res, next) => {
+  try {
+    const result = await dbBackup.prune();
+    await audit(req, 'admin.backup.prune', { resource: 'backup', details: result });
+    res.json(result);
+  } catch (err) { next(err); }
 });
 
 // ─── Transactional email diagnostics ────────────────────────
@@ -112,6 +121,7 @@ router.post('/email/test', requireAdmin, async (req, res, next) => {
     const template = (req.body && req.body.template) || 'test';
     const vars = Object.assign({ sent_at: new Date().toISOString() }, (req.body && req.body.vars) || {});
     const result = await email.sendTemplate(template, to, vars);
+    await audit(req, 'admin.email.test_sent', { resource: 'email', details: { to, template } });
     res.json({ ok: true, to, template, ...result });
   } catch (err) { next(err); }
 });
