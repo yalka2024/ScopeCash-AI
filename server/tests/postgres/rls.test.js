@@ -547,6 +547,65 @@ d('Postgres RLS', () => {
     expect(Number(counter.value)).toBe(1);
   });
 
+  test('regression: success-fee agreement acceptance + fail-closed earned-revenue computation work correctly under real Postgres+RLS', async () => {
+    // Genuinely new query shapes for this suite: successFeeAgreement.findFirst
+    // and earnedRevenueEvent.create both run INSIDE tenantTransaction's raw
+    // `SELECT set_config('app.org_id', ...)` transaction (see lib/success-fee.js,
+    // called from routes/entities.js's commercialOutcomes/:id/transition) —
+    // a three-table write (CommercialOutcome update, StageTransition create,
+    // EarnedRevenueEvent create with two FKs) in one RLS-scoped transaction,
+    // not yet exercised against real Postgres by any prior test here.
+    const successFeeRoutes = require('../../routes/success-fee');
+    const entityRoutes = require('../../routes/entities');
+    const express = require('express');
+    const request = require('supertest');
+    const cookieParser = require('cookie-parser');
+    const { errorMiddleware } = require('../../lib/validate');
+    const { signAccessToken } = require('../../lib/security');
+    const app = express();
+    app.use(cookieParser());
+    app.use(express.json());
+    app.use('/api/successFeeAgreements', successFeeRoutes);
+    app.use('/api', entityRoutes);
+    app.use(errorMiddleware);
+
+    const { org, owner } = await runWithSystemAccess(async () => {
+      const org = await prisma.organization.create({ data: { name: uid('Org') } });
+      const owner = await prisma.user.create({ data: { email: `${uid('u')}@test.local`, passwordHash: 'x', role: 'user', orgId: org.id, emailVerified: true } });
+      await prisma.orgMembership.create({ data: { orgId: org.id, userId: owner.id, role: 'owner', status: 'active' } });
+      const customer = await prisma.customer.create({ data: { orgId: org.id, name: uid('Customer') } });
+      return { org, owner, customer };
+    });
+    const bearer = `Bearer ${signAccessToken({ id: owner.id, email: owner.email, role: owner.role, orgId: owner.orgId })}`;
+
+    const agreementRes = await request(app).post('/api/successFeeAgreements').set('Authorization', bearer)
+      .send({ ratePercent: 0.1, acceptAgreement: true });
+    expect(agreementRes.status).toBe(201);
+
+    const custRes = await request(app).post('/api/customers').set('Authorization', bearer).send({ name: 'C' });
+    const projRes = await request(app).post('/api/projectRecords').set('Authorization', bearer).send({ customer_id: custRes.body.id, name: 'P' });
+    const outcomeRes = await request(app).post('/api/commercialOutcomes').set('Authorization', bearer)
+      .send({ project_id: projRes.body.id, payer_type: 'customer' });
+    expect(outcomeRes.status).toBe(201);
+
+    const transitionRes = await request(app).post(`/api/commercialOutcomes/${outcomeRes.body.id}/transition`).set('Authorization', bearer)
+      .send({ toStage: 'collected', amount: 10000 });
+    expect(transitionRes.status).toBe(200);
+    expect(transitionRes.body.earnedRevenueEvent).toBeTruthy();
+    expect(transitionRes.body.earnedRevenueEvent.feeAmount).toBe(1000);
+
+    // Confirm the row actually persisted (not just echoed in the response)
+    // and is correctly org-scoped under RLS.
+    const persisted = await runWithOrg(org.id, async () => prisma.earnedRevenueEvent.findMany({ where: { orgId: org.id } }));
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0].feeAmount).toBe(1000);
+
+    // A second org's system-access sweep must never see this org's event —
+    // defense in depth, matching every other cross-tenant check in this file.
+    const otherOrgSees = await runWithOrg(uid('other-org'), async () => prisma.earnedRevenueEvent.findMany({ where: {} }));
+    expect(otherOrgSees).toHaveLength(0);
+  });
+
   test('regression: evidence-jobs.js#reconcileStuckJobs() sweeps across every org with zero ambient context (the "job creation" outbox hazard)', async () => {
     // reconcileStuckJobs() legitimately needs to see stuck runs across
     // EVERY org (a stuck job's own org isn't known ahead of time) — it's

@@ -297,6 +297,20 @@ export async function setNotificationPreference(type, { inApp, email }) {
   });
 }
 
+export async function getSuccessFeeAgreements() {
+  return apiJson('/successFeeAgreements');
+}
+
+export async function acceptSuccessFeeAgreement(ratePercent) {
+  return apiJson('/successFeeAgreements', {
+    method: 'POST', body: JSON.stringify({ ratePercent, acceptAgreement: true }),
+  });
+}
+
+export async function deactivateSuccessFeeAgreement(id) {
+  return apiJson(`/successFeeAgreements/${id}/deactivate`, { method: 'POST' });
+}
+
 export async function checkBetaStatus() {
   try {
     const res = await fetch(`${API_URL}/health`);

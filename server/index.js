@@ -104,6 +104,7 @@ const knowledgeRoutes = require('./routes/knowledge');
 
 
 const outcomesRoutes = require('./routes/outcomes');
+const successFeeRoutes = require('./routes/success-fee');
 
 
 
@@ -250,6 +251,7 @@ app.use('/api/knowledge', knowledgeRoutes);
 
 
 app.use('/api/outcomes', outcomesRoutes);
+app.use('/api/successFeeAgreements', successFeeRoutes);
 
 // entityRoutes and evidenceRoutes are mounted at the bare `/api` prefix
 // (spec-driven domain CRUD needs one route per pluralized model name, not

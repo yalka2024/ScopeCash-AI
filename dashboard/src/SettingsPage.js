@@ -1,5 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { getUser, getBillingUsage, startCheckout, openBillingPortal, getNotificationPreferences, setNotificationPreference } from './api';
+import {
+  getUser, getBillingUsage, startCheckout, openBillingPortal, getNotificationPreferences, setNotificationPreference,
+  getSuccessFeeAgreements, acceptSuccessFeeAgreement, deactivateSuccessFeeAgreement,
+} from './api';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 
@@ -11,6 +14,11 @@ export default function SettingsPage() {
   const [preferences, setPreferences] = useState(null);
   const [prefError, setPrefError] = useState(null);
   const [prefBusyType, setPrefBusyType] = useState(null);
+  const [feeAgreements, setFeeAgreements] = useState(null);
+  const [feeError, setFeeError] = useState(null);
+  const [feeBusy, setFeeBusy] = useState(false);
+  const [feeRateInput, setFeeRateInput] = useState('10');
+  const [feeAccepted, setFeeAccepted] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -20,8 +28,43 @@ export default function SettingsPage() {
     getNotificationPreferences()
       .then(d => { if (mounted) setPreferences(d.preferences); })
       .catch(e => { if (mounted) setPrefError(e.message || 'Failed to load notification preferences'); });
+    getSuccessFeeAgreements()
+      .then(d => { if (mounted) setFeeAgreements(d); })
+      .catch(e => { if (mounted) setFeeError(e.message || 'Failed to load success-fee agreements'); });
     return () => { mounted = false; };
   }, []);
+
+  const activeFeeAgreement = feeAgreements?.find((a) => a.active) || null;
+
+  async function onAcceptFeeAgreement() {
+    const pct = Number(feeRateInput);
+    if (!Number.isFinite(pct) || pct <= 0 || pct > 50) {
+      setFeeError('Enter a rate between 0.1 and 50 (%).');
+      return;
+    }
+    setFeeBusy(true); setFeeError(null);
+    try {
+      const created = await acceptSuccessFeeAgreement(pct / 100);
+      setFeeAgreements((prev) => [created, ...(prev || []).map((a) => ({ ...a, active: false }))]);
+      setFeeAccepted(false);
+    } catch (e) {
+      setFeeError(e.message);
+    } finally {
+      setFeeBusy(false);
+    }
+  }
+
+  async function onDeactivateFeeAgreement(id) {
+    setFeeBusy(true); setFeeError(null);
+    try {
+      const updated = await deactivateSuccessFeeAgreement(id);
+      setFeeAgreements((prev) => prev.map((a) => (a.id === id ? updated : a)));
+    } catch (e) {
+      setFeeError(e.message);
+    } finally {
+      setFeeBusy(false);
+    }
+  }
 
   async function onTogglePreference(type, channel, current) {
     setPrefBusyType(type); setPrefError(null);
@@ -171,6 +214,63 @@ export default function SettingsPage() {
                 ))}
               </tbody>
             </table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>Success fee</CardTitle></CardHeader>
+        <CardContent>
+          {feeError && <p className="text-red-400">{feeError}</p>}
+          {!feeAgreements && !feeError && <p className="text-muted-foreground">Loading…</p>}
+          {feeAgreements && activeFeeAgreement && (
+            <>
+              <p className="text-foreground">
+                Active — <strong>{(activeFeeAgreement.ratePercent * 100).toFixed(1)}%</strong> of amounts collected
+                where the payer is explicitly marked as the customer (never on insurance-paid outcomes).
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Accepted {new Date(activeFeeAgreement.acceptedAt).toLocaleDateString()}
+              </p>
+              <Button
+                variant="outline" className="mt-3" disabled={feeBusy}
+                onClick={() => onDeactivateFeeAgreement(activeFeeAgreement.id)}
+              >
+                Deactivate
+              </Button>
+            </>
+          )}
+          {feeAgreements && !activeFeeAgreement && (
+            <>
+              <p className="text-sm text-muted-foreground">
+                No active agreement — ScopeCash AI never earns a success fee on your outcomes unless you
+                explicitly enable one below. A fee is only ever computed on an outcome you've marked as
+                customer-paid; it is never charged against an insurance-paid outcome.
+              </p>
+              <div className="mt-3 flex items-center gap-2">
+                <label htmlFor="fee-rate" className="text-sm text-foreground">Rate</label>
+                <input
+                  id="fee-rate" type="number" min="0.1" max="50" step="0.1"
+                  className="w-20 rounded border border-border bg-background p-1 text-foreground"
+                  value={feeRateInput} onChange={(e) => setFeeRateInput(e.target.value)}
+                />
+                <span className="text-sm text-muted-foreground">%</span>
+              </div>
+              <label className="mt-3 flex items-start gap-2 text-sm text-foreground">
+                <input
+                  type="checkbox" checked={feeAccepted}
+                  onChange={(e) => setFeeAccepted(e.target.checked)}
+                />
+                <span>
+                  I have read and agree that ScopeCash AI will earn the rate above as a success fee on
+                  outcomes I mark as customer-paid once collected. I understand this must never be applied
+                  to insurance-paid outcomes.
+                </span>
+              </label>
+              <Button className="mt-3" disabled={feeBusy || !feeAccepted} onClick={onAcceptFeeAgreement}>
+                Enable success fee
+              </Button>
+            </>
           )}
         </CardContent>
       </Card>

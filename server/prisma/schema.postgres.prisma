@@ -1105,13 +1105,19 @@ model CommercialOutcome {
   invoice_number   String?
   invoice_date     DateTime?
   payment_date     DateTime?
+  // Who actually pays this outcome. Success fees are only ever computed when
+  // this is explicitly 'customer' -- left null/'insurance' fails closed, per
+  // the public-adjuster-statute compliance requirement that a success fee
+  // must never be charged against an insurance-paid outcome.
+  payer_type       String?
   notes            String?
   userId           String
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  outcomeEvidence  OutcomeEvidence[]
-  stageTransitions StageTransition[]
+  outcomeEvidence     OutcomeEvidence[]
+  stageTransitions    StageTransition[]
+  earnedRevenueEvents EarnedRevenueEvent[]
 
   @@index([orgId, createdAt])
   @@index([project_id])
@@ -1134,7 +1140,53 @@ model StageTransition {
   reason    String?
   createdAt DateTime @default(now())
 
+  earnedRevenueEvent EarnedRevenueEvent?
+
   @@index([orgId, outcomeId, createdAt])
+}
+
+// A specific, separately-accepted written agreement authorizing ScopeCash AI
+// to earn a success fee on an org's collected outcomes. This is a real
+// acceptance record (who, when, what rate) rather than a silently-flippable
+// config flag -- nothing creates a row here except an explicit, confirmed
+// POST from an org owner/admin, so the feature is off by default for every
+// org and stays off until that happens.
+model SuccessFeeAgreement {
+  id               String   @id @default(uuid())
+  orgId            String
+  ratePercent      Float    // e.g. 0.10 = 10% of collected_amount
+  acceptedAt       DateTime
+  acceptedByUserId String
+  active           Boolean  @default(true)
+  deactivatedAt    DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  earnedRevenueEvents EarnedRevenueEvent[]
+
+  @@index([orgId, active])
+}
+
+// Append-only ledger of success fees actually earned. One row per
+// StageTransition that moved an outcome into 'collected' while an active
+// agreement + explicit customer-pay outcome both held true -- tied to the
+// transition (not just the outcome) because outcomes can be re-collected
+// (corrected) more than once, and each correction is its own earning event.
+model EarnedRevenueEvent {
+  id                    String   @id @default(uuid())
+  orgId                 String
+  commercialOutcomeId   String
+  commercialOutcome     CommercialOutcome @relation(fields: [commercialOutcomeId], references: [id], onDelete: Cascade)
+  stageTransitionId     String   @unique
+  stageTransition       StageTransition @relation(fields: [stageTransitionId], references: [id], onDelete: Cascade)
+  successFeeAgreementId String
+  successFeeAgreement   SuccessFeeAgreement @relation(fields: [successFeeAgreementId], references: [id])
+  collectedAmount       Float
+  ratePercent           Float
+  feeAmount             Float
+  createdAt             DateTime @default(now())
+
+  @@index([orgId, createdAt])
 }
 
 model OutcomeEvidence {

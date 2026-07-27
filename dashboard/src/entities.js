@@ -62,8 +62,13 @@ export const ENTITIES = [
     readOnlyFields: ['markupAmount', 'taxAmount', 'billedTotal'],
     readOnlyFieldTypes: { markupAmount: 'Float', taxAmount: 'Float', billedTotal: 'Float' } },
   { model: 'commercialOutcome', plural: 'commercialOutcomes',
-    fields: ['project_id', 'change_event_id', 'packet_id', 'identified_amount', 'validated_amount', 'submitted_amount', 'approved_amount', 'invoiced_amount', 'collected_amount', 'invoice_number', 'invoice_date', 'payment_date', 'notes'],
-    fieldTypes: { project_id: 'String', change_event_id: 'String', packet_id: 'String', identified_amount: 'Float', validated_amount: 'Float', submitted_amount: 'Float', approved_amount: 'Float', invoiced_amount: 'Float', collected_amount: 'Float', invoice_number: 'String', invoice_date: 'DateTime', payment_date: 'DateTime', notes: 'String' } },
+    fields: ['project_id', 'change_event_id', 'packet_id', 'identified_amount', 'validated_amount', 'submitted_amount', 'approved_amount', 'invoiced_amount', 'collected_amount', 'invoice_number', 'invoice_date', 'payment_date', 'payer_type', 'notes'],
+    fieldTypes: { project_id: 'String', change_event_id: 'String', packet_id: 'String', identified_amount: 'Float', validated_amount: 'Float', submitted_amount: 'Float', approved_amount: 'Float', invoiced_amount: 'Float', collected_amount: 'Float', invoice_number: 'String', invoice_date: 'DateTime', payment_date: 'DateTime', payer_type: 'PayerType', notes: 'String' } },
+  { model: 'earnedRevenueEvent', plural: 'earnedRevenueEvents', readOnly: true,
+    // Success-fee ledger — see SettingsPage.js's "Success fee" card for the
+    // agreement that gates whether any row here is ever created.
+    fields: ['commercialOutcomeId', 'stageTransitionId', 'successFeeAgreementId', 'collectedAmount', 'ratePercent', 'feeAmount'],
+    fieldTypes: { commercialOutcomeId: 'String', stageTransitionId: 'String', successFeeAgreementId: 'String', collectedAmount: 'Float', ratePercent: 'Float', feeAmount: 'Float' } },
   { model: 'rateSheet', plural: 'rateSheets',
     fields: ['customerId', 'name', 'trade', 'effectiveDate', 'version', 'status'],
     fieldTypes: { customerId: 'String', name: 'String', trade: 'String', effectiveDate: 'DateTime', version: 'Int', status: 'String' } },

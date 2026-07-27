@@ -30,6 +30,8 @@ const { requireAnyOrgRole, PACKET_APPROVE_ROLES } = require('../lib/roles');
 const { z, validate, asyncHandler, HttpError } = require('../lib/validate');
 const { audit } = require('../lib/audit');
 const { computeCostItemDerived, costItemNeedsPricingRecompute } = require('../lib/pricing');
+const { maybeRecordEarnedRevenue } = require('../lib/success-fee');
+const outcomes = require('../lib/outcomes');
 const { notifyUser } = require('../lib/notifications');
 const { attachApiKeyProjectScope } = require('../lib/api-key-scope');
 
@@ -61,6 +63,11 @@ const TYPE_MAP = {
   Int: () => z.number().int(),
   Boolean: () => z.boolean(),
   DateTime: () => z.coerce.date(),
+  // Not a generic pattern — payer_type is the sole automated gate on whether
+  // a success fee gets computed (see lib/success-fee.js), so it gets the
+  // same enum strictness as toStage below rather than the generic String
+  // catch-all every other status-like field on this file uses.
+  PayerType: () => z.enum(['customer', 'insurance']),
 };
 
 function buildSchema(fields, fieldTypes, required) {
@@ -159,8 +166,8 @@ const ENTITIES = [
     // the dedicated /commercialOutcomes/:id/transition route below, which
     // writes both the amount and an immutable StageTransition row.
     model: 'commercialOutcome', plural: 'commercialOutcomes',
-    fields: ['project_id', 'change_event_id', 'packet_id', 'invoice_number', 'invoice_date', 'payment_date', 'notes'],
-    fieldTypes: { project_id: 'String', change_event_id: 'String', packet_id: 'String', invoice_number: 'String', invoice_date: 'DateTime', payment_date: 'DateTime', notes: 'String' },
+    fields: ['project_id', 'change_event_id', 'packet_id', 'invoice_number', 'invoice_date', 'payment_date', 'payer_type', 'notes'],
+    fieldTypes: { project_id: 'String', change_event_id: 'String', packet_id: 'String', invoice_number: 'String', invoice_date: 'DateTime', payment_date: 'DateTime', payer_type: 'PayerType', notes: 'String' },
     required: ['project_id'],
     writeRoles: ['owner', 'admin', 'project_manager'],
     deleteRoles: ['owner', 'admin'],
@@ -170,6 +177,14 @@ const ENTITIES = [
   {
     // System/pipeline-created telemetry — never user-writable.
     model: 'agentRunRecord', plural: 'agentRunRecords',
+    readOnly: true,
+  },
+  {
+    // Success-fee ledger — computed and written only by the transition
+    // route below (via lib/success-fee.js), never a plain user edit. See
+    // routes/success-fee.js for the agreement that gates whether any row
+    // here is ever created.
+    model: 'earnedRevenueEvent', plural: 'earnedRevenueEvents',
     readOnly: true,
   },
   {
@@ -692,9 +707,9 @@ router.post('/commercialOutcomes/:id/transition', requireAnyOrgRole('owner', 'ad
     }
 
     const field = STAGE_FIELD[req.body.toStage];
-    const [updatedOutcome, transition] = await prisma.tenantTransaction(async (tx) => [
-      await tx.commercialOutcome.update({ where: { id: outcome.id }, data: { [field]: req.body.amount } }),
-      await tx.stageTransition.create({
+    const [updatedOutcome, transition, earnedRevenueEvent] = await prisma.tenantTransaction(async (tx) => {
+      const updatedOutcome = await tx.commercialOutcome.update({ where: { id: outcome.id }, data: { [field]: req.body.amount } });
+      const transition = await tx.stageTransition.create({
         data: {
           orgId: req.tenant.orgId,
           outcomeId: outcome.id,
@@ -704,13 +719,38 @@ router.post('/commercialOutcomes/:id/transition', requireAnyOrgRole('owner', 'ad
           actorId: req.user.id,
           reason: req.body.reason || null,
         },
-      }),
-    ]);
+      });
+      // Success fees are only ever computed on a transition INTO 'collected'
+      // (never identified/validated/etc.) and fail closed inside
+      // maybeRecordEarnedRevenue itself — see lib/success-fee.js. Reads
+      // payer_type off `updatedOutcome` (this transaction's own UPDATE
+      // result), not the `outcome` fetched before the transaction opened —
+      // a caller could otherwise flip payer_type via a concurrent
+      // PUT /commercialOutcomes/:id in the window between that pre-fetch
+      // and this transaction, bypassing the fail-closed compliance gate on
+      // a stale snapshot (found in review).
+      const earnedRevenueEvent = req.body.toStage === 'collected'
+        ? await maybeRecordEarnedRevenue(tx, { orgId: req.tenant.orgId, outcome: updatedOutcome, transition, collectedAmount: req.body.amount })
+        : null;
+      return [updatedOutcome, transition, earnedRevenueEvent];
+    });
     await audit(req, 'commercialOutcomes.transition', {
       resource: 'commercialOutcome', resourceId: outcome.id,
-      details: { toStage: req.body.toStage, amount: req.body.amount },
+      details: { toStage: req.body.toStage, amount: req.body.amount, feeAmount: earnedRevenueEvent?.feeAmount ?? null },
     });
-    res.json({ outcome: updatedOutcome, transition });
+    // Best-effort: meters ScopeCash AI's own outcome-based Stripe billing
+    // (config/outcomes.json already declares 'success_fee_collected' as a
+    // billable event — this was the only caller it was missing). Never
+    // blocks the response; recordOutcome() itself no-ops when Stripe isn't
+    // configured and never throws.
+    if (earnedRevenueEvent) {
+      outcomes.recordOutcome(
+        { orgId: req.tenant.orgId, userId: req.user.id, outcomeId: earnedRevenueEvent.id },
+        'success_fee_collected',
+        { metadata: { commercialOutcomeId: outcome.id, feeAmount: earnedRevenueEvent.feeAmount } },
+      ).catch(() => {});
+    }
+    res.json({ outcome: updatedOutcome, transition, earnedRevenueEvent });
   }));
 
 router.get('/commercialOutcomes/:id/transitions', asyncHandler(async (req, res) => {

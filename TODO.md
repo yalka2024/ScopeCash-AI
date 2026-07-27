@@ -476,7 +476,24 @@ is in STATUS.md. Everything below is either in progress or not started.
       api_calls_per_month/ai_tokens_per_month/webhooks/data_retention_days
       remain genuinely unenforced — documented, not silently implied fixed.
       See STATUS.md Phase 34.
-- [ ] Success-fee/earned-revenue accounting
+- [x] Success-fee/earned-revenue accounting — a ground-up build (no existing
+      field/config/UI to wire up, unlike the other P2 items), and the only
+      P2 item gated by a written-legal-compliance requirement
+      (platform-manifest.json's public-adjuster-statute clauses). Scope
+      deliberately limited to the fail-closed accounting/ledger layer — a
+      real `SuccessFeeAgreement` acceptance record (off by default, requires
+      an explicit confirmed accept), `CommercialOutcome.payer_type`
+      (enum-validated, fails closed on anything but 'customer'), and an
+      append-only `EarnedRevenueEvent` ledger tied to a specific
+      `StageTransition`. Deliberately does NOT auto-charge the org's own
+      customer in this pass — that needs the legal review the manifest
+      itself calls for, which a coding pass can't produce. Fixed a MEDIUM
+      TOCTOU security finding (fee decision was reading a stale
+      pre-transaction `payer_type` snapshot) and wired the already-declared
+      but dormant `success_fee_collected` billable-event metering hook
+      (`config/outcomes.json`/`lib/outcomes.js`) for ScopeCash AI's own
+      Stripe revenue — unrelated to the deferred customer-charging concern.
+      See STATUS.md Phase 35.
 - [ ] GCP billing cost-attribution reconciliation
 - [ ] Perf/load/soak testing
 - [ ] Dashboard bundle splitting (801 KB chunk warning, was 773 KB)

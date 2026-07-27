@@ -37,6 +37,16 @@ function FieldInput({ type, field, value, onChange }) {
   if (type === 'DateTime') {
     return <Input type="datetime-local" placeholder={humanize(field)} value={value ?? ''} className="w-44" onChange={(e) => onChange(e.target.value)} />;
   }
+  if (type === 'PayerType') {
+    return (
+      <select value={value ?? ''} onChange={(e) => onChange(e.target.value)}
+        className="w-36 rounded border border-border bg-background p-1 text-sm text-foreground">
+        <option value="">(unset)</option>
+        <option value="customer">Customer</option>
+        <option value="insurance">Insurance</option>
+      </select>
+    );
+  }
   return <Input type="text" placeholder={humanize(field)} value={value ?? ''} className="w-36" onChange={(e) => onChange(e.target.value)} />;
 }
 
