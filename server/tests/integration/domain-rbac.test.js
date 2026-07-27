@@ -226,6 +226,118 @@ describe('evidence packet approval workflow', () => {
   });
 });
 
+describe('rate sheet CSV import + versioning workflow', () => {
+  const CSV_HEADER = 'code,description,unit,unitRate,category';
+  const CSV_ROWS = `${CSV_HEADER}\nHVAC-01,Replace 3-ton condenser,ea,4500,equipment\nHVAC-02,Duct sealing,lf,12.5,labor`;
+
+  async function makeDraftRateSheet(owner, org, overrides = {}) {
+    const res = await request(app).post('/api/rateSheets').set('Authorization', bearer(owner))
+      .send({ name: 'HVAC Standard', trade: 'hvac', status: 'draft', ...overrides });
+    expect(res.status).toBe(201);
+    return res.body;
+  }
+
+  test('imports a real CSV into a draft rate sheet, replacing (not appending) on re-import', async () => {
+    const { org, user: owner } = await makeOrgWithMember('owner');
+    const sheet = await makeDraftRateSheet(owner, org);
+
+    const first = await request(app).post(`/api/rateSheets/${sheet.id}/import`).set('Authorization', bearer(owner))
+      .attach('file', Buffer.from(CSV_ROWS), { filename: 'rates.csv', contentType: 'text/csv' });
+    expect(first.status).toBe(200);
+    expect(first.body.items).toHaveLength(2);
+    expect(first.body.items[0].description).toBe('Replace 3-ton condenser');
+    expect(first.body.items[0].unitRate).toBe(4500);
+
+    const oneRowCsv = `${CSV_HEADER}\nHVAC-03,Refrigerant recharge,ea,180,labor`;
+    const second = await request(app).post(`/api/rateSheets/${sheet.id}/import`).set('Authorization', bearer(owner))
+      .attach('file', Buffer.from(oneRowCsv), { filename: 'rates2.csv', contentType: 'text/csv' });
+    expect(second.status).toBe(200);
+    expect(second.body.items).toHaveLength(1); // replaced, not 3
+    expect(second.body.items[0].code).toBe('HVAC-03');
+  });
+
+  test('rejects a CSV row missing a required field, with no partial write', async () => {
+    const { org, user: owner } = await makeOrgWithMember('owner');
+    const sheet = await makeDraftRateSheet(owner, org);
+    const badCsv = `${CSV_HEADER}\n,Missing description gets rejected too,ea,,labor`;
+
+    const res = await request(app).post(`/api/rateSheets/${sheet.id}/import`).set('Authorization', bearer(owner))
+      .attach('file', Buffer.from(badCsv), { filename: 'bad.csv', contentType: 'text/csv' });
+    expect(res.status).toBe(400);
+    const items = await prisma.rateSheetItem.findMany({ where: { rateSheetId: sheet.id } });
+    expect(items).toHaveLength(0);
+  });
+
+  test('refuses to import into a non-draft (active) rate sheet', async () => {
+    const { org, user: owner } = await makeOrgWithMember('owner');
+    const sheet = await makeDraftRateSheet(owner, org, { status: 'active' });
+    const res = await request(app).post(`/api/rateSheets/${sheet.id}/import`).set('Authorization', bearer(owner))
+      .attach('file', Buffer.from(CSV_ROWS), { filename: 'rates.csv', contentType: 'text/csv' });
+    expect(res.status).toBe(409);
+  });
+
+  test('field_user cannot import, create a new version, or publish', async () => {
+    const { org, user: owner } = await makeOrgWithMember('owner');
+    const sheet = await makeDraftRateSheet(owner, org);
+    const fieldUser = await prisma.user.create({ data: { email: uniqueEmail(), passwordHash: 'x', role: 'user', orgId: org.id, emailVerified: true } });
+    await prisma.orgMembership.create({ data: { orgId: org.id, userId: fieldUser.id, role: 'field_user', status: 'active' } });
+
+    const importRes = await request(app).post(`/api/rateSheets/${sheet.id}/import`).set('Authorization', bearer(fieldUser))
+      .attach('file', Buffer.from(CSV_ROWS), { filename: 'rates.csv', contentType: 'text/csv' });
+    expect(importRes.status).toBe(403);
+    const versionRes = await request(app).post(`/api/rateSheets/${sheet.id}/new-version`).set('Authorization', bearer(fieldUser));
+    expect(versionRes.status).toBe(403);
+    const publishRes = await request(app).post(`/api/rateSheets/${sheet.id}/publish`).set('Authorization', bearer(fieldUser));
+    expect(publishRes.status).toBe(403);
+  });
+
+  test('publishing an empty draft is rejected; publishing a real draft supersedes the previously active version', async () => {
+    const { org, user: owner } = await makeOrgWithMember('owner');
+    const v1 = await makeDraftRateSheet(owner, org);
+    await request(app).post(`/api/rateSheets/${v1.id}/import`).set('Authorization', bearer(owner))
+      .attach('file', Buffer.from(CSV_ROWS), { filename: 'rates.csv', contentType: 'text/csv' });
+    const publishV1 = await request(app).post(`/api/rateSheets/${v1.id}/publish`).set('Authorization', bearer(owner));
+    expect(publishV1.status).toBe(200);
+    expect(publishV1.body.status).toBe('active');
+
+    const emptyDraft = await makeDraftRateSheet(owner, org, { name: 'Empty Sheet' });
+    const publishEmpty = await request(app).post(`/api/rateSheets/${emptyDraft.id}/publish`).set('Authorization', bearer(owner));
+    expect(publishEmpty.status).toBe(422);
+
+    const v2Res = await request(app).post(`/api/rateSheets/${v1.id}/new-version`).set('Authorization', bearer(owner));
+    expect(v2Res.status).toBe(201);
+    expect(v2Res.body.version).toBe(v1.version + 1);
+    expect(v2Res.body.status).toBe('draft');
+    const clonedItems = await prisma.rateSheetItem.findMany({ where: { rateSheetId: v2Res.body.id } });
+    expect(clonedItems).toHaveLength(2); // cloned from v1's imported items
+
+    const publishV2 = await request(app).post(`/api/rateSheets/${v2Res.body.id}/publish`).set('Authorization', bearer(owner));
+    expect(publishV2.status).toBe(200);
+    expect(publishV2.body.status).toBe('active');
+
+    const v1AfterSupersede = await prisma.rateSheet.findUnique({ where: { id: v1.id } });
+    expect(v1AfterSupersede.status).toBe('superseded');
+
+    // Publishing v2 twice (409) — already published.
+    const rePublish = await request(app).post(`/api/rateSheets/${v2Res.body.id}/publish`).set('Authorization', bearer(owner));
+    expect(rePublish.status).toBe(409);
+  });
+
+  test('cross-tenant: a rate sheet in a DIFFERENT org 404s for import/new-version/publish', async () => {
+    const { org, user: owner } = await makeOrgWithMember('owner');
+    const sheet = await makeDraftRateSheet(owner, org);
+    const { user: outsider } = await makeOrgWithMember('owner');
+
+    const importRes = await request(app).post(`/api/rateSheets/${sheet.id}/import`).set('Authorization', bearer(outsider))
+      .attach('file', Buffer.from(CSV_ROWS), { filename: 'rates.csv', contentType: 'text/csv' });
+    expect(importRes.status).toBe(404);
+    const versionRes = await request(app).post(`/api/rateSheets/${sheet.id}/new-version`).set('Authorization', bearer(outsider));
+    expect(versionRes.status).toBe(404);
+    const publishRes = await request(app).post(`/api/rateSheets/${sheet.id}/publish`).set('Authorization', bearer(outsider));
+    expect(publishRes.status).toBe(404);
+  });
+});
+
 describe('commercial outcome six-stage ledger', () => {
   test('forward transitions succeed, backward transitions 409, ledger rows are written', async () => {
     const { owner, proj } = await seedProjectAndPacket();

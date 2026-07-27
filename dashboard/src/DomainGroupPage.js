@@ -13,7 +13,7 @@ import { EntitySection } from './EntitiesPage';
  * caller like EvidenceUpload can refresh only the ONE table that actually
  * changed, not every section in the group on every action.
  */
-export default function DomainGroupPage({ title, description, models, refreshSignal, beforeSections }) {
+export default function DomainGroupPage({ title, description, models, refreshSignal, beforeSections, onSectionSaved }) {
   const sections = models.map((m) => ENTITIES.find((e) => e.model === m)).filter(Boolean);
   const signalFor = (model) => (refreshSignal && typeof refreshSignal === 'object' ? refreshSignal[model] : refreshSignal);
   return (
@@ -24,7 +24,7 @@ export default function DomainGroupPage({ title, description, models, refreshSig
       {sections.length === 0 && (
         <p className="text-muted-foreground">No records defined for this view.</p>
       )}
-      {sections.map((e) => <EntitySection key={e.model} entity={e} refreshSignal={signalFor(e.model)} />)}
+      {sections.map((e) => <EntitySection key={e.model} entity={e} refreshSignal={signalFor(e.model)} onSaved={onSectionSaved} />)}
     </div>
   );
 }

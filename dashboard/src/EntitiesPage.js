@@ -47,7 +47,7 @@ function display(type, v) {
   return String(v);
 }
 
-export function EntitySection({ entity, refreshSignal }) {
+export function EntitySection({ entity, refreshSignal, onSaved }) {
   const types = entity.fieldTypes || {};
   const readOnly = !!entity.readOnly;
   const [rows, setRows] = useState([]);
@@ -122,6 +122,7 @@ export function EntitySection({ entity, refreshSignal }) {
       if (editing) await apiJson(`/${entity.plural}/${editing}`, { method: 'PUT', body: JSON.stringify(payload) });
       else await apiJson(`/${entity.plural}`, { method: 'POST', body: JSON.stringify(payload) });
       setForm({}); setEditing(null); load();
+      onSaved && onSaved(entity.model);
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
 

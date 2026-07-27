@@ -2311,6 +2311,79 @@ not need a second Postgres-container verification cycle — confirmed via
 the full SQLite suite instead. Pre-push `/security-review` found no
 exploitable issues.
 
+## Phase 29 — P2: rate-sheet import/versioning UI (DONE, 2026-07-27)
+
+Research found `RateSheet.status` (`draft|active|superseded`) and `.version`
+(Int) already existed in the schema but had zero consumers anywhere in the
+app — no route, no UI — so a rate sheet could only ever be built one
+line-item at a time through the generic entity-CRUD form, and nothing
+enforced the draft/active/superseded lifecycle those fields implied.
+
+New dedicated routes in `routes/entities.js` (state-transition endpoints,
+same convention as the evidence-packet/commercial-outcome routes above
+them, not the generic writable-field list): `POST /rateSheets/:id/import`
+(multer memory-storage upload, 2 MB cap, `papaparse` CSV parsing, replaces
+— not appends to — a **draft**'s items wholesale, validated row-by-row
+before any write, no partial writes on a bad row), `POST
+/rateSheets/:id/new-version` (clones an **active** sheet's items into a
+fresh draft at `version + 1`), and `POST /rateSheets/:id/publish`
+(promotes a draft to active and supersedes whatever else was active for
+the same `(name, trade, customerId)` lineage — no new schema column for
+"lineage," those three fields already identify it). New
+`dashboard/src/RateSheetTools.js` widget surfaces all three actions above
+the generic Customers-page entity tables.
+
+Ran `/simplify` before committing — 4 real fixes applied:
+- **Reuse**: `RATE_SHEET_ROLES`/`RATE_SHEET_ENTITY` were hand-rolled
+  literals duplicating the real `rateSheet` entry already in the
+  `ENTITIES` config (same `writeRoles`, same shape) — now derived via
+  `ENTITIES.find(e => e.model === 'rateSheet')`, so the two can't drift,
+  matching the `PACKET_APPROVE_ROLES`-from-`lib/roles.js` precedent.
+- **Efficiency**: `publish` did a separate `rateSheetItem.count()` round
+  trip after its `findFirst` — folded into one query via `include: {
+  _count: { select: { items: true } } }`. `App.js`'s `refreshSignal` for
+  the Customers page was a fresh object literal on every render, causing
+  `EntitySection`'s effect to re-fetch on unrelated re-renders (e.g. the
+  mobile nav toggling) — wrapped in `useMemo`.
+- **Simplification**: `RateSheetTools.js` called both `loadRateSheets()`
+  directly and `onChanged()` (which itself triggers a reload via
+  `reloadSignal`) after every action — fetched the list twice per action;
+  removed the direct call. CSV `unitRate` parsing accepted two untested,
+  undocumented header aliases (`unit_rate`, `rate`) nothing used or
+  tested — reduced to the one documented column name.
+- Skipped: `createManyAndReturn` in place of `import`'s `createMany` +
+  `findMany` (would save one query, but `createManyAndReturn`'s row-order
+  guarantee across providers isn't part of Prisma's documented contract,
+  and an existing test asserts the response preserves CSV row order —
+  not worth the correctness risk for an infrequent, admin-scale
+  operation). App.js's now-second `authedPage === 'customers'` ternary
+  chain, mirroring the existing `'evidence'` one (flagged by the altitude
+  review as worth watching) — left as-is; two pages sharing a pattern
+  doesn't yet justify a config-driven generalization (rule of three).
+
+A real UX bug surfaced via the new Playwright e2e test, not `/simplify`:
+`RateSheetTools`'s dropdown never refreshed when a rate sheet was created
+via the generic entity form elsewhere on the same page (its own
+`useEffect` only ran on mount). Fixed by threading a new `onSaved`
+callback from `EntitySection#save()` up through `DomainGroupPage`'s
+`onSectionSaved` prop to `App.js`, which now bumps the same
+`rateSheetRefresh` counter `RateSheetTools` already reloads on —
+bidirectional refresh between the generic form and the custom widget.
+
+6 new `domain-rbac.test.js` tests (import replaces not appends; rejects a
+bad row with no partial write; 409 on importing into a non-draft; role
+gating; empty-draft publish rejected + full v1→publish→new-version→v2
+publish→v1-superseded lifecycle; cross-tenant 404s), 1 new Postgres RLS
+regression test (targeting the `publish` route's `updateMany` supersede
+logic specifically, since a write that silently affects zero rows under
+RLS would never throw), 1 new e2e spec, full a11y suite. Full SQLite
+suite: 27/27 test suites, 271 passing. Verified against real Postgres+RLS
+twice — once before `/simplify`, once after (13/13 both times) — since
+the second pass changed the `publish` route's query shape. Pre-push
+`/security-review` found no exploitable issues (tenant scoping, role
+gating, and the supersede logic are all bounded to the caller's own org
+at both the app layer and the RLS layer).
+
 ## Not yet started
 
 See TODO.md.

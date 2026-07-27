@@ -424,7 +424,12 @@ is in STATUS.md. Everything below is either in progress or not started.
       New `SourceDocument.extraction_quality` (`ok|low_quality|unreadable`,
       mirrors `EvidenceItem.quality`'s enum) persists it. See STATUS.md
       Phase 28.
-- [ ] Rate-sheet import/versioning UI
+- [x] Rate-sheet import/versioning UI — `RateSheet.status`/`.version` existed
+      in the schema with zero consumers. New `POST /rateSheets/:id/{import,
+      new-version,publish}` routes (CSV bulk-replace on a draft via
+      `papaparse`, clone-to-new-draft, publish-and-supersede-the-prior-active
+      for the same name+trade+customer lineage) plus a `RateSheetTools`
+      widget on the Customers page. See STATUS.md Phase 29.
 - [ ] Tax/markup calculation engine
 - [ ] Packet template versioning
 - [ ] PDF visual regression tests

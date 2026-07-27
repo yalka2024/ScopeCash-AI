@@ -21,6 +21,8 @@
  * Read-only entities (agentRunRecord) only get the two GET routes.
  */
 const express = require('express');
+const multer = require('multer');
+const Papa = require('papaparse');
 const prisma = require('../lib/prisma');
 const { authMiddleware } = require('../middleware/auth');
 const attachTenant = require('../middleware/tenant');
@@ -477,6 +479,118 @@ router.post('/evidencePackets/:id/export', requireAnyOrgRole(...PACKET_APPROVE_R
   });
   await audit(req, 'evidencePackets.export', { resource: 'evidencePacket', resourceId: packet.id });
   res.json(row);
+}));
+
+// ── Rate sheet CSV import + versioning ────────────────────────────────────
+// Same rationale as the evidence-packet workflow above: these are state
+// transitions (bulk-replace a draft's items, clone into a new version,
+// promote a draft to active while superseding whatever was active before)
+// with their own tighter role gate and audit trail — not plain field edits
+// the generic PUT should allow.
+//
+// No new "lineage/family" schema column: name + trade + customerId already
+// identifies "the same evolving rate sheet" across versions well enough for
+// this purpose, so publish() supersedes by matching on those three fields
+// rather than needing a migration to track it explicitly.
+const RATE_SHEET_ENTITY = ENTITIES.find((e) => e.model === 'rateSheet');
+const RATE_SHEET_ROLES = RATE_SHEET_ENTITY.writeRoles;
+const rateSheetUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
+
+router.post('/rateSheets/:id/import', requireAnyOrgRole(...RATE_SHEET_ROLES), rateSheetUpload.single('file'), asyncHandler(async (req, res) => {
+  if (!req.file) throw new HttpError(400, 'No file uploaded', 'invalid_request');
+  const rateSheet = await prisma.rateSheet.findFirst({ where: scope(req, RATE_SHEET_ENTITY, { id: req.params.id }) });
+  if (!rateSheet) return res.status(404).json({ error: 'not_found' });
+  // Only a draft may be bulk-replaced this way — an active/superseded sheet
+  // is a published, potentially-already-quoted-from record; overwriting its
+  // items in place would silently change prices under work already priced
+  // against it. Bulk-editing means creating a new draft version first.
+  if (rateSheet.status !== 'draft') {
+    throw new HttpError(409, 'Only a draft rate sheet can be bulk-imported — create a new version first', 'not_draft');
+  }
+
+  const parsed = Papa.parse(req.file.buffer.toString('utf8'), { header: true, skipEmptyLines: true });
+  if (parsed.errors && parsed.errors.length) {
+    throw new HttpError(400, `CSV parse error: ${parsed.errors[0].message} (row ${parsed.errors[0].row})`, 'invalid_csv');
+  }
+  if (parsed.data.length === 0) throw new HttpError(400, 'CSV contained no data rows', 'empty_csv');
+  if (parsed.data.length > 5000) throw new HttpError(400, 'CSV contains more than 5000 rows', 'csv_too_large');
+
+  const items = parsed.data.map((r, i) => {
+    const description = String(r.description || '').trim();
+    const unitRate = parseFloat(r.unitRate);
+    if (!description) throw new HttpError(400, `Row ${i + 2}: description is required`, 'invalid_csv_row');
+    if (!Number.isFinite(unitRate)) throw new HttpError(400, `Row ${i + 2}: unitRate must be a number`, 'invalid_csv_row');
+    return {
+      orgId: req.tenant.orgId, rateSheetId: rateSheet.id,
+      code: String(r.code || '').trim() || null, description,
+      unit: String(r.unit || '').trim() || null, unitRate,
+      category: String(r.category || '').trim() || null,
+    };
+  });
+
+  // Replace, not append: re-uploading (e.g. a corrected file) must not pile
+  // up duplicates — a draft's items are wholly owned by its most recent
+  // import, not incrementally merged with a prior one via this endpoint.
+  const created = await prisma.tenantTransaction(async (tx) => {
+    await tx.rateSheetItem.deleteMany({ where: { rateSheetId: rateSheet.id } });
+    await tx.rateSheetItem.createMany({ data: items });
+    return tx.rateSheetItem.findMany({ where: { rateSheetId: rateSheet.id }, orderBy: { createdAt: 'asc' } });
+  });
+  await audit(req, 'rateSheets.import', { resource: 'rateSheet', resourceId: rateSheet.id, details: { itemCount: created.length } });
+  res.json({ rateSheet, items: created });
+}));
+
+router.post('/rateSheets/:id/new-version', requireAnyOrgRole(...RATE_SHEET_ROLES), asyncHandler(async (req, res) => {
+  const source = await prisma.rateSheet.findFirst({
+    where: scope(req, RATE_SHEET_ENTITY, { id: req.params.id }),
+    include: { items: true },
+  });
+  if (!source) return res.status(404).json({ error: 'not_found' });
+
+  const draft = await prisma.tenantTransaction(async (tx) => {
+    const newSheet = await tx.rateSheet.create({
+      data: {
+        orgId: req.tenant.orgId, customerId: source.customerId, name: source.name, trade: source.trade,
+        version: source.version + 1, status: 'draft',
+      },
+    });
+    if (source.items.length) {
+      await tx.rateSheetItem.createMany({
+        data: source.items.map((it) => ({
+          orgId: req.tenant.orgId, rateSheetId: newSheet.id,
+          code: it.code, description: it.description, unit: it.unit, unitRate: it.unitRate, category: it.category,
+        })),
+      });
+    }
+    return newSheet;
+  });
+  await audit(req, 'rateSheets.newVersion', { resource: 'rateSheet', resourceId: draft.id, details: { fromRateSheetId: source.id, fromVersion: source.version, toVersion: draft.version } });
+  res.status(201).json(draft);
+}));
+
+router.post('/rateSheets/:id/publish', requireAnyOrgRole(...RATE_SHEET_ROLES), asyncHandler(async (req, res) => {
+  const draft = await prisma.rateSheet.findFirst({
+    where: scope(req, RATE_SHEET_ENTITY, { id: req.params.id }),
+    include: { _count: { select: { items: true } } },
+  });
+  if (!draft) return res.status(404).json({ error: 'not_found' });
+  if (draft.status !== 'draft') throw new HttpError(409, 'Only a draft rate sheet can be published', 'not_draft');
+  if (draft._count.items === 0) throw new HttpError(422, 'Cannot publish a rate sheet with no items — import items first', 'empty_rate_sheet');
+
+  const published = await prisma.tenantTransaction(async (tx) => {
+    // Exactly one 'active' version per (name, trade, customerId) lineage —
+    // supersede whatever currently holds that slot.
+    await tx.rateSheet.updateMany({
+      where: { orgId: req.tenant.orgId, name: draft.name, trade: draft.trade, customerId: draft.customerId, status: 'active', id: { not: draft.id } },
+      data: { status: 'superseded' },
+    });
+    return tx.rateSheet.update({
+      where: { id: draft.id },
+      data: { status: 'active', effectiveDate: draft.effectiveDate || new Date() },
+    });
+  });
+  await audit(req, 'rateSheets.publish', { resource: 'rateSheet', resourceId: published.id, details: { version: published.version } });
+  res.json(published);
 }));
 
 // ── Commercial outcome six-stage financial ledger ────────────────────────

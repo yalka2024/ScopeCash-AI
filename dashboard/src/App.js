@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { isLoggedIn, getUser, logout, checkBetaStatus, onAuthChange } from './api';
 import AuthPage from './AuthPage';
 import DomainGroupPage from './DomainGroupPage';
 import EvidenceUpload from './EvidenceUpload';
+import RateSheetTools from './RateSheetTools';
 import EntitiesPage from './EntitiesPage';
 import AgentConsolePage from './DashboardPage';
 import AssistantPage from './AssistantPage';
@@ -83,6 +84,7 @@ export default function App() {
   // bumps sourceDocument's signal, so only that table refetches, not both
   // on every single upload.
   const [evidenceRefresh, setEvidenceRefresh] = useState({});
+  const [rateSheetRefresh, setRateSheetRefresh] = useState(0);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
@@ -123,6 +125,12 @@ export default function App() {
   const authedPage = (page === 'home' || page === 'login') ? 'projects' : page;
   const workflowGroup = WORKFLOW_NAV.find((g) => g.key === authedPage);
   const adminGroup = ADMIN_NAV.find((g) => g.key === authedPage);
+  // Memoized so DomainGroupPage's per-section refresh effect only re-fires
+  // when the counter actually changes, not on every unrelated App re-render
+  // (e.g. the mobile nav toggling) — a fresh object literal here would have
+  // the same referential-inequality problem evidenceRefresh avoids by being
+  // real state.
+  const rateSheetSignal = useMemo(() => ({ rateSheet: rateSheetRefresh, rateSheetItem: rateSheetRefresh }), [rateSheetRefresh]);
 
   return (
     <div className="app">
@@ -184,10 +192,19 @@ export default function App() {
         {workflowGroup && (
           <DomainGroupPage
             title={workflowGroup.label} description={workflowGroup.description} models={workflowGroup.models}
-            refreshSignal={authedPage === 'evidence' ? evidenceRefresh : undefined}
-            beforeSections={authedPage === 'evidence' ? (
-              <EvidenceUpload onUploaded={(model) => setEvidenceRefresh((s) => ({ ...s, [model]: (s[model] || 0) + 1 }))} />
-            ) : null}
+            refreshSignal={
+              authedPage === 'evidence' ? evidenceRefresh
+              : authedPage === 'customers' ? rateSheetSignal
+              : undefined
+            }
+            beforeSections={
+              authedPage === 'evidence' ? (
+                <EvidenceUpload onUploaded={(model) => setEvidenceRefresh((s) => ({ ...s, [model]: (s[model] || 0) + 1 }))} />
+              ) : authedPage === 'customers' ? (
+                <RateSheetTools reloadSignal={rateSheetRefresh} onChanged={() => setRateSheetRefresh((n) => n + 1)} />
+              ) : null
+            }
+            onSectionSaved={authedPage === 'customers' ? (model) => { if (model === 'rateSheet') setRateSheetRefresh((n) => n + 1); } : undefined}
           />
         )}
         {authedPage === 'assistant' && <AssistantPage />}
