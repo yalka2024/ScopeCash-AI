@@ -1297,6 +1297,89 @@ whichever code path (org-scoped pre-check vs. P2002 fallback) ends up
 firing depending on the DB driver under test. Full suite: 16/16 server test
 suites, 156 passing.
 
+## Phase 16 — Cloud SQL IAM database authentication (PARTIAL — real code + infra, not yet wired into boot) (DONE, 2026-07-27)
+
+Real application code and real Terraform provisioning, deliberately NOT
+switched on as the default connection path this phase — explaining exactly
+why is the point of this entry.
+
+- **`lib/cloud-sql-connector.js`** (new) — `createIamAuthPool()`, a thin,
+  fully-tested wrapper around `@google-cloud/cloud-sql-connector`'s
+  automatic IAM DB authentication: `connector.getOptions({instanceConnectionName,
+  authType: AuthTypes.IAM})` then `new pg.Pool({...clientOpts, user, database, max})`
+  — no DB password generated, stored, or passed anywhere; the connector
+  mints and rotates a short-lived OAuth2 token + mTLS cert for the
+  runtime's own ADC identity for the life of the process. Pinned to
+  `@google-cloud/cloud-sql-connector@^1.10.0`, not the latest `1.11.x` —
+  `1.11.0` bumped its engines requirement to Node `>=22`, and this repo
+  targets/runs Node 20; `1.10.0` is the last version supporting Node `>=18`.
+  7 unit tests against a mocked connector SDK (no real GCP project needed
+  or used): correct `authType`/instance-name passthrough, correct Pool
+  options (including that `password` is never set), default/overridden
+  pool size, and that both required-field validation errors fire before
+  ever touching the network.
+- **`lib/prisma.js#createPrismaClientWithIamAuth()`** (new, additive) —
+  builds a *separate* PrismaClient wired to that pool via
+  `@prisma/adapter-pg`'s `PrismaPg(pool, {disposeExternalPool: true})`,
+  with the same RLS enforcement (`withRls`) and `tenantTransaction()`
+  helper as the module's default export. Refactored `withRls()` and the
+  transaction helper (now `makeTenantTransaction(rawClient, isPg)`) to
+  close over an explicit client parameter instead of the module-level
+  `base` — they used to assume there was only ever one raw client in the
+  process; that assumption breaks the instant a second one exists (this
+  factory), since every RLS-guarded query and every `tenantTransaction()`
+  call would have silently run its `SET LOCAL` + actual query against the
+  *default* connection instead of this one. Caught and fixed in this same
+  session before it could ship as a real bug, not by an external review —
+  3 new regression tests (mocking `@prisma/client` entirely, no real DB)
+  assert the IAM-auth client's raw instance is genuinely distinct from the
+  default export's and that both `tenantTransaction()` and the RLS query
+  extension route through *that* client, never the default one. The
+  refactor itself is a no-op for the existing default path (`withRls(base)`
+  behaves identically to before) — reverified against a real non-superuser
+  Postgres role: full `npm run test:postgres-rls` suite (5/5, including the
+  RLS-context regression from Phase 13) passing unchanged.
+- **Not invoked automatically.** Building the IAM-auth pool is unavoidably
+  async (`connector.getOptions()` fetches instance metadata + an initial
+  cert on first use), while `lib/prisma.js`'s default export is constructed
+  synchronously at `require()` time so ~20 route files and every existing
+  test keep working unchanged regardless of whether this feature is used.
+  Wiring it in for real means restructuring `index.js`'s startup so it
+  `await`s this factory *before* requiring any route module (all of which
+  transitively `require('./lib/prisma')` today at the top of the file) —
+  a genuinely higher-blast-radius change to the single most load-bearing
+  module in the app, deliberately deferred until there's a live GCP project
+  to validate the new boot sequence against, rather than restructure it
+  blind. This mirrors the same honest incompleteness already recorded for
+  `deploy/terraform-gcp/main.tf` itself ("NOT run against a live GCP
+  project").
+- **Terraform** (`deploy/terraform-gcp/main.tf`) — new `var.cloud_sql_iam_auth`
+  (default `false`, purely additive so existing deployments of this module
+  are unaffected by upgrading it): when `true`, provisions a
+  `google_sql_user.app_iam` of type `CLOUD_IAM_SERVICE_ACCOUNT` for the
+  Cloud Run runtime service account (Postgres IAM username = the service
+  account's email minus the `.gserviceaccount.com` suffix, per Cloud SQL's
+  own convention) and grants it `roles/cloudsql.instanceUser` (on top of
+  the existing `roles/cloudsql.client`, which only covers opening a
+  connection, not logging in as an IAM DB user). Also sets
+  `CLOUD_SQL_IAM_AUTH`/`CLOUD_SQL_CONNECTION_NAME`/`CLOUD_SQL_IAM_USER` on
+  the Cloud Run service for the future boot-sequence follow-up to read —
+  `DATABASE_URL` itself is untouched and still uses the password-based
+  `google_sql_user.app` regardless of this flag, consistent with "provisions
+  the identity + grants only" above. No Terraform CLI available in this
+  session (same constraint as this module's original authoring session) —
+  verified by hand: brace-balance check, and cross-checked every new
+  resource reference (`google_sql_user.app_iam[0]`,
+  `google_project_iam_member.run_sa_cloudsql_instance_user[0]`) against its
+  declaration. Run `terraform plan` and read it before ever running `apply`.
+
+Full suite: 18/18 server test suites, 166 passing (10 new). Dependency note:
+`@google-cloud/cloud-sql-connector` brings the tree from 81 to 82 known
+advisories (46→46 moderate, 35→36 high) — pre-existing baseline confirmed
+via `git stash`, not something this change otherwise introduced; see the
+existing dependency-scan note in `.github/workflows/ci.yml` for why that
+scan is report-only.
+
 ## Not yet started
 
 See TODO.md.

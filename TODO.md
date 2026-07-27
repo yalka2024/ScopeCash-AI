@@ -66,7 +66,10 @@ is in STATUS.md. Everything below is either in progress or not started.
         trusting the client — the signed URL proves nothing about content.
         Staging-key ownership enforced via the existing per-user key prefix.
         8 new tests. See STATUS.md.
-  - [ ] Cloud SQL IAM database authentication.
+  - [x] Cloud SQL IAM database authentication — done in Phase 16, partially:
+        real, tested application code plus real Terraform provisioning, but
+        NOT yet wired into index.js's default boot path (see STATUS.md for
+        exactly why, and what the remaining follow-up is).
   - [x] GCP Terraform — `deploy/terraform-gcp/main.tf` (new, alongside the
         existing AWS module, not replacing it). Provisions VPC + private-IP
         Cloud SQL Postgres, Cloud Storage, Cloud Tasks, Artifact Registry,

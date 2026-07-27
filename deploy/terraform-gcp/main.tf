@@ -38,6 +38,21 @@ variable "container_image" {
   description = "Full image ref (Artifact Registry path) to deploy to Cloud Run. Push one before first apply — Cloud Run needs an existing image to create the service against."
   default     = null
 }
+variable "cloud_sql_iam_auth" {
+  type        = bool
+  description = <<-EOT
+    Provision Cloud SQL automatic IAM database authentication for the Cloud
+    Run runtime service account (no static DB password) alongside the
+    existing password-based `app` user. Additive and off by default so
+    existing deployments are undisturbed by upgrading this module.
+    Application-side wiring (lib/prisma.js#createPrismaClientWithIamAuth /
+    lib/cloud-sql-connector.js) exists and is unit-tested but is NOT yet
+    invoked from index.js's default boot path — see TODO.md. Setting this
+    to true provisions the IAM identity + grants only; DATABASE_URL still
+    uses the password-based user until that follow-up lands.
+  EOT
+  default     = false
+}
 
 provider "google" {
   project = var.project_id
@@ -128,7 +143,7 @@ resource "google_sql_database_instance" "postgres" {
       private_network = google_compute_network.vpc.id
     }
 
-    database_flags { name = "cloudsql.iam_authentication" value = "on" } # groundwork for Cloud SQL IAM auth — see TODO.md
+    database_flags { name = "cloudsql.iam_authentication" value = "on" } # required for var.cloud_sql_iam_auth's google_sql_user.app_iam below — see TODO.md
   }
 }
 
@@ -141,6 +156,21 @@ resource "google_sql_user" "app" {
   name     = "app"
   instance = google_sql_database_instance.postgres.name
   password = var.db_password
+}
+
+# Cloud SQL automatic IAM database authentication for the Cloud Run runtime
+# service account — no static DB password for this identity at all, only a
+# short-lived OAuth2 token + mTLS cert the connector mints and rotates. Per
+# Cloud SQL's own convention, a service account's Postgres IAM username is
+# its email WITHOUT the ".gserviceaccount.com" suffix (google_service_account
+# .run_sa.email is "<id>@<project>.iam.gserviceaccount.com"; the effective
+# Postgres role name in the database_flags = "on" instance above is
+# "<id>@<project>.iam" — see lib/cloud-sql-connector.js).
+resource "google_sql_user" "app_iam" {
+  count    = var.cloud_sql_iam_auth ? 1 : 0
+  name     = replace(google_service_account.run_sa.email, ".gserviceaccount.com", "")
+  instance = google_sql_database_instance.postgres.name
+  type     = "CLOUD_IAM_SERVICE_ACCOUNT"
 }
 
 # --- Cloud Storage (evidence uploads — STORAGE_DRIVER=gcs, STORAGE_BUCKET) --
@@ -222,6 +252,16 @@ resource "google_project_iam_member" "run_sa_roles" {
   member  = "serviceAccount:${google_service_account.run_sa.email}"
 }
 
+# roles/cloudsql.client (above) lets the runtime open a Cloud SQL connection
+# at all; automatic IAM DB authentication additionally requires this role to
+# actually log in as the IAM database user provisioned by google_sql_user.app_iam.
+resource "google_project_iam_member" "run_sa_cloudsql_instance_user" {
+  count   = var.cloud_sql_iam_auth ? 1 : 0
+  project = var.project_id
+  role    = "roles/cloudsql.instanceUser"
+  member  = "serviceAccount:${google_service_account.run_sa.email}"
+}
+
 resource "google_storage_bucket_iam_member" "run_sa_uploads" {
   bucket = google_storage_bucket.uploads.name
   role   = "roles/storage.objectAdmin"
@@ -270,6 +310,33 @@ resource "google_cloud_run_v2_service" "app" {
         name  = "DATABASE_URL"
         value = "postgresql://${google_sql_user.app.name}:${var.db_password}@localhost/${google_sql_database.app.name}?host=/cloudsql/${google_sql_database_instance.postgres.connection_name}"
       }
+      # Provisions the IAM identity + grants only (google_sql_user.app_iam,
+      # run_sa_cloudsql_instance_user above) — DATABASE_URL still uses the
+      # password-based user regardless of this flag until
+      # lib/prisma.js#createPrismaClientWithIamAuth is actually wired into
+      # index.js's boot sequence (see that function's header comment and
+      # TODO.md). These env vars are what that follow-up will read.
+      dynamic "env" {
+        for_each = var.cloud_sql_iam_auth ? [1] : []
+        content {
+          name  = "CLOUD_SQL_IAM_AUTH"
+          value = "1"
+        }
+      }
+      dynamic "env" {
+        for_each = var.cloud_sql_iam_auth ? [1] : []
+        content {
+          name  = "CLOUD_SQL_CONNECTION_NAME"
+          value = google_sql_database_instance.postgres.connection_name
+        }
+      }
+      dynamic "env" {
+        for_each = var.cloud_sql_iam_auth ? [1] : []
+        content {
+          name  = "CLOUD_SQL_IAM_USER"
+          value = google_sql_user.app_iam[0].name
+        }
+      }
       # VERTEX_GEMINI_MODEL / VERTEX_GEMINI_PRO_MODEL are deliberately NOT
       # set here — lib/vertex-ai.js refuses to start with an unpinned or
       # "-latest" model id by design (see that file's header comment). Set
@@ -295,7 +362,10 @@ resource "google_cloud_run_v2_service" "app" {
     }
   }
 
-  depends_on = [google_project_iam_member.run_sa_roles, google_storage_bucket_iam_member.run_sa_uploads]
+  depends_on = concat(
+    [google_project_iam_member.run_sa_roles, google_storage_bucket_iam_member.run_sa_uploads],
+    var.cloud_sql_iam_auth ? [google_project_iam_member.run_sa_cloudsql_instance_user[0], google_sql_user.app_iam[0]] : [],
+  )
 }
 
 resource "google_cloud_run_v2_service_iam_member" "public_invoker" {
@@ -315,3 +385,4 @@ output "uploads_bucket"            { value = google_storage_bucket.uploads.name 
 output "artifact_registry_repo"    { value = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.containers.repository_id}" }
 output "cloud_tasks_queue"         { value = google_cloud_tasks_queue.jobs.name }
 output "run_service_account"       { value = google_service_account.run_sa.email }
+output "cloud_sql_iam_user"        { value = var.cloud_sql_iam_auth ? google_sql_user.app_iam[0].name : null }
