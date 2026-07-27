@@ -81,7 +81,38 @@ function withRls(rawClient) {
   });
 }
 
-const prisma = isPg ? withRls(base) : base;
+// The live client every consumer ultimately talks to. Mutable so Cloud SQL
+// IAM auth can replace it during startup — see initCloudSqlIamAuth() below.
+let active = isPg ? withRls(base) : base;
+// Properties owned by this module rather than forwarded to `active`
+// (tenantTransaction, the factory, test seams). Held separately so swapping
+// `active` doesn't drop them.
+const OVERRIDES = Object.create(null);
+
+/**
+ * The module export is a Proxy over `active` rather than `active` itself.
+ *
+ * Cloud SQL IAM authentication needs an async pool (the connector fetches
+ * instance metadata and mints a cert before a Pool can be constructed), but
+ * ~20 route modules do `const prisma = require('../lib/prisma')` at module
+ * scope and would capture whatever object existed at require() time. The
+ * indirection means startup can swap the underlying client after those
+ * requires have already happened, and every holder follows automatically —
+ * no boot-order restructuring, which is what made this "deliberately
+ * deferred" before.
+ *
+ * The trap only forwards property reads; the per-query cost is a property
+ * lookup against a database round trip.
+ */
+const prisma = new Proxy(Object.create(null), {
+  get(_target, prop) {
+    if (prop in OVERRIDES) return OVERRIDES[prop];
+    const v = active[prop];
+    return typeof v === 'function' ? v.bind(active) : v;
+  },
+  set(_target, prop, value) { OVERRIDES[prop] = value; return true; },
+  has(_target, prop) { return prop in OVERRIDES || prop in active; },
+});
 
 // Multi-statement atomic transactions under RLS. Plain `prisma.$transaction([opA, opB])`
 // (array form) no longer gives cross-op atomicity here: each op independently goes
@@ -145,6 +176,59 @@ async function createPrismaClientWithIamAuth({ instanceConnectionName, iamUser, 
   return { client, connector, pool };
 }
 prisma.createPrismaClientWithIamAuth = createPrismaClientWithIamAuth;
+
+let iamHandles = null;
+
+/**
+ * Startup hook that actually PUTS Cloud SQL IAM auth on the production path.
+ *
+ * Enabled by CLOUD_SQL_IAM_AUTH=1 plus CLOUD_SQL_INSTANCE
+ * ("project:region:instance"), CLOUD_SQL_IAM_USER and CLOUD_SQL_DATABASE.
+ * When unset this is a no-op and the static-password DATABASE_URL client
+ * built above stays in place, so the default deployment path is unchanged.
+ *
+ * Must be awaited before the server accepts traffic — index.js does this
+ * before app.listen(). Because the export is a Proxy over `active`, route
+ * modules that already required this file pick the new client up with no
+ * re-require and no boot-order change.
+ *
+ * Fails closed on purpose: if an operator has explicitly asked for IAM auth
+ * and it cannot be established, the process must not quietly fall back to
+ * password auth — that would defeat the point of turning it on.
+ */
+async function initCloudSqlIamAuth() {
+  if (process.env.CLOUD_SQL_IAM_AUTH !== '1') return { enabled: false };
+  const instanceConnectionName = process.env.CLOUD_SQL_INSTANCE;
+  const iamUser = process.env.CLOUD_SQL_IAM_USER;
+  const database = process.env.CLOUD_SQL_DATABASE;
+  if (!instanceConnectionName || !iamUser || !database) {
+    throw new Error('CLOUD_SQL_IAM_AUTH=1 requires CLOUD_SQL_INSTANCE, CLOUD_SQL_IAM_USER and CLOUD_SQL_DATABASE.');
+  }
+  // Called through the export (not the local binding) so it is substitutable
+  // in tests, the same seam lib/storage.js uses for __signedUrlFn — the real
+  // Cloud SQL handshake needs a live instance and can't run in CI.
+  const { client, connector, pool } = await prisma.createPrismaClientWithIamAuth({ instanceConnectionName, iamUser, database });
+  active = client;
+  OVERRIDES.tenantTransaction = client.tenantTransaction;
+  iamHandles = { connector, pool };
+  console.log(JSON.stringify({ type: 'cloud_sql_iam_auth_enabled', instanceConnectionName, iamUser, database }));
+  return { enabled: true };
+}
+
+/** Release the IAM connector's background cert-refresh cycle and its pool.
+ * No-op when IAM auth was never initialized. */
+async function shutdownCloudSqlIamAuth() {
+  if (!iamHandles) return;
+  const { connector, pool } = iamHandles;
+  iamHandles = null;
+  try { await pool.end(); } catch {}
+  try { await connector.close(); } catch {}
+}
+
+prisma.initCloudSqlIamAuth = initCloudSqlIamAuth;
+prisma.shutdownCloudSqlIamAuth = shutdownCloudSqlIamAuth;
+/** Test seam: what the Proxy currently forwards to. */
+prisma.__activeClient = () => active;
 
 module.exports = prisma;
 

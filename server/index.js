@@ -289,19 +289,37 @@ app.use((req, res) => {
 app.use(sentry.errorHandler());
 app.use(errorMiddleware);
 
-// Start server
-const server = app.listen(PORT, () => {
-  console.log(`ScopeCash AI API running on http://localhost:${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-  startWebhookWorker();
-  startEvidenceJobReconciler();
-  if (process.env.NODE_ENV !== 'test') {
-    usageAggregator.startScheduler();
-    lifecycleTriggers.startScheduler();
-    warehouseExport.startScheduler();
-    requestSampler.startScheduler();
-    orgDeletionSweep.startScheduler(); // no-op unless ORG_DELETION_SWEEP_ENABLED=1
-  }
+// Start server.
+//
+// Wrapped in an async bootstrap so Cloud SQL IAM database auth can be
+// established BEFORE the first request is accepted. Building that pool is
+// unavoidably async (the connector mints a cert on first use), and listening
+// first would mean serving early requests on the static-password client the
+// operator explicitly asked not to use. No-op unless CLOUD_SQL_IAM_AUTH=1, so
+// the default deployment path keeps the previous behaviour.
+let server;
+async function start() {
+  await require('./lib/prisma').initCloudSqlIamAuth();
+  server = app.listen(PORT, () => {
+    console.log(`ScopeCash AI API running on http://localhost:${PORT}`);
+    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    startWebhookWorker();
+    startEvidenceJobReconciler();
+    if (process.env.NODE_ENV !== 'test') {
+      usageAggregator.startScheduler();
+      lifecycleTriggers.startScheduler();
+      warehouseExport.startScheduler();
+      requestSampler.startScheduler();
+      orgDeletionSweep.startScheduler(); // no-op unless ORG_DELETION_SWEEP_ENABLED=1
+    }
+  });
+}
+
+start().catch((err) => {
+  // Fail closed: an operator who turned IAM auth on must not get a silent
+  // fallback to password auth.
+  console.error('FATAL: startup failed —', err && err.message);
+  process.exit(1);
 });
 
 // Graceful shutdown
@@ -336,18 +354,21 @@ async function gracefulShutdown(signal) {
   // 3. Wait briefly for in-flight requests
   await lifecycle.waitForInFlight(parseInt(process.env.SHUTDOWN_TIMEOUT_MS || '25000', 10));
 
-  // 4. Stop HTTP server
-  await new Promise((resolve) => server.close(() => resolve()));
+  // 4. Stop HTTP server (may not exist yet if we're shutting down mid-startup)
+  if (server) await new Promise((resolve) => server.close(() => resolve()));
 
   // 4b. Persist buffered API-call counts before the DB connection closes —
   // lib/api-call-meter.js keeps them in memory between flush ticks, so a
   // clean shutdown should not drop the current window.
   try { await require('./lib/api-call-meter').flush(); } catch {}
 
-  // 5. Disconnect Prisma
+  // 5. Disconnect Prisma. When Cloud SQL IAM auth is active this must also
+  // release the connector's background cert-refresh cycle, which would
+  // otherwise keep the process alive past shutdown.
   try {
     const prisma = require('./lib/prisma');
     await prisma.$disconnect();
+    await prisma.shutdownCloudSqlIamAuth();
   } catch {}
 
   // 6. Flush observability
