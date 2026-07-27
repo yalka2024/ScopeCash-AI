@@ -18,8 +18,29 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
+/** The generated Prisma client is a build artifact, not a checked-in file:
+ * `postinstall` normally produces it, but that hook doesn't run for
+ * `npm ci --ignore-scripts`, for a CI job that restores a cached
+ * node_modules without reinstalling, or after the .prisma directory is
+ * cleaned. In those cases every suite that touches lib/prisma.js failed at
+ * module load with "Cannot find module '.prisma/client/default'" — a
+ * confusing error that looks like a code bug rather than a missing build
+ * step. Generating on demand here makes `npm test` self-bootstrapping from
+ * any clean checkout. Skipped entirely when the client already resolves,
+ * so the normal path pays nothing. */
+function ensurePrismaClient(serverRoot) {
+  try {
+    require.resolve('.prisma/client/default', { paths: [serverRoot] });
+    return;
+  } catch {
+    // Not generated yet — fall through and build it.
+  }
+  execSync('npx prisma generate', { cwd: serverRoot, stdio: 'pipe' });
+}
+
 module.exports = async function globalSetup() {
   const SERVER_ROOT = path.join(__dirname, '..');
+  ensurePrismaClient(SERVER_ROOT);
   const TEST_DB = path.join(SERVER_ROOT, 'test.db');
   for (const suffix of ['', '-journal', '-shm', '-wal']) {
     const f = TEST_DB + suffix;
