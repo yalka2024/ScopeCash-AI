@@ -264,9 +264,13 @@ is blocked by definition — those live in the last section and can never be
 - [x] Organization membership records instead of bare `orgId` on `User`;
       secure expiring invitations; can no longer freely create/replace an org
       (Phase 1).
-- [ ] **Operational hardening — deliberately not attempted in Phase 10**
+- [x] **Operational hardening — deliberately not attempted in Phase 10**
       (each of these is its own multi-part feature; scoping honestly here
-      rather than rushing a partial version of all four):
+      rather than rushing a partial version of all four). All four were
+      subsequently built in Phases 18-21 and are checked below; the parent
+      stayed `[ ]` long after that was true, which the 2026-07-27 re-audit
+      flagged as stale. Verified against code before flipping it: each child
+      has a real route or job module, not just a description.
   - [x] **Ownership transfer** — done in Phase 18, exactly as scoped:
         `POST /api/orgs/transfer-ownership` (owner-only) creates a pending
         `OwnershipTransferRequest` and emails the target a confirmation
@@ -337,8 +341,12 @@ is blocked by definition — those live in the last section and can never be
         and `prisma/seed.js` (admin password auto-print now also gated on
         `DATABASE_URL` being Postgres, not just `NODE_ENV`). See STATUS.md
         Phase 21.
-- [ ] Real backup/restore drills, RPO/RTO — see non-code items, this needs a
-      real target environment first.
+- [~] Real backup/restore drills, RPO/RTO — **duplicate pointer**, not a
+      separate item: the authoritative entry is "Physical backup-restore
+      drills and RPO/RTO evidence" in the non-code section at the bottom of
+      this file. The two carried different markers (`[ ]` here, `[~]` there)
+      until 2026-07-27; the local drill half is done, production evidence
+      still needs a real target environment.
 - [~] Cloud Monitoring alert policies, SLOs, on-call — alert policies, a
       notification channel, log-based metrics and a 99.9%/28d availability
       SLO are defined in `deploy/terraform-gcp/main.tf` and pass
