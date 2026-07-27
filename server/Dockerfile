@@ -3,7 +3,7 @@
 # - Runs as non-root, no shell, drops capabilities by default
 
 # ── Builder ──────────────────────────────────────────
-FROM node:20-bookworm-slim AS builder
+FROM node:26-bookworm-slim AS builder
 WORKDIR /app
 ENV NODE_ENV=production NPM_CONFIG_FUND=false NPM_CONFIG_AUDIT=false
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -21,7 +21,7 @@ COPY . .
 RUN DATABASE_URL=postgresql://build:build@localhost:5432/build npm run db:postgres:generate
 
 # ── Runtime ──────────────────────────────────────────
-FROM node:20-bookworm-slim AS runtime
+FROM node:26-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production PORT=4000
 RUN apt-get update && apt-get install -y --no-install-recommends \
