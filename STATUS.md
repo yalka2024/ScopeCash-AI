@@ -1479,6 +1479,59 @@ Full suite: 19/19 server test suites, 175 passing (15 new; 2 new permanent
 Postgres+RLS regression tests, both independently verified against a real
 non-superuser role).
 
+## Phase 18 — Ownership transfer: two-step, confirmation-gated handoff (DONE, 2026-07-27)
+
+Built to the fuller spec already scoped in this TODO (not the simpler
+single-request atomic swap first drafted mid-phase): a real, previously
+scoped-but-unbuilt feature, no shortcuts taken relative to the original plan.
+
+- **New `OwnershipTransferRequest` model** (own table, not reused
+  `Invitation` rows — the semantics differ: an *existing* member accepting
+  a role handoff, not a new person joining by email) — same expiring-token
+  shape (`tokenHash`, `expiresAt`, `status: pending|accepted|revoked|expired`)
+  as the established `Invitation` pattern from Phase 1.
+- **`POST /api/orgs/transfer-ownership`** (owner-only —
+  `requireAnyOrgRole('owner')` specifically, not the broader
+  `MANAGE_ROLES` used elsewhere in this file, since you're giving away
+  your *own* top-level role) creates a pending request and emails the
+  target a confirmation link. Nothing changes yet — verified by a
+  dedicated test. Rejects a second concurrent request for the same org
+  (409 `transfer_already_pending`) rather than letting them pile up.
+- **`POST /api/orgs/transfer-ownership/confirm`** — only the target's own
+  authenticated session can accept (`req.user.id === request.toUserId`;
+  knowing the token isn't treated as sufficient proof of identity on its
+  own, since it travels over email). Only then does the atomic swap
+  happen, in one `prisma.tenantTransaction()`: target → `owner`, requester
+  → `admin`, request → `accepted` — all three or none. Expired/already-
+  resolved/wrong-recipient tokens are rejected with specific codes; a
+  confirmed token cannot be replayed.
+- **`DELETE /api/orgs/transfer-ownership/:id`** lets the owner revoke a
+  pending request before it's confirmed (frees the org to start a new one).
+- **Found and closed a real, pre-existing gap along the way**: the
+  existing generic `PATCH /api/orgs/members/:userId` role-change endpoint
+  had `role: z.enum(roleNames())` — which includes `'owner'` — with *no*
+  guard against promoting a member straight to owner (only demotion had a
+  "last owner" guard). Nothing stopped `PATCH .../members/:userId
+  {role:'owner'}` from creating a second, simultaneous owner while one
+  already existed, non-atomically and with no reciprocal demotion. Now
+  rejected outright (400 `use_transfer_ownership_endpoint`) — promotion to
+  owner can only happen through the new atomic, confirmation-gated flow.
+- 9 new integration tests in `tests/integration/domain-rbac.test.js`:
+  request-alone changes nothing; full request→confirm flow swaps roles
+  atomically with exactly one owner throughout; a confirmed request can't
+  be replayed; only the invited recipient (not the requester, not a
+  bystander) can confirm; non-owners can't initiate; rejects an inactive/
+  cross-org/removed target; only one pending request per org; revoke
+  frees the org for a new request; the generic PATCH's promotion path is
+  blocked. Real Postgres migration generated and applied via a throwaway
+  container alongside the SQLite one, matching this session's established
+  dual-schema workflow — no dedicated RLS regression test needed since
+  this endpoint runs inside a normal authenticated request already wrapped
+  by `attachTenant`'s `runWithOrg`, the same pattern already exercised by
+  dozens of other routes using `tenantTransaction` correctly.
+
+Full suite: 19/19 server test suites, 184 passing (9 new).
+
 ## Not yet started
 
 See TODO.md.

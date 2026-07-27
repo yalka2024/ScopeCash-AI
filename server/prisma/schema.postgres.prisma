@@ -49,6 +49,7 @@ model Organization {
   users       User[]
   memberships OrgMembership[]
   invitations Invitation[]
+  ownershipTransferRequests OwnershipTransferRequest[]
 }
 
 // ─── Core Domain: Project ─────────────────
@@ -1376,5 +1377,28 @@ model Invitation {
   @@index([email])
 }
 
+// Owner-initiated org-ownership handoff — requires the TARGET member to
+// confirm via an expiring token before the role swap happens (never a
+// unilateral single-request transfer, so a mistaken/compromised owner
+// session can't irreversibly hand away control without the recipient's
+// consent). Same expiring-token shape as Invitation, kept as its own model
+// since the semantics differ (an existing member accepting a role handoff,
+// not a new person joining by email).
+model OwnershipTransferRequest {
+  id          String   @id @default(uuid())
+  orgId       String
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  fromUserId  String
+  toUserId    String
+  tokenHash   String   @unique
+  status      String   @default("pending") // pending|accepted|revoked|expired
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([orgId, status])
+  @@index([toUserId])
+}
 
 

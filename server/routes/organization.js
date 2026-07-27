@@ -60,6 +60,13 @@ const RoleChangeSchema = z.object({ role: z.enum(roleNames()) });
 // PATCH /api/organizations/members/:userId — change a member's role.
 router.patch('/members/:userId', attachTenant, requireAnyOrgRole(...MANAGE_ROLES), validate(RoleChangeSchema),
   asyncHandler(async (req, res) => {
+    // Promoting to 'owner' here would let an org end up with two owners
+    // simultaneously (this endpoint has no counterpart guard the way
+    // demotion below does) — must go through the atomic transfer-ownership
+    // endpoint instead, which demotes the old owner in the same transaction.
+    if (req.body.role === 'owner') {
+      throw new HttpError(400, 'Use POST /api/orgs/transfer-ownership to make someone the owner — it atomically hands off ownership rather than creating a second owner', 'use_transfer_ownership_endpoint');
+    }
     const membership = await prisma.orgMembership.findUnique({
       where: { orgId_userId: { orgId: req.tenant.orgId, userId: req.params.userId } },
     });
@@ -71,6 +78,140 @@ router.patch('/members/:userId', attachTenant, requireAnyOrgRole(...MANAGE_ROLES
     const row = await prisma.orgMembership.update({ where: { id: membership.id }, data: { role: req.body.role } });
     await audit(req, 'organization.member.role_changed', { resource: 'orgMembership', resourceId: row.id, details: { role: req.body.role } });
     res.json(row);
+  }));
+
+const TransferOwnershipSchema = z.object({ newOwnerUserId: z.string().min(1) });
+const TRANSFER_TTL_MS = 48 * 3600_000;
+
+// POST /api/orgs/transfer-ownership — REQUESTS a hand-off of the 'owner'
+// role to another active member; nothing changes yet. Gated to 'owner'
+// specifically (not requireAnyOrgRole of MANAGE_ROLES) — you're giving away
+// your OWN top-level role, so only the current owner can initiate this, not
+// just any admin acting on someone else's behalf.
+//
+// Deliberately NOT a single-request atomic swap: the target must separately
+// confirm via POST /transfer-ownership/confirm with the emailed token
+// before the role change actually happens (same expiring-token shape as
+// Invitation — a mistaken click, a fat-fingered user id, or a compromised
+// owner session can no longer irreversibly hand away org control in one
+// unilateral call with no chance for the recipient to notice or decline).
+router.post('/transfer-ownership', attachTenant, requireAnyOrgRole('owner'), validate(TransferOwnershipSchema),
+  asyncHandler(async (req, res) => {
+    if (req.body.newOwnerUserId === req.user.id) {
+      throw new HttpError(400, 'You are already the owner', 'already_owner');
+    }
+    const target = await prisma.orgMembership.findUnique({
+      where: { orgId_userId: { orgId: req.tenant.orgId, userId: req.body.newOwnerUserId } },
+    });
+    if (!target || target.status !== 'active') {
+      throw new HttpError(404, 'That user is not an active member of your organization', 'not_found');
+    }
+    const already = await prisma.ownershipTransferRequest.findFirst({
+      where: { orgId: req.tenant.orgId, status: 'pending' },
+    });
+    if (already) {
+      throw new HttpError(409, 'An ownership transfer is already pending for this organization — revoke it first', 'transfer_already_pending', { requestId: already.id });
+    }
+
+    const raw = crypto.randomBytes(32).toString('base64url');
+    const request_ = await prisma.ownershipTransferRequest.create({
+      data: {
+        orgId: req.tenant.orgId, fromUserId: req.user.id, toUserId: req.body.newOwnerUserId,
+        tokenHash: hashToken(raw), expiresAt: new Date(Date.now() + TRANSFER_TTL_MS),
+      },
+    });
+
+    const [org, newOwnerUser] = await Promise.all([
+      prisma.organization.findUnique({ where: { id: req.tenant.orgId } }),
+      prisma.user.findUnique({ where: { id: req.body.newOwnerUserId } }),
+    ]);
+    const orgName = (org && org.name) || 'your organization';
+    if (newOwnerUser) {
+      mailer.sendTemplate('alert', newOwnerUser.email, {
+        title: 'Confirm: you have been offered organization ownership',
+        severity: 'medium',
+        message: `${req.user.name || req.user.email} wants to make you the owner of ${orgName}. This request expires in 48 hours and does nothing until you confirm it.`,
+        url: `${process.env.APP_URL || ''}/#accept-ownership-transfer?token=${raw}`,
+        action_label: 'Review and confirm',
+      }).catch((e) => console.error('[organization] ownership-transfer offer email failed:', e && e.message));
+    }
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(JSON.stringify({ type: 'org_ownership_transfer_token', requestId: request_.id, token: raw }));
+    }
+    await audit(req, 'organization.ownership.transfer_requested', {
+      resource: 'ownershipTransferRequest', resourceId: request_.id,
+      details: { fromUserId: req.user.id, toUserId: req.body.newOwnerUserId },
+    });
+    res.status(201).json({ id: request_.id, toUserId: request_.toUserId, expiresAt: request_.expiresAt });
+  }));
+
+// DELETE /api/orgs/transfer-ownership/:id — revoke a pending request before
+// the target confirms it.
+router.delete('/transfer-ownership/:id', attachTenant, requireAnyOrgRole('owner'), asyncHandler(async (req, res) => {
+  const request_ = await prisma.ownershipTransferRequest.findFirst({ where: { id: req.params.id, orgId: req.tenant.orgId } });
+  if (!request_ || request_.status !== 'pending') return res.status(404).json({ error: 'not_found' });
+  await prisma.ownershipTransferRequest.update({ where: { id: request_.id }, data: { status: 'revoked', revokedAt: new Date() } });
+  await audit(req, 'organization.ownership.transfer_revoked', { resource: 'ownershipTransferRequest', resourceId: request_.id });
+  res.json({ ok: true });
+}));
+
+const ConfirmTransferSchema = z.object({ token: z.string().min(20) });
+
+// POST /api/orgs/transfer-ownership/confirm — the TARGET user accepts a
+// pending request; only now does the atomic role swap happen. Requires the
+// confirming, authenticated user's own id to match the request's toUserId
+// (not just possession of the token) — the token alone isn't treated as
+// sufficient proof of identity, since it travels over email.
+router.post('/transfer-ownership/confirm', attachTenant, validate(ConfirmTransferSchema),
+  asyncHandler(async (req, res) => {
+    const request_ = await prisma.ownershipTransferRequest.findUnique({ where: { tokenHash: hashToken(req.body.token) } });
+    if (!request_ || request_.orgId !== req.tenant.orgId) throw new HttpError(400, 'Invalid or unrecognized transfer token', 'invalid_token');
+    if (request_.status !== 'pending') throw new HttpError(409, `This transfer request is already ${request_.status}`, 'not_pending');
+    if (request_.expiresAt < new Date()) {
+      await prisma.ownershipTransferRequest.update({ where: { id: request_.id }, data: { status: 'expired' } });
+      throw new HttpError(410, 'This transfer request has expired', 'expired');
+    }
+    if (request_.toUserId !== req.user.id) {
+      throw new HttpError(403, 'Only the invited recipient can confirm this transfer', 'not_recipient');
+    }
+
+    const [newOwnerRow] = await prisma.tenantTransaction(async (tx) => {
+      const newOwnerRow = await tx.orgMembership.update({
+        where: { orgId_userId: { orgId: request_.orgId, userId: request_.toUserId } },
+        data: { role: 'owner' },
+      });
+      await tx.orgMembership.update({
+        where: { orgId_userId: { orgId: request_.orgId, userId: request_.fromUserId } },
+        data: { role: 'admin' },
+      });
+      await tx.ownershipTransferRequest.update({ where: { id: request_.id }, data: { status: 'accepted', acceptedAt: new Date() } });
+      return [newOwnerRow];
+    });
+
+    await audit(req, 'organization.ownership.transferred', {
+      resource: 'orgMembership', resourceId: newOwnerRow.id,
+      details: { fromUserId: request_.fromUserId, toUserId: request_.toUserId },
+    });
+
+    const [org, oldOwnerUser] = await Promise.all([
+      prisma.organization.findUnique({ where: { id: request_.orgId } }),
+      prisma.user.findUnique({ where: { id: request_.fromUserId } }),
+    ]);
+    const orgName = (org && org.name) || 'your organization';
+    if (oldOwnerUser) {
+      mailer.sendTemplate('alert', oldOwnerUser.email, {
+        title: 'Organization ownership was transferred',
+        severity: 'medium',
+        message: `${req.user.name || req.user.email} accepted your ownership transfer for ${orgName}. You are no longer the owner — you remain an admin.`,
+      }).catch((e) => console.error('[organization] ownership-transfer notice (old owner) failed:', e && e.message));
+    }
+    mailer.sendTemplate('alert', req.user.email, {
+      title: 'You are now the organization owner',
+      severity: 'medium',
+      message: `You accepted ownership of ${orgName}${oldOwnerUser ? ` from ${oldOwnerUser.name || oldOwnerUser.email}` : ''}.`,
+    }).catch((e) => console.error('[organization] ownership-transfer notice (new owner) failed:', e && e.message));
+
+    res.json({ ok: true, oldOwnerId: request_.fromUserId, newOwnerId: request_.toUserId });
   }));
 
 // DELETE /api/organizations/members/:userId — remove a member (soft).

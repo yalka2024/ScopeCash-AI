@@ -280,6 +280,153 @@ describe('commercial outcome six-stage ledger', () => {
   });
 });
 
+describe('ownership transfer (two-step: request, then target confirms)', () => {
+  async function addMember(org, role) {
+    const user = await prisma.user.create({
+      data: { email: uniqueEmail(), passwordHash: '$2b$10$abcdefghijklmnopqrstuv', role: 'user', orgId: org.id, emailVerified: true },
+    });
+    await prisma.orgMembership.create({ data: { orgId: org.id, userId: user.id, role, status: 'active' } });
+    return user;
+  }
+  function tokenFromLog(spy) {
+    const call = spy.mock.calls.find((c) => { try { return JSON.parse(c[0]).type === 'org_ownership_transfer_token'; } catch { return false; } });
+    return call && JSON.parse(call[0]).token;
+  }
+
+  test('requesting a transfer does NOT change any role by itself', async () => {
+    const { org, user: owner } = await makeOrgWithMember('owner');
+    const admin = await addMember(org, 'admin');
+
+    const res = await request(app).post('/api/orgs/transfer-ownership').set('Authorization', bearer(owner)).send({ newOwnerUserId: admin.id });
+    expect(res.status).toBe(201);
+
+    const ownerMembership = await prisma.orgMembership.findUnique({ where: { orgId_userId: { orgId: org.id, userId: owner.id } } });
+    const targetMembership = await prisma.orgMembership.findUnique({ where: { orgId_userId: { orgId: org.id, userId: admin.id } } });
+    expect(ownerMembership.role).toBe('owner'); // unchanged until confirmed
+    expect(targetMembership.role).toBe('admin'); // unchanged until confirmed
+  });
+
+  test('full flow: request then the target confirms with the token — swap happens atomically, exactly one owner throughout', async () => {
+    const { org, user: owner } = await makeOrgWithMember('owner');
+    const admin = await addMember(org, 'admin');
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+    const reqRes = await request(app).post('/api/orgs/transfer-ownership').set('Authorization', bearer(owner)).send({ newOwnerUserId: admin.id });
+    expect(reqRes.status).toBe(201);
+    const token = tokenFromLog(logSpy);
+    expect(token).toBeTruthy();
+    logSpy.mockRestore();
+
+    const confirmRes = await request(app).post('/api/orgs/transfer-ownership/confirm').set('Authorization', bearer(admin)).send({ token });
+    expect(confirmRes.status).toBe(200);
+    expect(confirmRes.body).toMatchObject({ ok: true, oldOwnerId: owner.id, newOwnerId: admin.id });
+
+    const oldOwnerMembership = await prisma.orgMembership.findUnique({ where: { orgId_userId: { orgId: org.id, userId: owner.id } } });
+    const newOwnerMembership = await prisma.orgMembership.findUnique({ where: { orgId_userId: { orgId: org.id, userId: admin.id } } });
+    expect(oldOwnerMembership.role).toBe('admin');
+    expect(newOwnerMembership.role).toBe('owner');
+
+    const ownerCount = await prisma.orgMembership.count({ where: { orgId: org.id, role: 'owner', status: 'active' } });
+    expect(ownerCount).toBe(1); // never zero, never two, at any point
+
+    // The request can't be replayed.
+    const replay = await request(app).post('/api/orgs/transfer-ownership/confirm').set('Authorization', bearer(admin)).send({ token });
+    expect(replay.status).toBe(409);
+  });
+
+  test('only the invited recipient can confirm — not the requesting owner, not an unrelated member', async () => {
+    const { org, user: owner } = await makeOrgWithMember('owner');
+    const admin = await addMember(org, 'admin');
+    const bystander = await addMember(org, 'admin');
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    await request(app).post('/api/orgs/transfer-ownership').set('Authorization', bearer(owner)).send({ newOwnerUserId: admin.id });
+    const token = tokenFromLog(logSpy);
+    logSpy.mockRestore();
+
+    const byOwner = await request(app).post('/api/orgs/transfer-ownership/confirm').set('Authorization', bearer(owner)).send({ token });
+    expect(byOwner.status).toBe(403);
+    const byBystander = await request(app).post('/api/orgs/transfer-ownership/confirm').set('Authorization', bearer(bystander)).send({ token });
+    expect(byBystander.status).toBe(403);
+
+    const ownerMembership = await prisma.orgMembership.findUnique({ where: { orgId_userId: { orgId: org.id, userId: owner.id } } });
+    expect(ownerMembership.role).toBe('owner'); // still unchanged
+  });
+
+  test('a non-owner (even an admin) cannot initiate a transfer', async () => {
+    const { org, user: owner } = await makeOrgWithMember('owner');
+    const admin = await addMember(org, 'admin');
+    const other = await addMember(org, 'admin');
+
+    const res = await request(app).post('/api/orgs/transfer-ownership').set('Authorization', bearer(admin)).send({ newOwnerUserId: other.id });
+    expect(res.status).toBe(403);
+
+    const ownerMembership = await prisma.orgMembership.findUnique({ where: { orgId_userId: { orgId: org.id, userId: owner.id } } });
+    expect(ownerMembership.role).toBe('owner'); // unchanged
+  });
+
+  test('rejects transferring to a user who is not an active member of the org', async () => {
+    const { user: owner } = await makeOrgWithMember('owner');
+    const { user: outsider } = await makeOrgWithMember('owner'); // a real user, but in a DIFFERENT org
+
+    const res = await request(app).post('/api/orgs/transfer-ownership').set('Authorization', bearer(owner)).send({ newOwnerUserId: outsider.id });
+    expect(res.status).toBe(404);
+  });
+
+  test('rejects transferring to a removed (former) member', async () => {
+    const { org, user: owner } = await makeOrgWithMember('owner');
+    const former = await addMember(org, 'admin');
+    await prisma.orgMembership.update({ where: { orgId_userId: { orgId: org.id, userId: former.id } }, data: { status: 'removed', removedAt: new Date() } });
+
+    const res = await request(app).post('/api/orgs/transfer-ownership').set('Authorization', bearer(owner)).send({ newOwnerUserId: former.id });
+    expect(res.status).toBe(404);
+  });
+
+  test('only one pending transfer request per org at a time', async () => {
+    const { org, user: owner } = await makeOrgWithMember('owner');
+    const admin1 = await addMember(org, 'admin');
+    const admin2 = await addMember(org, 'admin');
+
+    const first = await request(app).post('/api/orgs/transfer-ownership').set('Authorization', bearer(owner)).send({ newOwnerUserId: admin1.id });
+    expect(first.status).toBe(201);
+    const second = await request(app).post('/api/orgs/transfer-ownership').set('Authorization', bearer(owner)).send({ newOwnerUserId: admin2.id });
+    expect(second.status).toBe(409);
+    expect(second.body.code).toBe('transfer_already_pending');
+  });
+
+  test('the owner can revoke a pending request before it is confirmed', async () => {
+    const { org, user: owner } = await makeOrgWithMember('owner');
+    const admin = await addMember(org, 'admin');
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const created = await request(app).post('/api/orgs/transfer-ownership').set('Authorization', bearer(owner)).send({ newOwnerUserId: admin.id });
+    const token = tokenFromLog(logSpy);
+    logSpy.mockRestore();
+
+    const revokeRes = await request(app).delete(`/api/orgs/transfer-ownership/${created.body.id}`).set('Authorization', bearer(owner));
+    expect(revokeRes.status).toBe(200);
+
+    const confirmAfterRevoke = await request(app).post('/api/orgs/transfer-ownership/confirm').set('Authorization', bearer(admin)).send({ token });
+    expect(confirmAfterRevoke.status).toBe(409);
+    const ownerMembership = await prisma.orgMembership.findUnique({ where: { orgId_userId: { orgId: org.id, userId: owner.id } } });
+    expect(ownerMembership.role).toBe('owner');
+
+    // Revoking frees up the org to start a new request.
+    const another = await request(app).post('/api/orgs/transfer-ownership').set('Authorization', bearer(owner)).send({ newOwnerUserId: admin.id });
+    expect(another.status).toBe(201);
+  });
+
+  test('regression: the generic role-change endpoint refuses to promote anyone to owner directly (would create two owners)', async () => {
+    const { org, user: owner } = await makeOrgWithMember('owner');
+    const admin = await addMember(org, 'admin');
+
+    const res = await request(app).patch(`/api/orgs/members/${admin.id}`).set('Authorization', bearer(owner)).send({ role: 'owner' });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('use_transfer_ownership_endpoint');
+
+    const ownerCount = await prisma.orgMembership.count({ where: { orgId: org.id, role: 'owner', status: 'active' } });
+    expect(ownerCount).toBe(1); // still exactly one owner — the promotion never happened
+  });
+});
+
 describe('Idempotency-Key on POST', () => {
   test('repeating the same key returns the same created row, not a duplicate', async () => {
     const { user } = await makeOrgWithMember('owner');

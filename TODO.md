@@ -230,13 +230,22 @@ is in STATUS.md. Everything below is either in progress or not started.
 - [ ] **Operational hardening — deliberately not attempted in Phase 10**
       (each of these is its own multi-part feature; scoping honestly here
       rather than rushing a partial version of all four):
-  - [ ] **Ownership transfer**: no endpoint exists. Scope: an
-        owner-initiated `POST /api/orgs/:id/transfer-ownership` that
-        emails the target user a confirmation token (reuse the
-        `Invitation` model's expiring-token pattern from Phase 1, don't
-        build a second one), and only demotes the current owner /
-        promotes the target after that token is confirmed — never
-        transfer on the initiating request alone.
+  - [x] **Ownership transfer** — done in Phase 18, exactly as scoped:
+        `POST /api/orgs/transfer-ownership` (owner-only) creates a pending
+        `OwnershipTransferRequest` and emails the target a confirmation
+        token (same expiring-token shape as `Invitation`, kept as its own
+        model — semantics differ: an existing member accepting a handoff,
+        not a new person joining by email); nothing changes until
+        `POST /api/orgs/transfer-ownership/confirm` is called by the
+        target themselves, which atomically swaps both memberships'
+        roles in one `tenantTransaction`. `DELETE /transfer-ownership/:id`
+        lets the owner revoke a pending request. Also closed a real gap
+        found along the way: the existing generic
+        `PATCH /members/:userId` role-change endpoint had no guard against
+        promoting a member straight to `owner` — trivially creating two
+        simultaneous owners with no atomicity at all — now rejected with a
+        pointer to the dedicated endpoint. 9 new integration tests. See
+        STATUS.md.
   - [ ] **Account/org deletion execution**: `RetentionLegalHold` (Phase 1)
         and the anonymize-in-place pattern (`routes/dsar.js`'s `/erase`,
         Phase 6/earlier-this-session) both exist, but nothing executes
