@@ -1553,6 +1553,94 @@ simulates the race directly (two pending requests inserted for the same
 org, confirms both) and asserts the second is rejected with exactly one
 owner remaining. Full suite: 19/19 server test suites, 185 passing.
 
+## Phase 19 — Org/account deletion execution past the retention window (DONE, 2026-07-27)
+
+`RetentionLegalHold` and the DSAR per-user anonymize-in-place pattern
+(`routes/dsar.js`) both already existed, but nothing executed deletion for
+a WHOLE org past its retention window — only a single user's own erasure
+request. Closed with a real scheduled sweep, off by default.
+
+- **New `Organization` fields** — `deletionRequestedAt`, `deletionRequestedBy`,
+  `scheduledDeletionAt`. `POST /api/orgs/request-deletion` (owner-only —
+  affects every member's data, not just the caller's own) starts a grace
+  period (`ORG_DELETION_GRACE_DAYS`, default 30 — matches
+  `trust/retention-schedule.json`'s already-documented `deletion_sla_days`),
+  blocked outright by an active `RetentionLegalHold`; emails every active
+  member (not just the requester) a high-severity notice. `POST
+  /cancel-deletion` clears it, also owner-only, also notifies everyone.
+- **New `lib/org-deletion.js`** — the actual execution logic. Deliberately
+  does NOT hand-maintain a ~44-model foreign-key dependency order (this
+  schema has real cross-references — `ProjectRecord`'s children cascade
+  from it, `Customer` is its parent and must go later, `AgentRunRecord`/
+  `ConsentRecord` don't cascade at all — a hand-typed list is exactly the
+  kind of thing that goes quietly stale the moment someone adds a model
+  and forgets to update it, and getting the order wrong here means a
+  crashed, PARTIALLY deleted org). Instead: `ORG_SCOPED_MODEL_PROPS` is
+  computed once from `Prisma.dmmf.datamodel.models` itself (every model
+  with an `orgId` field, minus `User`/`RetentionLegalHold`/`Organization`,
+  which are handled specially) — a newly added org-scoped model is
+  included automatically, nothing to remember to update. `deleteOrgScopedRows()`
+  repeatedly attempts every remaining model's `deleteMany()`; one still
+  blocked by an uncleared child row fails with a foreign-key error and is
+  simply retried next pass, once that child is gone — self-ordering,
+  correct regardless of schema evolution, and provably terminating (each
+  pass either clears at least one model or the loop throws immediately,
+  never spins forever). The whole sweep runs inside one
+  `runWithSystemAccess` + `prisma.tenantTransaction()` (a background sweep
+  legitimately needs to see every org, and each org's own full data,
+  regardless of ambient tenant context — same pattern as Phase 13/17's
+  fixes), so a genuine failure rolls back the entire org's deletion, never
+  a half-deleted one. The org's home users (`User.orgId` matching) are
+  anonymized in place via the exact DSAR pattern (row kept, not deleted,
+  preserving FK/audit-chain history) plus two things single-user self-erase
+  doesn't need: unlinking `orgId` (the org is ceasing to exist) and
+  deactivating their API keys (a credential for an account that can no
+  longer log in must stop working too). A guest membership the user holds
+  in a *different*, surviving org is untouched.
+- **Found a real bug against actual Postgres that the SQLite suite could
+  not have caught**: Postgres aborts the *entire* transaction on the first
+  error within it ("current transaction is aborted, commands ignored until
+  end of transaction block") — unlike SQLite, which tolerates a failed
+  statement and keeps going. The retry-next-model-in-the-same-pass design
+  depends on being able to continue after a foreign-key failure; on real
+  Postgres, the very first such failure would have poisoned every
+  subsequent model's attempt in that same pass, crashing the whole sweep.
+  All 8 SQLite unit tests passed as written — this only surfaced once
+  actually run against a real non-superuser Postgres+RLS role, exactly
+  the discipline this session has repeatedly relied on. Fixed with a
+  `SAVEPOINT`/`RELEASE SAVEPOINT`/`ROLLBACK TO SAVEPOINT` around each
+  individual model's attempt (supported identically by both providers) —
+  scopes the abort to just that one `deleteMany()`, letting the rest of
+  the pass continue normally. Re-verified against the same real Postgres
+  role afterward: passes.
+- **New scheduled sweep** (`jobs/org-deletion-sweep.js`) — mirrors the
+  existing `lib/lifecycle-triggers.js` start/stop-scheduler shape, but
+  **OFF by default** (`ORG_DELETION_SWEEP_ENABLED` must be explicitly set
+  to `'1'`) — unlike every other scheduler in this codebase, this one is
+  genuinely destructive and irreversible, and should never silently start
+  running the moment a deployment happens to load this file. Supports a
+  `ORG_DELETION_SWEEP_DRY_RUN=1` mode that reports row counts per model
+  without deleting anything, for safely inspecting what a real run would
+  do before ever turning it on for real. Wired into `index.js`'s existing
+  scheduler-start/stop block alongside the others.
+- **Tests**: 8 new unit tests (`tests/unit/org-deletion.test.js`) —
+  request/cancel field handling; active-hold detection; active hold blocks
+  execution entirely; dry run reports accurate counts without touching
+  anything; a full real execution deletes across every single org-scoped
+  model (verified generically by iterating the SAME
+  `ORG_SCOPED_MODEL_PROPS` list the sweep itself uses, not a hand-picked
+  subset) while a completely separate org's identical dataset is fully
+  intact; a guest membership in another org survives; the due-org finder
+  and the sweep's hold-skip/not-due-yet behavior. 6 new integration tests
+  for the routes (`tests/integration/domain-rbac.test.js`) — request sets
+  fields correctly with a real ~30-day grace window; the exact
+  `confirm:'DELETE'` body is required; non-owners can't request; an active
+  hold blocks the request outright; cancel clears the fields; canceling
+  nothing scheduled 404s. Plus the permanent Postgres+RLS regression test
+  described above.
+
+Full suite: 20/20 server test suites, 199 passing (14 new).
+
 ## Not yet started
 
 See TODO.md.

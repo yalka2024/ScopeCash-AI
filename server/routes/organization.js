@@ -25,6 +25,7 @@ const { roleNames, requireAnyOrgRole } = require('../lib/roles');
 const { z, validate, asyncHandler, HttpError } = require('../lib/validate');
 const { audit } = require('../lib/audit');
 const mailer = require('../lib/email');
+const orgDeletion = require('../lib/org-deletion');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -325,6 +326,59 @@ router.post('/invitations/accept', validate(AcceptSchema), asyncHandler(async (r
   }));
   await audit(req, 'organization.invite.accepted', { resource: 'invitation', resourceId: invitation.id });
   res.json({ ok: true, orgId: invitation.orgId, role: invitation.role });
+}));
+
+// ── Org-wide deletion (lib/org-deletion.js executes it on a schedule) ────
+const RequestDeletionSchema = z.object({ confirm: z.literal('DELETE') });
+
+// POST /api/orgs/request-deletion — starts the retention grace period;
+// nothing is deleted by this call itself. Owner-only: this affects every
+// member's data, not just the caller's own.
+router.post('/request-deletion', attachTenant, requireAnyOrgRole('owner'), validate(RequestDeletionSchema),
+  asyncHandler(async (req, res) => {
+    if (await orgDeletion.hasActiveLegalHold(req.tenant.orgId)) {
+      throw new HttpError(409, 'This organization has an active legal/retention hold — deletion cannot be scheduled until it is released', 'active_legal_hold');
+    }
+    const org = await orgDeletion.requestOrgDeletion({ orgId: req.tenant.orgId, requestedByUserId: req.user.id });
+    await audit(req, 'organization.deletion.requested', {
+      resource: 'organization', resourceId: org.id,
+      details: { scheduledDeletionAt: org.scheduledDeletionAt },
+    });
+
+    const members = await prisma.orgMembership.findMany({
+      where: { orgId: req.tenant.orgId, status: 'active' },
+      include: { user: { select: { email: true } } },
+    });
+    const scheduledDate = org.scheduledDeletionAt.toISOString().slice(0, 10);
+    await Promise.all(members.map((m) => mailer.sendTemplate('alert', m.user.email, {
+      title: 'Organization deletion scheduled',
+      severity: 'high',
+      message: `${req.user.name || req.user.email} requested deletion of this organization. All data will be permanently deleted on or after ${scheduledDate} unless an owner cancels the request before then.`,
+    }).catch((e) => console.error('[organization] deletion-scheduled notice failed:', e && e.message))));
+
+    res.status(201).json({ ok: true, scheduledDeletionAt: org.scheduledDeletionAt });
+  }));
+
+// POST /api/orgs/cancel-deletion — owner-only, any time before the sweep executes.
+router.post('/cancel-deletion', attachTenant, requireAnyOrgRole('owner'), asyncHandler(async (req, res) => {
+  const org = await prisma.organization.findUnique({ where: { id: req.tenant.orgId } });
+  if (!org || !org.scheduledDeletionAt) {
+    throw new HttpError(404, 'No deletion is currently scheduled for this organization', 'not_found');
+  }
+  await orgDeletion.cancelOrgDeletion({ orgId: req.tenant.orgId });
+  await audit(req, 'organization.deletion.canceled', { resource: 'organization', resourceId: req.tenant.orgId });
+
+  const members = await prisma.orgMembership.findMany({
+    where: { orgId: req.tenant.orgId, status: 'active' },
+    include: { user: { select: { email: true } } },
+  });
+  await Promise.all(members.map((m) => mailer.sendTemplate('alert', m.user.email, {
+    title: 'Organization deletion canceled',
+    severity: 'medium',
+    message: `${req.user.name || req.user.email} canceled the scheduled deletion of this organization. No data will be deleted.`,
+  }).catch((e) => console.error('[organization] deletion-canceled notice failed:', e && e.message))));
+
+  res.json({ ok: true });
 }));
 
 module.exports = router;

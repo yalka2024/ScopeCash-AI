@@ -246,14 +246,22 @@ is in STATUS.md. Everything below is either in progress or not started.
         simultaneous owners with no atomicity at all — now rejected with a
         pointer to the dedicated endpoint. 9 new integration tests. See
         STATUS.md.
-  - [ ] **Account/org deletion execution**: `RetentionLegalHold` (Phase 1)
-        and the anonymize-in-place pattern (`routes/dsar.js`'s `/erase`,
-        Phase 6/earlier-this-session) both exist, but nothing executes
-        deletion for a whole ORG past its retention window — only a
-        single user's own DSAR erasure. Needs a scheduled job (cron or
-        Cloud Tasks on a timer) that finds orgs past their configured
-        retention period with no active `RetentionLegalHold`, and
-        anonymizes/deletes per-model in FK-safe order.
+  - [x] **Account/org deletion execution** — done in Phase 19: real,
+        owner-initiated `POST /api/orgs/request-deletion` (30-day grace
+        period, matching `trust/retention-schedule.json`'s documented
+        `deletion_sla_days`) / `POST /cancel-deletion`, plus a new
+        `jobs/org-deletion-sweep.js` scheduled sweep (OFF by default —
+        `ORG_DELETION_SWEEP_ENABLED=1` — this is genuinely destructive)
+        that executes real deletion via `lib/org-deletion.js`. Deletes
+        across all 44 org-scoped models (computed from Prisma's own schema
+        metadata, not hand-maintained) using a self-ordering retry loop
+        instead of a manually-ordered FK dependency list. Found and fixed
+        a real bug against actual Postgres that the SQLite test suite could
+        not catch: Postgres aborts the *entire* transaction on the first
+        per-model foreign-key failure (unlike SQLite), so the retry-next-
+        model approach needs a `SAVEPOINT` per attempt — without it, the
+        very first ordering-related failure would have crashed the whole
+        sweep on real production Postgres. See STATUS.md.
   - [ ] **API-key project-level scopes**: `ApiKey.scopes` (Phase 1) is
         org-wide (`read`/`write`/etc across every project in the org).
         Project-level scoping needs either a join table

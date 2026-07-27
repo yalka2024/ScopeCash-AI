@@ -79,6 +79,7 @@ const growthEvents = require('./lib/growth-events');
 const warehouseExport = require('./jobs/warehouse-export');
 const requestSampler = require('./lib/request-sampler');
 const usageAggregator = require('./jobs/usage-aggregator');
+const orgDeletionSweep = require('./jobs/org-deletion-sweep');
 const exportRoutes = require('./routes/export');
 const webhookRoutes = require('./routes/webhook');
 const docsRoutes = require('./routes/docs');
@@ -297,6 +298,7 @@ const server = app.listen(PORT, () => {
     lifecycleTriggers.startScheduler();
     warehouseExport.startScheduler();
     requestSampler.startScheduler();
+    orgDeletionSweep.startScheduler(); // no-op unless ORG_DELETION_SWEEP_ENABLED=1
   }
 });
 
@@ -321,6 +323,7 @@ async function gracefulShutdown(signal) {
   stopEvidenceJobReconciler();
   try { lifecycleTriggers.stopScheduler(); } catch {}
   try { warehouseExport.stopScheduler(); } catch {}
+  try { orgDeletionSweep.stopScheduler(); } catch {}
   try { requestSampler.stopScheduler(); await requestSampler.drain(); } catch {}
   try { await growthEvents.drain(); } catch {}
   try {

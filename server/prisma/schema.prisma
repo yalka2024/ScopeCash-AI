@@ -49,6 +49,14 @@ model Organization {
   memberships OrgMembership[]
   invitations Invitation[]
   ownershipTransferRequests OwnershipTransferRequest[]
+
+  // Org-wide deletion request (lib/org-deletion.js) — set by an owner via
+  // POST /api/orgs/request-deletion, cleared by /cancel-deletion. A
+  // scheduled sweep executes real deletion once scheduledDeletionAt has
+  // passed AND no active RetentionLegalHold exists for the org.
+  deletionRequestedAt DateTime?
+  deletionRequestedBy String?
+  scheduledDeletionAt DateTime?
 }
 
 // ─── Core Domain: Project ─────────────────

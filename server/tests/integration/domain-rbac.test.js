@@ -463,6 +463,66 @@ describe('ownership transfer (two-step: request, then target confirms)', () => {
   });
 });
 
+describe('org deletion request/cancel', () => {
+  test('the owner can request deletion; scheduledDeletionAt is set roughly 30 days out by default', async () => {
+    const { org, user: owner } = await makeOrgWithMember('owner');
+    const res = await request(app).post('/api/orgs/request-deletion').set('Authorization', bearer(owner)).send({ confirm: 'DELETE' });
+    expect(res.status).toBe(201);
+    expect(res.body.scheduledDeletionAt).toBeTruthy();
+
+    const updated = await prisma.organization.findUnique({ where: { id: org.id } });
+    expect(updated.deletionRequestedAt).toBeTruthy();
+    expect(updated.deletionRequestedBy).toBe(owner.id);
+    const daysOut = (new Date(updated.scheduledDeletionAt).getTime() - new Date(updated.deletionRequestedAt).getTime()) / 86_400_000;
+    expect(daysOut).toBeCloseTo(30, 0);
+  });
+
+  test('requires the exact confirm:"DELETE" body — a typo or missing confirmation does not schedule anything', async () => {
+    const { org, user: owner } = await makeOrgWithMember('owner');
+    const res = await request(app).post('/api/orgs/request-deletion').set('Authorization', bearer(owner)).send({ confirm: 'delete' });
+    expect(res.status).toBe(400);
+    const updated = await prisma.organization.findUnique({ where: { id: org.id } });
+    expect(updated.scheduledDeletionAt).toBeNull();
+  });
+
+  test('a non-owner cannot request org deletion', async () => {
+    const { org } = await makeOrgWithMember('owner');
+    const admin = await prisma.user.create({ data: { email: uniqueEmail(), passwordHash: '$2b$10$abcdefghijklmnopqrstuv', role: 'user', orgId: org.id, emailVerified: true } });
+    await prisma.orgMembership.create({ data: { orgId: org.id, userId: admin.id, role: 'admin', status: 'active' } });
+
+    const res = await request(app).post('/api/orgs/request-deletion').set('Authorization', bearer(admin)).send({ confirm: 'DELETE' });
+    expect(res.status).toBe(403);
+    const updated = await prisma.organization.findUnique({ where: { id: org.id } });
+    expect(updated.scheduledDeletionAt).toBeNull();
+  });
+
+  test('an active legal hold blocks the initial request outright', async () => {
+    const { org, owner, proj } = await seedProjectAndPacket();
+    await prisma.retentionLegalHold.create({ data: { orgId: org.id, resourceType: 'project', resourceId: proj.body.id, holdType: 'legal_hold' } });
+
+    const res = await request(app).post('/api/orgs/request-deletion').set('Authorization', bearer(owner)).send({ confirm: 'DELETE' });
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('active_legal_hold');
+  });
+
+  test('the owner can cancel a pending deletion request', async () => {
+    const { org, user: owner } = await makeOrgWithMember('owner');
+    await request(app).post('/api/orgs/request-deletion').set('Authorization', bearer(owner)).send({ confirm: 'DELETE' });
+
+    const res = await request(app).post('/api/orgs/cancel-deletion').set('Authorization', bearer(owner));
+    expect(res.status).toBe(200);
+    const updated = await prisma.organization.findUnique({ where: { id: org.id } });
+    expect(updated.scheduledDeletionAt).toBeNull();
+    expect(updated.deletionRequestedAt).toBeNull();
+  });
+
+  test('canceling when nothing is scheduled 404s', async () => {
+    const { user: owner } = await makeOrgWithMember('owner');
+    const res = await request(app).post('/api/orgs/cancel-deletion').set('Authorization', bearer(owner));
+    expect(res.status).toBe(404);
+  });
+});
+
 describe('Idempotency-Key on POST', () => {
   test('repeating the same key returns the same created row, not a duplicate', async () => {
     const { user } = await makeOrgWithMember('owner');

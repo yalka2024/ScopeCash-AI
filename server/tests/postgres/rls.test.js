@@ -251,6 +251,51 @@ d('Postgres RLS', () => {
     const finalDoc = await runWithSystemAccess(async () => prisma.sourceDocument.findUnique({ where: { id: sourceDocument.id } }));
     expect(finalDoc.extraction_status).toBe('extracted');
   });
+
+  test('regression: org-deletion.js#sweepOrgsForDeletion() deletes across every RLS-protected model with zero ambient context, and never touches an unrelated org', async () => {
+    // Same class of hazard as the two regressions above: sweepOrgsForDeletion()
+    // is called from a bare setInterval tick, needs to see EVERY due org
+    // (not one caller's own), and each org's actual deletion needs full
+    // visibility into that org's own RLS-protected rows to delete them —
+    // confirms lib/org-deletion.js's internal runWithSystemAccess()
+    // wrapping is correct on real Postgres+RLS, not just a SQLite no-op.
+    const orgDeletion = require('../../lib/org-deletion');
+    const due = await runWithSystemAccess(async () => {
+      const org = await prisma.organization.create({ data: { name: uid('Org'), scheduledDeletionAt: new Date(Date.now() - 1000) } });
+      const user = await prisma.user.create({ data: { email: `${uid('u')}@test.local`, passwordHash: 'x', orgId: org.id, emailVerified: true } });
+      await prisma.orgMembership.create({ data: { orgId: org.id, userId: user.id, role: 'owner', status: 'active' } });
+      const customer = await prisma.customer.create({ data: { orgId: org.id, name: uid('Customer') } });
+      const project = await prisma.projectRecord.create({ data: { orgId: org.id, customer_id: customer.id, name: 'RLS org-deletion regression', userId: user.id } });
+      const finding = await prisma.evidenceFinding.create({
+        data: { orgId: org.id, project_id: project.id, finding_type: 'scope_delta', assertion: 'x', source_citations: '[]' },
+      });
+      return { org, user, customer, project, finding };
+    });
+    const untouched = await runWithSystemAccess(async () => {
+      const org = await prisma.organization.create({ data: { name: uid('Org') } }); // no scheduledDeletionAt — not due
+      const customer = await prisma.customer.create({ data: { orgId: org.id, name: uid('Customer') } });
+      return { org, customer };
+    });
+
+    // No runWithOrg/runWithSystemAccess anywhere around this call — the point.
+    const results = await orgDeletion.sweepOrgsForDeletion();
+    const mine = results.find((r) => r.orgId === due.org.id);
+    expect(mine).toMatchObject({ deleted: true });
+
+    const orgRow = await runWithSystemAccess(async () => prisma.organization.findUnique({ where: { id: due.org.id } }));
+    expect(orgRow).toBeNull();
+    const findingRow = await runWithSystemAccess(async () => prisma.evidenceFinding.findUnique({ where: { id: due.finding.id } }));
+    expect(findingRow).toBeNull();
+    const anonymizedUser = await runWithSystemAccess(async () => prisma.user.findUnique({ where: { id: due.user.id } }));
+    expect(anonymizedUser.role).toBe('erased');
+    expect(anonymizedUser.orgId).toBeNull();
+
+    // The unrelated, not-due org is completely untouched.
+    const untouchedOrg = await runWithSystemAccess(async () => prisma.organization.findUnique({ where: { id: untouched.org.id } }));
+    expect(untouchedOrg).toBeTruthy();
+    const untouchedCustomer = await runWithSystemAccess(async () => prisma.customer.findUnique({ where: { id: untouched.customer.id } }));
+    expect(untouchedCustomer).toBeTruthy();
+  });
 });
 
 if (!isPg) {
