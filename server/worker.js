@@ -28,6 +28,7 @@ if (!w) {
 }
 asyncRunner.startWorker();   // background agent/workflow/goal runs
 evidenceJobs.startWorker();  // background evidence analysis (documents/photos/audio/findings)
+evidenceJobs.startReconciler(); // re-dispatches AgentRunRecord rows stuck at 'queued' past the dispatch threshold
 console.log(`[worker] started; concurrency=${process.env.WORKER_CONCURRENCY || 4}`);
 
 let shuttingDown = false;
@@ -38,6 +39,7 @@ async function shutdown(signal) {
   try { await stopBullWorker(); } catch {}
   try { await asyncRunner.stopWorker(); } catch {}
   try { await evidenceJobs.stopWorker(); } catch {}
+  try { evidenceJobs.stopReconciler(); } catch {}
   process.exit(0);
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'));

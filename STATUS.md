@@ -1380,6 +1380,88 @@ via `git stash`, not something this change otherwise introduced; see the
 existing dependency-scan note in `.github/workflows/ci.yml` for why that
 scan is report-only.
 
+## Phase 17 — Transactional outbox: billing + job-creation dual-write hazards (DONE, 2026-07-27)
+
+Real research first (an Explore agent mapped every dual-write hazard point
+across billing, notifications, job creation, and audit — see TODO.md for
+the full ranked list), then fixed the two concrete, high-impact hazards and
+explicitly deferred the two low-value ones rather than force-fitting a
+generic outbox table everywhere the TODO item's wording suggested one.
+
+**Billing — a severe, previously-unknown, empirically-verified production
+bug, not just a design smell.** `routes/stripe-webhook.js` never established
+ANY tenant/system context before touching Subscription/Invoice (both
+`orgId`-bearing, RLS-protected tables) — no `attachTenant` middleware is
+mounted on this route (Stripe calls it directly, there's no authenticated
+session), and nothing else ever wrapped it in `runWithOrg`/
+`runWithSystemAccess` either. **Reproduced the bug for real** before
+touching any code: stashed the fix, ran a new regression test against a
+real non-superuser Postgres+RLS role, and got exactly the predicted
+failure — `error 42501: new row violates row-level security policy for
+table "Subscription"` — confirming every subscription/invoice-mutating
+webhook would have 500'd on its very first real delivery in production.
+Worse, the dedup marker (`StripeEvent.create`) was written *before* the
+mutation, as a separate step: Stripe's automatic retry after that 500 would
+hit the dedup check first, get treated as "already handled," and the event
+would be silently dropped forever — real subscription/invoice state
+divergence for every single customer. `dunning.activate()`/
+`prisma.invoice.upsert()` also had `.catch(() => {})` swallowing real
+errors, masking the same failure mode a second way.
+
+Fix: wrapped the handler body in `runWithSystemAccess` (the legitimate,
+narrow escape hatch `lib/tenant-context.js` documents for exactly this
+shape — no per-request org, the org comes from the event's own metadata)
+and made the dedup-marker write and the state mutation atomic via
+`prisma.tenantTransaction()` (the one primitive that gives real cross-op
+atomicity under the RLS query-extension — plain `$transaction([...])`
+does not, per `lib/prisma.js`'s own comment). `lib/billing/dunning.js`'s
+functions now accept an optional `client` param (default the module
+prisma) so the webhook route can pass the shared `tx`; every existing
+caller (`sweepLifecycles()`) is unaffected. Removed the error-swallowing
+`.catch(() => {})` calls so real failures roll back the transaction (dedup
+marker included) and propagate to a 500, letting a genuine Stripe retry
+actually reprocess the event instead of being permanently silenced.
+Re-ran the same real-Postgres+RLS regression after the fix: passes.
+4 new SQLite integration tests (`tests/integration/stripe-webhook.test.js`)
+plus 1 new permanent Postgres+RLS regression test.
+
+**Job creation.** `lib/evidence-jobs.js#enqueue*()` creates the
+`AgentRunRecord` row (status `queued`) then dispatches to Cloud Tasks/
+BullMQ/in-process `setImmediate` as a separate step — if the process
+crashes/restarts between those two steps, or a dispatch that looked
+successful never actually lands, the record is stuck at `queued` forever:
+nothing will ever process it, and a client polling
+`GET /api/agentRunRecords/:id` waits forever too. New
+`reconcileStuckJobs()` (60s tick, wired into both `index.js`'s main
+process and `worker.js`'s standalone process) finds `AgentRunRecord` rows
+past a 2-minute "should have started by now" threshold and re-dispatches
+them by reconstructing the job from the row's own `agent_type`/
+`input_refs` — safe because every `_process*()` handler already re-checks
+the target row's own status before doing any work (the same idempotency
+guard that protects against real Cloud Tasks/BullMQ redelivery). The sweep
+itself legitimately needs to scan across every org (a stuck job's org
+isn't known ahead of time), so it wraps its own query in
+`runWithSystemAccess` — verified against real Postgres+RLS with zero
+ambient context, matching the Phase 13 pattern. 4 new unit tests (stuck
+run gets redispatched and completes; a fresh queued run within the
+threshold is left alone; an unrecognized `agent_type` is skipped rather
+than guessed at; redelivery is idempotent if the job actually did complete
+moments before the sweep ran) plus 1 new permanent Postgres+RLS regression
+test.
+
+**Deliberately deferred, with reasons** (see TODO.md for the fuller
+research findings): notifications (`enqueueWebhookEvent`'s own write-side
+dual-write hazard is only reachable from `routes/project.js`, a legacy
+pre-ScopeCash-pivot route confirmed to have no dashboard UI reaching it —
+not worth hardening a path the product doesn't use); audit (`audit()` is
+already a deliberately fire-and-forget, self-swallowing, append-only
+hash-chained log by design — lowest risk of the four, and integrating it
+into arbitrary callers' transactions is a bigger, separate concern).
+
+Full suite: 19/19 server test suites, 174 passing (14 new; 2 new permanent
+Postgres+RLS regression tests, both independently verified against a real
+non-superuser role).
+
 ## Not yet started
 
 See TODO.md.

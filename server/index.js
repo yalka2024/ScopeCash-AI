@@ -34,6 +34,7 @@ const limiters = require('./lib/ratelimit');
 const { errorMiddleware } = require('./lib/validate');
 const { issueCsrfCookie, csrfProtect } = require('./lib/csrf');
 const { startWebhookWorker, stopWebhookWorker } = require('./lib/webhook-delivery');
+const { startReconciler: startEvidenceJobReconciler, stopReconciler: stopEvidenceJobReconciler } = require('./lib/evidence-jobs');
 const lifecycle = require('./lib/lifecycle');
 const metrics = require('./lib/metrics');
 
@@ -290,6 +291,7 @@ const server = app.listen(PORT, () => {
   console.log(`ScopeCash AI API running on http://localhost:${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   startWebhookWorker();
+  startEvidenceJobReconciler();
   if (process.env.NODE_ENV !== 'test') {
     usageAggregator.startScheduler();
     lifecycleTriggers.startScheduler();
@@ -316,6 +318,7 @@ async function gracefulShutdown(signal) {
 
   // 2. Stop background workers
   stopWebhookWorker();
+  stopEvidenceJobReconciler();
   try { lifecycleTriggers.stopScheduler(); } catch {}
   try { warehouseExport.stopScheduler(); } catch {}
   try { requestSampler.stopScheduler(); await requestSampler.drain(); } catch {}

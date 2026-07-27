@@ -35,7 +35,7 @@ const storage = require('./storage');
 const pipeline = require('./evidence-pipeline');
 const vertex = require('./vertex-ai');
 const cloudTasks = require('./cloud-tasks');
-const { runWithOrg } = require('./tenant-context');
+const { runWithOrg, runWithSystemAccess } = require('./tenant-context');
 
 const MIN_EXTRACTED_CHARS = 20;
 const QUEUE_NAME = 'scopecash-ai-evidence-jobs';
@@ -324,6 +324,72 @@ async function processJob(job) {
   });
 }
 
+// ── Reconciliation sweep (the "job creation" dual-write hazard) ──────────
+// enqueue*() above creates the AgentRunRecord row (status 'queued') THEN
+// dispatches to Cloud Tasks/BullMQ/setImmediate as a SEPARATE step. If the
+// process crashes/restarts between those two steps — or a dispatch that
+// looked successful never actually lands (a BullMQ .add() racing a process
+// exit before its promise settles, a Cloud Tasks call that times out after
+// the request already reached the queue) — the record is stuck at 'queued'
+// forever: nothing will ever process it, and a client polling
+// GET /api/agentRunRecords/:id waits forever too. This sweep finds
+// AgentRunRecord rows past a "should have started by now" threshold and
+// re-dispatches them. Safe to redeliver: every _process*() handler above
+// already re-checks the target row's own status before doing any work
+// (the same idempotency guard that protects against real Cloud Tasks/
+// BullMQ redelivery), so a job that actually did start after all is just a
+// harmless no-op the second time.
+const STUCK_JOB_THRESHOLD_MS = 2 * 60 * 1000;
+const AGENT_TYPE_TO_KIND = {
+  sourceDocument_analyze_job: 'sourceDocument.analyze',
+  evidenceItem_analyze_job: 'evidenceItem.analyze',
+  findings_generate_job: 'project.findingsGenerate',
+};
+
+function _reconstructJob(run) {
+  const kind = AGENT_TYPE_TO_KIND[run.agent_type];
+  if (!kind) return null; // not a kind this module dispatches (or redispatching isn't safe/known)
+  let inputRefs = {};
+  try { inputRefs = run.input_refs ? JSON.parse(run.input_refs) : {}; } catch { /* leave empty */ }
+  const base = { runId: run.id, kind, orgId: run.orgId, projectId: run.project_id };
+  if (kind === 'sourceDocument.analyze') return { ...base, sourceDocumentId: inputRefs.sourceDocumentId };
+  if (kind === 'evidenceItem.analyze') return { ...base, evidenceItemId: inputRefs.evidenceItemId };
+  if (kind === 'project.findingsGenerate') return { ...base, changeEventId: inputRefs.changeEventId || null };
+  return null;
+}
+
+/** Run periodically (see startReconciler below). Reads across every org on
+ * purpose — a stuck job's own org isn't known ahead of time — so this is
+ * exactly the narrow, audited runWithSystemAccess() case lib/tenant-
+ * context.js documents, not a per-request org. */
+async function reconcileStuckJobs({ olderThanMs = STUCK_JOB_THRESHOLD_MS, limit = 25 } = {}) {
+  const cutoff = new Date(Date.now() - olderThanMs);
+  const stuck = await runWithSystemAccess(async () => prisma.agentRunRecord.findMany({
+    where: { status: 'queued', createdAt: { lt: cutoff }, agent_type: { in: Object.keys(AGENT_TYPE_TO_KIND) } },
+    take: limit, orderBy: { createdAt: 'asc' },
+  }));
+  let redispatched = 0;
+  for (const run of stuck) {
+    const job = _reconstructJob(run);
+    if (!job) continue;
+    console.warn(`[evidence-jobs] reconciling stuck run ${run.id} (${run.agent_type}, queued since ${run.createdAt.toISOString()}) — redispatching`);
+    await _dispatch(job);
+    redispatched++;
+  }
+  return { checked: stuck.length, redispatched };
+}
+
+let reconcileTimer = null;
+const RECONCILE_TICK_MS = 60_000;
+function startReconciler() {
+  if (reconcileTimer) return;
+  reconcileTimer = setInterval(() => {
+    reconcileStuckJobs().catch((err) => console.error('[evidence-jobs] reconcile tick failed:', err.message));
+  }, RECONCILE_TICK_MS);
+  reconcileTimer.unref && reconcileTimer.unref();
+}
+function stopReconciler() { if (reconcileTimer) { clearInterval(reconcileTimer); reconcileTimer = null; } }
+
 module.exports = {
   enqueueSourceDocumentAnalysis,
   enqueueEvidenceItemAnalysis,
@@ -331,4 +397,7 @@ module.exports = {
   processJob,
   startWorker,
   stopWorker,
+  reconcileStuckJobs,
+  startReconciler,
+  stopReconciler,
 };

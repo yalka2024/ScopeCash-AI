@@ -26,11 +26,14 @@ function addDays(date, days) {
   return d;
 }
 
-/** Called by webhook on `customer.subscription.created` / trial_will_end. */
-async function startTrial({ orgId, planId, trialDays, stripeSubId, stripeCustomerId }) {
+/** Called by webhook on `customer.subscription.created` / trial_will_end.
+ * `client` defaults to the module's own prisma singleton — pass a `tx` from
+ * prisma.tenantTransaction() to make this write atomic with a caller's own
+ * writes (e.g. routes/stripe-webhook.js's event dedup marker). */
+async function startTrial({ orgId, planId, trialDays, stripeSubId, stripeCustomerId }, client = prisma) {
   const now = new Date();
   const trialEndsAt = addDays(now, trialDays || 14);
-  return prisma.subscription.upsert({
+  return client.subscription.upsert({
     where: { orgId },
     create: {
       orgId, planId,
@@ -50,8 +53,8 @@ async function startTrial({ orgId, planId, trialDays, stripeSubId, stripeCustome
   });
 }
 
-async function activate({ orgId, planId, stripeSubId, currentPeriodStart, currentPeriodEnd }) {
-  return prisma.subscription.update({
+async function activate({ orgId, planId, stripeSubId, currentPeriodStart, currentPeriodEnd }, client = prisma) {
+  return client.subscription.update({
     where: { orgId },
     data: {
       planId, status: 'active', stripeSubId,
@@ -62,9 +65,9 @@ async function activate({ orgId, planId, stripeSubId, currentPeriodStart, curren
   });
 }
 
-async function markPastDue({ orgId, graceDays = GRACE_DAYS_DEFAULT }) {
+async function markPastDue({ orgId, graceDays = GRACE_DAYS_DEFAULT }, client = prisma) {
   const now = new Date();
-  return prisma.subscription.update({
+  return client.subscription.update({
     where: { orgId },
     data: {
       status: 'past_due',
@@ -74,25 +77,25 @@ async function markPastDue({ orgId, graceDays = GRACE_DAYS_DEFAULT }) {
   });
 }
 
-async function markGrace({ orgId, suspendDays = SUSPEND_DAYS_DEFAULT }) {
+async function markGrace({ orgId, suspendDays = SUSPEND_DAYS_DEFAULT }, client = prisma) {
   const now = new Date();
-  return prisma.subscription.update({
+  return client.subscription.update({
     where: { orgId },
     data: { status: 'grace', graceUntil: addDays(now, suspendDays) },
   });
 }
 
-async function suspend({ orgId }) {
-  return prisma.subscription.update({
+async function suspend({ orgId }, client = prisma) {
+  return client.subscription.update({
     where: { orgId },
     data: { status: 'suspended', suspendedAt: new Date() },
   });
 }
 
-async function cancel({ orgId, atPeriodEnd = false }) {
-  const sub = await prisma.subscription.findUnique({ where: { orgId } });
+async function cancel({ orgId, atPeriodEnd = false }, client = prisma) {
+  const sub = await client.subscription.findUnique({ where: { orgId } });
   if (!sub) return null;
-  return prisma.subscription.update({
+  return client.subscription.update({
     where: { orgId },
     data: {
       status: atPeriodEnd ? sub.status : 'canceled',

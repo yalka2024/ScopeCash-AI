@@ -191,7 +191,37 @@ is in STATUS.md. Everything below is either in progress or not started.
       not re-derive its own totals.
 - [ ] Durable GCP jobs: idempotency, retries, heartbeat, cancellation,
       progress, dead-lettering, replay (folds into Phase 3).
-- [ ] Transactional outbox for billing/notifications/job creation/audit.
+- [x] Transactional outbox for billing/notifications/job creation/audit —
+      done in Phase 17 for billing + job creation (the two real, concrete
+      dual-write hazards found); notifications and audit deliberately
+      deferred with reasons. See STATUS.md.
+      - **Billing**: `routes/stripe-webhook.js` never established any
+        tenant context at all — a severe, empirically-verified bug (
+        reproduced against real Postgres+RLS before the fix, confirmed
+        fixed after): every Subscription/Invoice-mutating webhook would
+        have 500'd on every delivery in real production, and because the
+        event-dedup marker was written BEFORE the mutation instead of
+        atomically with it, Stripe's retry would then be silently
+        swallowed as "already handled." Fixed by wrapping the handler in
+        `runWithSystemAccess` + writing the dedup marker and the mutation
+        in one `tenantTransaction`.
+      - **Job creation**: `lib/evidence-jobs.js`'s `enqueue*()` writes the
+        `AgentRunRecord` row then dispatches as a separate step — if the
+        process crashes/restarts between them, the record is stuck at
+        `queued` forever. New `reconcileStuckJobs()` sweep (60s tick)
+        re-dispatches runs stuck past a threshold, safe because every
+        handler is already idempotent against redelivery.
+      - **Notifications** (`enqueueWebhookEvent`'s write-side dual-write
+        hazard): only reachable from `routes/project.js`, confirmed to be
+        a legacy pre-pivot route with no dashboard UI reaching it — not
+        worth hardening a path the product doesn't use. A real fix belongs
+        with that route's own cleanup, not bundled in here.
+      - **Audit**: `audit()` already runs as a deliberately fire-and-forget,
+        self-swallowing, append-only hash-chained log by design (see
+        `lib/audit.js`'s own comments) — lowest risk of the four (log-only,
+        not money/state), and wrapping arbitrary callers' writes atomically
+        with its hash-chain sequencing is a bigger, separate concern than
+        this phase's scope. Deliberately left unchanged.
 - [x] Encrypt MFA secret at rest; require verified email for MFA setup
       (Phase 1).
 - [x] Organization membership records instead of bare `orgId` on `User`;

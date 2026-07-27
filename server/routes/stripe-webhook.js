@@ -11,6 +11,7 @@ const router = express.Router();
 const prisma = require('../lib/prisma');
 const stripe = require('../lib/billing/stripe');
 const dunning = require('../lib/billing/dunning');
+const { runWithSystemAccess } = require('../lib/tenant-context');
 
 router.post(
   '/stripe',
@@ -29,93 +30,129 @@ router.post(
       return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
-    // Idempotency: skip if we've seen this event id before.
-    try {
-      await prisma.stripeEvent.create({ data: { id: event.id, type: event.type } });
-    } catch (err) {
-      // Unique violation = duplicate delivery, ack and ignore.
-      return res.status(200).json({ received: true, duplicate: true });
-    }
+    // Fast-path pre-check only — NOT the authoritative dedup guard (that's
+    // the unique constraint inside the transaction below). This just avoids
+    // re-running side effects for a delivery we already know succeeded,
+    // without an extra round trip for the common case of a first delivery.
+    const seen = await prisma.stripeEvent.findUnique({ where: { id: event.id } });
+    if (seen) return res.status(200).json({ received: true, duplicate: true });
 
     try {
-      switch (event.type) {
-        case 'customer.subscription.created':
-        case 'customer.subscription.updated': {
-          const s = event.data.object;
-          const orgId = s.metadata?.orgId;
-          if (!orgId) break;
-          const planId = s.metadata?.tierId || s.items?.data?.[0]?.price?.lookup_key || 'free';
-          const status = mapStripeStatus(s.status);
-          await prisma.subscription.upsert({
-            where: { orgId },
-            create: {
-              orgId, planId, status,
-              stripeSubId: s.id,
-              stripeCustomerId: s.customer,
-              currentPeriodStart: new Date(s.current_period_start * 1000),
-              currentPeriodEnd:   new Date(s.current_period_end   * 1000),
-              trialEndsAt: s.trial_end ? new Date(s.trial_end * 1000) : null,
-              cancelAt:    s.cancel_at ? new Date(s.cancel_at * 1000) : null,
-            },
-            update: {
-              planId, status,
-              stripeSubId: s.id,
-              stripeCustomerId: s.customer,
-              currentPeriodStart: new Date(s.current_period_start * 1000),
-              currentPeriodEnd:   new Date(s.current_period_end   * 1000),
-              trialEndsAt: s.trial_end ? new Date(s.trial_end * 1000) : null,
-              cancelAt:    s.cancel_at ? new Date(s.cancel_at * 1000) : null,
-            },
-          });
-          break;
-        }
-        case 'invoice.payment_failed': {
-          const inv = event.data.object;
-          const orgId = inv.subscription_details?.metadata?.orgId
-                     || inv.lines?.data?.[0]?.metadata?.orgId;
-          if (orgId) await dunning.markPastDue({ orgId });
-          break;
-        }
-        case 'invoice.payment_succeeded': {
-          const inv = event.data.object;
-          const orgId = inv.subscription_details?.metadata?.orgId
-                     || inv.lines?.data?.[0]?.metadata?.orgId;
-          if (orgId) {
-            await dunning.activate({
-              orgId,
-              planId: inv.lines?.data?.[0]?.price?.lookup_key || undefined,
-              stripeSubId: inv.subscription,
-              currentPeriodStart: new Date(inv.period_start * 1000),
-              currentPeriodEnd:   new Date(inv.period_end   * 1000),
-            }).catch(() => {});
-            // Persist the invoice for the customer's records.
-            await prisma.invoice.upsert({
-              where: { stripeInvoiceId: inv.id },
-              create: {
-                stripeInvoiceId: inv.id, orgId,
-                amountCents: inv.amount_paid,
-                currency: inv.currency,
-                status: 'paid',
-                periodStart: new Date(inv.period_start * 1000),
-                periodEnd:   new Date(inv.period_end   * 1000),
-                hostedUrl:   inv.hosted_invoice_url || null,
-              },
-              update: { status: 'paid', amountCents: inv.amount_paid },
-            }).catch(() => {});
+      // Stripe webhooks aren't tied to any authenticated org's session — the
+      // org comes from the event's own metadata, so this is exactly the
+      // legitimate, narrow runWithSystemAccess() case lib/tenant-context.js
+      // documents (not a per-request org). Without this, every write below
+      // ran with NO tenant context at all on real Postgres+RLS: fail-closed
+      // RLS makes the target Subscription/Invoice row invisible, so
+      // `update()` throws "record not found" and `upsert()` would attempt a
+      // spurious `create` that collides with the real (RLS-hidden) row's
+      // own unique constraint — every webhook of this kind would 500 on
+      // every single delivery, forever, the first time this ran against
+      // real production Postgres+RLS.
+      //
+      // The event-dedup marker is written INSIDE the same transaction as
+      // the state mutation (via tenantTransaction — the only primitive that
+      // gives real cross-op atomicity under the RLS query-extension; see
+      // lib/prisma.js's own comment on why the array `$transaction([...])`
+      // form does not). If the mutation throws, the dedup marker rolls back
+      // with it, so a genuine Stripe retry can actually reprocess the event
+      // instead of being permanently swallowed as "already handled" by a
+      // marker written for a delivery that never actually took effect.
+      await runWithSystemAccess(async () => {
+        await prisma.tenantTransaction(async (tx) => {
+          await tx.stripeEvent.create({ data: { id: event.id, type: event.type } });
+
+          switch (event.type) {
+            case 'customer.subscription.created':
+            case 'customer.subscription.updated': {
+              const s = event.data.object;
+              const orgId = s.metadata?.orgId;
+              if (!orgId) break;
+              const planId = s.metadata?.tierId || s.items?.data?.[0]?.price?.lookup_key || 'free';
+              const status = mapStripeStatus(s.status);
+              await tx.subscription.upsert({
+                where: { orgId },
+                create: {
+                  orgId, planId, status,
+                  stripeSubId: s.id,
+                  stripeCustomerId: s.customer,
+                  currentPeriodStart: new Date(s.current_period_start * 1000),
+                  currentPeriodEnd:   new Date(s.current_period_end   * 1000),
+                  trialEndsAt: s.trial_end ? new Date(s.trial_end * 1000) : null,
+                  cancelAt:    s.cancel_at ? new Date(s.cancel_at * 1000) : null,
+                },
+                update: {
+                  planId, status,
+                  stripeSubId: s.id,
+                  stripeCustomerId: s.customer,
+                  currentPeriodStart: new Date(s.current_period_start * 1000),
+                  currentPeriodEnd:   new Date(s.current_period_end   * 1000),
+                  trialEndsAt: s.trial_end ? new Date(s.trial_end * 1000) : null,
+                  cancelAt:    s.cancel_at ? new Date(s.cancel_at * 1000) : null,
+                },
+              });
+              break;
+            }
+            case 'invoice.payment_failed': {
+              const inv = event.data.object;
+              const orgId = inv.subscription_details?.metadata?.orgId
+                         || inv.lines?.data?.[0]?.metadata?.orgId;
+              if (orgId) await dunning.markPastDue({ orgId }, tx);
+              break;
+            }
+            case 'invoice.payment_succeeded': {
+              const inv = event.data.object;
+              const orgId = inv.subscription_details?.metadata?.orgId
+                         || inv.lines?.data?.[0]?.metadata?.orgId;
+              if (orgId) {
+                // No more .catch(() => {}) here — a real failure must
+                // propagate so the transaction rolls back (including the
+                // dedup marker above) and Stripe's retry can try again,
+                // instead of the failure being silently discarded while the
+                // handler still reports success.
+                await dunning.activate({
+                  orgId,
+                  planId: inv.lines?.data?.[0]?.price?.lookup_key || undefined,
+                  stripeSubId: inv.subscription,
+                  currentPeriodStart: new Date(inv.period_start * 1000),
+                  currentPeriodEnd:   new Date(inv.period_end   * 1000),
+                }, tx);
+                // Persist the invoice for the customer's records.
+                await tx.invoice.upsert({
+                  where: { stripeInvoiceId: inv.id },
+                  create: {
+                    stripeInvoiceId: inv.id, orgId,
+                    amountCents: inv.amount_paid,
+                    currency: inv.currency,
+                    status: 'paid',
+                    periodStart: new Date(inv.period_start * 1000),
+                    periodEnd:   new Date(inv.period_end   * 1000),
+                    hostedUrl:   inv.hosted_invoice_url || null,
+                  },
+                  update: { status: 'paid', amountCents: inv.amount_paid },
+                });
+              }
+              break;
+            }
+            case 'customer.subscription.deleted': {
+              const s = event.data.object;
+              const orgId = s.metadata?.orgId;
+              if (orgId) await dunning.cancel({ orgId, atPeriodEnd: false }, tx);
+              break;
+            }
+            default:
+              // Unhandled event types are still acked — Stripe retries 5xx only.
+              break;
           }
-          break;
-        }
-        case 'customer.subscription.deleted': {
-          const s = event.data.object;
-          const orgId = s.metadata?.orgId;
-          if (orgId) await dunning.cancel({ orgId, atPeriodEnd: false });
-          break;
-        }
-        default:
-          // Unhandled event types are still acked — Stripe retries 5xx only.
-          break;
-      }
+        });
+      });
     } catch (err) {
+      if (err && err.code === 'P2002') {
+        // A concurrent delivery of the same event won the race to insert
+        // the dedup marker first — genuinely handled (or being handled)
+        // elsewhere; ack this one rather than erroring/retrying forever.
+        return res.status(200).json({ received: true, duplicate: true });
+      }
       console.error(JSON.stringify({
         type: 'stripe_webhook_handler_error',
         eventType: event.type, eventId: event.id, error: err.message,

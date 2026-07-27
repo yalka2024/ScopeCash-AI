@@ -80,3 +80,80 @@ describe('evidence-jobs redelivery idempotency', () => {
       .rejects.toMatchObject({ code: 'already_running' });
   });
 });
+
+describe('reconcileStuckJobs — the "job creation" dual-write hazard', () => {
+  test('redispatches a sourceDocument.analyze run stuck at queued past the threshold, and it actually completes', async () => {
+    const { org, project, sourceDocument } = await makeOrgProjectDoc({ document_type: 'invoice', extraction_status: 'processing' });
+    vertex.generate.mockResolvedValue({
+      text: '{}', json: {}, modelVersion: 'gemini-2.5-flash-001',
+      usage: { promptTokens: 5, completionTokens: 5, totalTokens: 10 }, costUsd: 0.0001,
+    });
+    // Simulates exactly the hazard: the AgentRunRecord was created (as
+    // enqueueSourceDocumentAnalysis always does first) but the process
+    // crashed/restarted before the dispatch step ever landed — nothing
+    // ever calls processJob() for this run on its own.
+    const staleRun = await prisma.agentRunRecord.create({
+      data: {
+        orgId: org.id, project_id: project.id, agent_type: 'sourceDocument_analyze_job',
+        status: 'queued', input_refs: JSON.stringify({ sourceDocumentId: sourceDocument.id }),
+        createdAt: new Date(Date.now() - 5 * 60 * 1000), // 5 minutes ago — past any real threshold
+      },
+    });
+
+    const result = await evidenceJobs.reconcileStuckJobs({ olderThanMs: 2 * 60 * 1000 });
+    expect(result.redispatched).toBe(1);
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const finalRun = await prisma.agentRunRecord.findUnique({ where: { id: staleRun.id } });
+    expect(finalRun.status).toBe('completed');
+    const doc = await prisma.sourceDocument.findUnique({ where: { id: sourceDocument.id } });
+    expect(doc.extraction_status).toBe('extracted');
+  });
+
+  test('ignores queued runs that are still within the threshold (a normal in-flight dispatch, not stuck)', async () => {
+    const { org, project, sourceDocument } = await makeOrgProjectDoc();
+    await prisma.agentRunRecord.create({
+      data: {
+        orgId: org.id, project_id: project.id, agent_type: 'sourceDocument_analyze_job',
+        status: 'queued', input_refs: JSON.stringify({ sourceDocumentId: sourceDocument.id }),
+        createdAt: new Date(), // just created — a real in-flight dispatch, not stuck
+      },
+    });
+    const result = await evidenceJobs.reconcileStuckJobs({ olderThanMs: 2 * 60 * 1000 });
+    expect(result.redispatched).toBe(0);
+  });
+
+  test('ignores queued runs of an unrecognized agent_type rather than guessing how to redispatch them', async () => {
+    const org = await prisma.organization.create({ data: { name: uid('Org') } });
+    await prisma.agentRunRecord.create({
+      data: {
+        orgId: org.id, agent_type: 'some_future_job_kind_this_module_does_not_know_about',
+        status: 'queued', createdAt: new Date(Date.now() - 5 * 60 * 1000),
+      },
+    });
+    const result = await evidenceJobs.reconcileStuckJobs({ olderThanMs: 2 * 60 * 1000 });
+    expect(result.redispatched).toBe(0);
+  });
+
+  test('redelivery via reconciliation is still idempotent if the job actually did complete just before the sweep ran', async () => {
+    const { org, project, sourceDocument } = await makeOrgProjectDoc({ document_type: 'invoice', extraction_status: 'extracted' });
+    const run = await prisma.agentRunRecord.create({
+      data: {
+        orgId: org.id, project_id: project.id, agent_type: 'sourceDocument_analyze_job',
+        status: 'queued', input_refs: JSON.stringify({ sourceDocumentId: sourceDocument.id }),
+        createdAt: new Date(Date.now() - 5 * 60 * 1000),
+      },
+    });
+    await evidenceJobs.reconcileStuckJobs({ olderThanMs: 2 * 60 * 1000 });
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // The document was already 'extracted' (as if the original dispatch had
+    // actually succeeded moments before this sweep ran) — the handler's own
+    // idempotency guard must no-op, not re-run extraction / call Gemini again.
+    expect(vertex.generate).not.toHaveBeenCalled();
+    const finalRun = await prisma.agentRunRecord.findUnique({ where: { id: run.id } });
+    expect(finalRun.status).toBe('completed');
+  });
+});

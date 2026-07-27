@@ -155,6 +155,102 @@ d('Postgres RLS', () => {
     const finalDoc = await runWithSystemAccess(async () => prisma.sourceDocument.findUnique({ where: { id: sourceDocument.id } }));
     expect(finalDoc.extraction_status).toBe('extracted');
   });
+
+  test('regression: the real Stripe webhook route establishes its own tenant context when invoked with zero ambient context', async () => {
+    // Simulates exactly how Stripe actually delivers webhooks: no
+    // authenticated session, no attachTenant middleware, completely
+    // detached from any request's runWithOrg() wrapping — Subscription and
+    // Invoice both have an orgId column, so both are RLS-protected. Before
+    // this was fixed, routes/stripe-webhook.js never established any
+    // tenant/system context at all: dunning.activate()'s plain
+    // `subscription.update({where:{orgId}})` would throw "record not
+    // found" (RLS hides the real, existing row), Stripe would retry, and
+    // the SECOND delivery's dedup-marker insert would then throw a unique
+    // violation (since the first attempt's marker write was NOT wrapped
+    // atomically with the failed mutation) and get acked as a false
+    // "duplicate" — permanently swallowing the event. Every subscription/
+    // invoice webhook would have failed identically forever the moment
+    // this ran against real production Postgres+RLS.
+    jest.doMock('../../lib/billing/stripe', () => ({
+      isConfigured: () => true,
+      verifyWebhook: (rawBody) => JSON.parse(rawBody.toString()),
+    }));
+    const express = require('express');
+    const request = require('supertest');
+    const { errorMiddleware } = require('../../lib/validate');
+    const stripeWebhookRoutes = require('../../routes/stripe-webhook');
+    const app = express();
+    app.use('/api/billing/webhook', stripeWebhookRoutes);
+    app.use(errorMiddleware);
+
+    const orgId = uid('org');
+    const eventId = `evt_${uid('e')}`;
+    const event = {
+      id: eventId, type: 'customer.subscription.updated',
+      data: {
+        object: {
+          id: `sub_${uid('x')}`, customer: `cus_${uid('x')}`, status: 'active',
+          metadata: { orgId, tierId: 'pro' },
+          items: { data: [{ price: { lookup_key: 'pro' } }] },
+          current_period_start: Math.floor(Date.now() / 1000),
+          current_period_end: Math.floor(Date.now() / 1000) + 30 * 86400,
+        },
+      },
+    };
+
+    // No runWithOrg/runWithSystemAccess anywhere around this call — the point.
+    const res = await request(app).post('/api/billing/webhook/stripe')
+      .set('Content-Type', 'application/json').send(JSON.stringify(event));
+    expect(res.status).toBe(200);
+
+    const sub = await runWithSystemAccess(async () => prisma.subscription.findUnique({ where: { orgId } }));
+    expect(sub).toBeTruthy();
+    expect(sub.status).toBe('active');
+  });
+
+  test('regression: evidence-jobs.js#reconcileStuckJobs() sweeps across every org with zero ambient context (the "job creation" outbox hazard)', async () => {
+    // reconcileStuckJobs() legitimately needs to see stuck runs across
+    // EVERY org (a stuck job's own org isn't known ahead of time) — it's
+    // called from a bare setInterval tick, not any request's runWithOrg().
+    // Confirms its own internal runWithSystemAccess() wrapping is actually
+    // sufficient on real Postgres+RLS, not just SQLite (no RLS at all).
+    const evidenceJobs = require('../../lib/evidence-jobs');
+    const { org, project, sourceDocument, run } = await runWithSystemAccess(async () => {
+      const org = await prisma.organization.create({ data: { name: uid('Org') } });
+      const user = await prisma.user.create({ data: { email: `${uid('u')}@test.local`, passwordHash: 'x', orgId: org.id, emailVerified: true } });
+      const customer = await prisma.customer.create({ data: { orgId: org.id, name: uid('Customer') } });
+      const project = await prisma.projectRecord.create({ data: { orgId: org.id, customer_id: customer.id, name: 'RLS reconcile regression', userId: user.id } });
+      const sourceDocument = await prisma.sourceDocument.create({
+        data: {
+          orgId: org.id, project_id: project.id, document_type: 'invoice',
+          original_filename: 'x.txt', storage_uri: 'irrelevant-mocked-key',
+          sha256_hash: uid('sha'), uploaded_at: new Date(), extraction_status: 'processing', userId: user.id,
+          mime_type: 'text/plain',
+        },
+      });
+      // Simulates the exact hazard: the AgentRunRecord was created but the
+      // process crashed before dispatch ever ran — created far enough in
+      // the past to be past the reconcile threshold.
+      const run = await prisma.agentRunRecord.create({
+        data: {
+          orgId: org.id, project_id: project.id, agent_type: 'sourceDocument_analyze_job',
+          status: 'queued', input_refs: JSON.stringify({ sourceDocumentId: sourceDocument.id }),
+          createdAt: new Date(Date.now() - 5 * 60 * 1000),
+        },
+      });
+      return { org, project, sourceDocument, run };
+    });
+
+    // No runWithOrg/runWithSystemAccess anywhere around this call — the point.
+    const result = await evidenceJobs.reconcileStuckJobs({ olderThanMs: 2 * 60 * 1000 });
+    expect(result.redispatched).toBeGreaterThanOrEqual(1);
+    await new Promise((resolve) => setTimeout(resolve, 500)); // let the in-process setImmediate dispatch settle
+
+    const finalRun = await runWithSystemAccess(async () => prisma.agentRunRecord.findUnique({ where: { id: run.id } }));
+    expect(finalRun.status).toBe('completed');
+    const finalDoc = await runWithSystemAccess(async () => prisma.sourceDocument.findUnique({ where: { id: sourceDocument.id } }));
+    expect(finalDoc.extraction_status).toBe('extracted');
+  });
 });
 
 if (!isPg) {
