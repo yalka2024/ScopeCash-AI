@@ -147,30 +147,42 @@ async function deleteOrgScopedRows(tx, orgId) {
  *   `{deleted: true, usersAnonymized}`.
  */
 async function executeOrgDeletion({ orgId, dryRun = false }) {
-  if (await hasActiveLegalHold(orgId)) {
-    return { orgId, skipped: true, reason: 'active_legal_hold' };
-  }
-
-  if (dryRun) {
-    const counts = {};
-    for (const prop of ORG_SCOPED_MODEL_PROPS) {
-      counts[prop] = await prisma[prop].count({ where: { orgId } });
+  // The whole function — not just the final deletion transaction — needs
+  // system-access: hasActiveLegalHold() and the dry-run counts below read
+  // RLS-protected, org-scoped tables (RetentionLegalHold included) with no
+  // guarantee of ambient tenant context, since the only production caller
+  // (sweepOrgsForDeletion's loop) invokes this well after its own
+  // runWithSystemAccess call around findOrgsDueForDeletion() has already
+  // returned. Without this wrapping here too, hasActiveLegalHold() would
+  // silently see zero rows under real Postgres+RLS regardless of whether
+  // an active hold actually exists — the safety check that's supposed to
+  // gate this entire feature would never fire, and an org under legal
+  // hold would be deleted anyway. Caught by a real Postgres+RLS regression
+  // test, not by the (structurally unable to catch this) SQLite suite.
+  return runWithSystemAccess(async () => {
+    if (await hasActiveLegalHold(orgId)) {
+      return { orgId, skipped: true, reason: 'active_legal_hold' };
     }
-    const usersToAnonymize = await prisma.user.count({ where: { orgId } });
-    return { orgId, dryRun: true, counts, usersToAnonymize };
-  }
 
-  const homeUsers = await prisma.user.findMany({ where: { orgId }, select: { id: true } });
+    if (dryRun) {
+      const counts = {};
+      for (const prop of ORG_SCOPED_MODEL_PROPS) {
+        counts[prop] = await prisma[prop].count({ where: { orgId } });
+      }
+      const usersToAnonymize = await prisma.user.count({ where: { orgId } });
+      return { orgId, dryRun: true, counts, usersToAnonymize };
+    }
 
-  await runWithSystemAccess(async () => {
+    const homeUsers = await prisma.user.findMany({ where: { orgId }, select: { id: true } });
+
     await prisma.tenantTransaction(async (tx) => {
       await deleteOrgScopedRows(tx, orgId);
       for (const u of homeUsers) await anonymizeUser(tx, u.id);
       await tx.organization.delete({ where: { id: orgId } });
     });
-  });
 
-  return { orgId, deleted: true, usersAnonymized: homeUsers.length };
+    return { orgId, deleted: true, usersAnonymized: homeUsers.length };
+  });
 }
 
 async function sweepOrgsForDeletion({ dryRun = false } = {}) {

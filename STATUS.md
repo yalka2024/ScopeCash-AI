@@ -1641,6 +1641,28 @@ request. Closed with a real scheduled sweep, off by default.
 
 Full suite: 20/20 server test suites, 199 passing (14 new).
 
+Pre-push `/security-review` found no cross-org authorization gap (both
+routes correctly scope every read/write to the caller's own
+`req.tenant.orgId`; `executeOrgDeletion` is only ever called from the
+sweep's own due-orgs result, never with request-derived input) but did
+find a severe, real bug: `executeOrgDeletion()` only wrapped its final
+deletion transaction in `runWithSystemAccess` — `hasActiveLegalHold()` and
+the dry-run counts ran with no context of their own, since the sweep's
+earlier `runWithSystemAccess` call (around `findOrgsDueForDeletion()`)
+had already returned by the time `executeOrgDeletion` runs. Since
+`RetentionLegalHold` has an `orgId` column and so is RLS-protected,
+`hasActiveLegalHold()` would silently see zero rows regardless of a real
+hold on real Postgres+RLS in production — reproduced empirically before
+fixing (a real hold, `deleted: true` came back anyway) and confirmed
+fixed after. Wrapped the entire `executeOrgDeletion` body in one
+`runWithSystemAccess` instead of just the deletion transaction. New
+permanent Postgres+RLS regression test creates an org past its deletion
+date WITH an active hold and asserts it survives a real sweep — the
+existing SQLite unit test for this same behavior could not have caught
+this, since SQLite has no RLS at all. Re-verified the full Postgres+RLS
+suite (9/9) after the fix. Full suite: 20/20 server test suites, 199
+passing.
+
 ## Not yet started
 
 See TODO.md.

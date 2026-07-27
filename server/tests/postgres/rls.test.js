@@ -296,6 +296,39 @@ d('Postgres RLS', () => {
     const untouchedCustomer = await runWithSystemAccess(async () => prisma.customer.findUnique({ where: { id: untouched.customer.id } }));
     expect(untouchedCustomer).toBeTruthy();
   });
+
+  test('regression: an active RetentionLegalHold actually blocks the sweep on real Postgres+RLS (not just the SQLite no-op)', async () => {
+    // sweepOrgsForDeletion() only wraps its due-orgs QUERY in
+    // runWithSystemAccess — findOrgsDueForDeletion()'s result. The per-org
+    // executeOrgDeletion() call that follows runs with NO ambient context
+    // of its own (the earlier runWithSystemAccess already returned by
+    // then). hasActiveLegalHold() reads RetentionLegalHold, which HAS an
+    // orgId column and so IS RLS-protected — called with no context, RLS's
+    // fail-closed policy would make every hold invisible, so the check
+    // would always report "no hold" regardless of a real one, and the org
+    // would be deleted anyway despite the hold. The SQLite unit test for
+    // this same behavior (tests/unit/org-deletion.test.js) cannot catch
+    // this — SQLite has no RLS at all, so the missing context there is
+    // invisible. This must pass on real Postgres for the safety guarantee
+    // to mean anything.
+    const orgDeletion = require('../../lib/org-deletion');
+    const held = await runWithSystemAccess(async () => {
+      const org = await prisma.organization.create({ data: { name: uid('Org'), scheduledDeletionAt: new Date(Date.now() - 1000) } });
+      const user = await prisma.user.create({ data: { email: `${uid('u')}@test.local`, passwordHash: 'x', orgId: org.id, emailVerified: true } });
+      const customer = await prisma.customer.create({ data: { orgId: org.id, name: uid('Customer') } });
+      const project = await prisma.projectRecord.create({ data: { orgId: org.id, customer_id: customer.id, name: 'Held project', userId: user.id } });
+      await prisma.retentionLegalHold.create({ data: { orgId: org.id, resourceType: 'project', resourceId: project.id, holdType: 'legal_hold' } });
+      return { org, project };
+    });
+
+    // No runWithOrg/runWithSystemAccess anywhere around this call — the point.
+    const results = await orgDeletion.sweepOrgsForDeletion();
+    const mine = results.find((r) => r.orgId === held.org.id);
+    expect(mine).toMatchObject({ skipped: true, reason: 'active_legal_hold' });
+
+    const orgRow = await runWithSystemAccess(async () => prisma.organization.findUnique({ where: { id: held.org.id } }));
+    expect(orgRow).toBeTruthy(); // must survive — the hold is real and active
+  });
 });
 
 if (!isPg) {
