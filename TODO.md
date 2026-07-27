@@ -494,7 +494,22 @@ is in STATUS.md. Everything below is either in progress or not started.
       (`config/outcomes.json`/`lib/outcomes.js`) for ScopeCash AI's own
       Stripe revenue — unrelated to the deferred customer-charging concern.
       See STATUS.md Phase 35.
-- [ ] GCP billing cost-attribution reconciliation
+- [x] GCP billing cost-attribution reconciliation — the EXTERNAL half
+      (comparing against a real Google Cloud Billing API invoice) was
+      already documented as blocked on a live GCP billing account this
+      environment doesn't have (see "Not achievable by an engineering
+      agent" below — not new, not re-attempted). Research found a real,
+      achievable INTERNAL gap instead: `AiSpendEvent` (accurate per-model AI
+      cost) and `TenantCostEvent`'s `ai_tokens` rows (used for tenant
+      gross-margin reporting) independently priced the same tokens two
+      different ways — up to ~10-14x overstatement of AI cost in every
+      margin calculation for flash-tier requests. Fixed the drift at its
+      source (threaded the already-known accurate cost through instead of
+      re-deriving it), added an admin-visible reconciliation check
+      (`GET /api/admin/ai/reconciliation`), and wired drift *detection*
+      (not silent auto-correction — this is an append-only event log, not
+      a cache) into the existing hourly usage-aggregator job. See STATUS.md
+      Phase 36.
 - [ ] Perf/load/soak testing
 - [ ] Dashboard bundle splitting (801 KB chunk warning, was 773 KB)
 - [ ] DR/regional failover exercises

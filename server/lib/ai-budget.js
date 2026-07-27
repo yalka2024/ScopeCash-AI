@@ -134,15 +134,27 @@ async function recordAiSpend({ orgId, userId, modelId, provider, promptTokens, c
     invalidateSpendCache(orgId, p);
 
     // Mirror into tenant cost attribution so the dashboard rolls up cleanly.
+    // Passes this event's own already-computed ucents (ucentsOverride)
+    // instead of letting cost-attribution.js re-derive a cost from its flat
+    // generic ai_tokens rate -- that rate is a rough proxy for resources
+    // with no per-event price; AI spend has an accurate, per-model one, so
+    // it should win. See lib/cost-attribution.js#reconcileAiSpend for the
+    // drift this fixes (found in review: the flat rate diverged from real
+    // per-model pricing by up to ~10x for flash-tier requests).
     try {
       const cost = require('./cost-attribution');
       await cost.recordCost({
         orgId,
         resource: 'ai_tokens',
         quantity: (promptTokens || 0) + (completionTokens || 0),
+        ucentsOverride: ucents || 0,
         metadata: { model: modelId, provider },
       });
-    } catch {}
+    } catch (err) {
+      if (process.env.NODE_ENV !== 'test') {
+        console.error(JSON.stringify({ type: 'cost_attribution_mirror_error', orgId, error: err.message }));
+      }
+    }
 
     return { ok: true };
   } catch (err) {

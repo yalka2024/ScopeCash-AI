@@ -23,6 +23,7 @@ export default function AiEconomicsPage() {
   const [spend, setSpend] = useState(null);
   const [evals, setEvals] = useState([]);
   const [obs, setObs] = useState(null);
+  const [reconciliation, setReconciliation] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
@@ -34,13 +35,15 @@ export default function AiEconomicsPage() {
       apiJson(`/api/admin/ai/spend?period=${period}`),
       apiJson('/api/admin/ai/evals'),
       apiJson('/api/admin/ai/observability'),
-    ]).then(([m, b, s, e, o]) => {
+      apiJson(`/api/admin/ai/reconciliation?period=${period}`),
+    ]).then(([m, b, s, e, o, r]) => {
       setModels((m && m.models) || []);
       setStrategy((m && m.strategy) || 'balanced');
       setBudgets((b && b.budgets) || {});
       setSpend(s || null);
       setEvals((e && e.runs) || []);
       setObs(o || null);
+      setReconciliation(r || null);
     }).catch(err => setError(String(err.message || err)));
   }
 
@@ -165,6 +168,51 @@ export default function AiEconomicsPage() {
                 <td className="p-2 text-right text-foreground">{dollars(o.spent_usd)}</td>
               </tr>
             )) : <tr><td colSpan={3} className="p-4 text-center text-muted-foreground">No AI spend recorded yet.</td></tr>}
+          </tbody>
+        </table>
+      </section>
+
+      <section className="mb-8">
+        <h2 className="mb-2 text-lg font-semibold text-foreground">Cost-attribution reconciliation</h2>
+        <p className="mb-2 text-xs text-muted-foreground">
+          Cross-checks AI spend (accurate per-model pricing) against the mirrored figure shown in tenant
+          cost/margin reporting. Internal consistency only — comparing against a real Google Cloud invoice
+          needs a live GCP billing account this environment doesn't have.
+        </p>
+        {reconciliation && (
+          <div className="mb-3 flex flex-wrap items-center gap-3">
+            <span
+              className="rounded-full px-2 py-1 text-xs font-medium"
+              style={{
+                background: reconciliation.all_reconciled ? '#34d39922' : '#f8717122',
+                color: reconciliation.all_reconciled ? '#34d399' : '#f87171',
+              }}
+            >
+              {reconciliation.all_reconciled ? 'Reconciled' : 'Drift detected'}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              AI spend {dollars(reconciliation.total_ai_spend_usd)} vs. cost attribution {dollars(reconciliation.total_cost_attribution_usd)}
+              {' '}(Δ {dollars(reconciliation.total_delta_usd)})
+            </span>
+          </div>
+        )}
+        <table className="w-full border-collapse">
+          <thead><tr className="border-b border-border">
+            <th className={th}>Org</th><th className={thR}>AI spend</th><th className={thR}>Cost attribution</th>
+            <th className={thR}>Δ</th><th className={th}>Status</th>
+          </tr></thead>
+          <tbody>
+            {reconciliation && reconciliation.orgs.length > 0 ? reconciliation.orgs.map(o => (
+              <tr key={o.orgId} className={row}>
+                <td className="p-2"><code className="text-[hsl(263_70%_78%)]">{o.orgId}</code></td>
+                <td className="p-2 text-right text-foreground">{dollars(o.ai_spend_usd)}</td>
+                <td className="p-2 text-right text-foreground">{dollars(o.cost_attribution_usd)}</td>
+                <td className="p-2 text-right" style={{ color: o.reconciled ? 'inherit' : '#f87171' }}>{dollars(o.delta_usd)}</td>
+                <td className="p-2 text-xs" style={{ color: o.reconciled ? '#34d399' : '#f87171' }}>
+                  {o.reconciled ? 'OK' : 'Drift'}
+                </td>
+              </tr>
+            )) : <tr><td colSpan={5} className="p-4 text-center text-muted-foreground">No AI spend recorded for this period.</td></tr>}
           </tbody>
         </table>
       </section>

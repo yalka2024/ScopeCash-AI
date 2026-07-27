@@ -606,6 +606,56 @@ d('Postgres RLS', () => {
     expect(otherOrgSees).toHaveLength(0);
   });
 
+  test('regression: GET /api/admin/ai/reconciliation sees every org\'s AiSpendEvent/TenantCostEvent rows under real Postgres+RLS, not just the caller\'s own', async () => {
+    // aiSpendEvent.groupBy/tenantCostEvent.groupBy had never been exercised
+    // against real RLS before. The route wraps reconcileAiSpend() in
+    // runWithSystemAccess() specifically because it's a genuinely
+    // cross-tenant admin aggregate (matching routes/tenants.js's `/top`) --
+    // without that wrapping, RLS would fail closed to only the org
+    // attachTenant put in context, silently hiding every other org's drift
+    // instead of erroring, which is exactly the class of bug this
+    // regression suite exists to catch (see file header).
+    const aiAdminRoutes = require('../../routes/ai-admin');
+    const costAttribution = require('../../lib/cost-attribution');
+    const express = require('express');
+    const request = require('supertest');
+    const cookieParser = require('cookie-parser');
+    const { errorMiddleware } = require('../../lib/validate');
+    const { signAccessToken } = require('../../lib/security');
+    const app = express();
+    app.use(cookieParser());
+    app.use(express.json());
+    app.use('/api/admin/ai', aiAdminRoutes);
+    app.use(errorMiddleware);
+
+    const period = costAttribution.currentPeriodKey();
+    const { admin, orgA, orgB } = await runWithSystemAccess(async () => {
+      const orgA = await prisma.organization.create({ data: { name: uid('Org-A') } });
+      const orgB = await prisma.organization.create({ data: { name: uid('Org-B') } });
+      const admin = await prisma.user.create({ data: { email: `${uid('u')}@test.local`, passwordHash: 'x', role: 'admin', orgId: orgA.id, emailVerified: true } });
+      // orgA reconciles; orgB is deliberately drifted (simulates the exact
+      // bug this feature exists to catch).
+      await prisma.aiSpendEvent.create({ data: { orgId: orgA.id, promptTokens: 100, completionTokens: 100, totalTokens: 200, ucents: 50, period } });
+      await prisma.tenantCostEvent.create({ data: { orgId: orgA.id, resource: 'ai_tokens', quantity: 200, ucents: 50, period } });
+      await prisma.aiSpendEvent.create({ data: { orgId: orgB.id, promptTokens: 500, completionTokens: 500, totalTokens: 1000, ucents: 140, period } });
+      await prisma.tenantCostEvent.create({ data: { orgId: orgB.id, resource: 'ai_tokens', quantity: 1000, ucents: 2000, period } });
+      return { admin, orgA, orgB };
+    });
+    const bearer = `Bearer ${signAccessToken({ id: admin.id, email: admin.email, role: admin.role, orgId: admin.orgId })}`;
+
+    const res = await request(app).get(`/api/admin/ai/reconciliation?period=${period}`).set('Authorization', bearer);
+    expect(res.status).toBe(200);
+    const rowA = res.body.orgs.find((o) => o.orgId === orgA.id);
+    const rowB = res.body.orgs.find((o) => o.orgId === orgB.id);
+    // Both orgs must be visible -- if runWithSystemAccess weren't wired in,
+    // RLS would silently restrict this to admin's own org (orgA) only,
+    // making rowB undefined instead of present-and-flagged.
+    expect(rowA).toBeTruthy();
+    expect(rowA.reconciled).toBe(true);
+    expect(rowB).toBeTruthy();
+    expect(rowB.reconciled).toBe(false);
+  });
+
   test('regression: evidence-jobs.js#reconcileStuckJobs() sweeps across every org with zero ambient context (the "job creation" outbox hazard)', async () => {
     // reconcileStuckJobs() legitimately needs to see stuck runs across
     // EVERY org (a stuck job's own org isn't known ahead of time) — it's

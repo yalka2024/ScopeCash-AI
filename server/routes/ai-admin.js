@@ -3,6 +3,7 @@
  *   GET /api/admin/ai/models                    list registered models + prices
  *   GET /api/admin/ai/spend?period=YYYY-MM      org-wide AI spend breakdown
  *   GET /api/admin/ai/spend/:orgId?period=...   per-tenant breakdown
+ *   GET /api/admin/ai/reconciliation?period=... AiSpendEvent vs TenantCostEvent drift check
  *   GET /api/admin/ai/budgets                   plan budgets in effect
  *   GET /api/admin/ai/evals                     latest eval run summaries
  *   POST /api/admin/ai/evals/run                trigger eval suite (smoke)
@@ -13,6 +14,8 @@ const prisma = require('../lib/prisma');
 const router_lib = require('../lib/model-router');
 const budget = require('../lib/ai-budget');
 const evals = require('../lib/ai-evals');
+const costAttribution = require('../lib/cost-attribution');
+const { runWithSystemAccess } = require('../lib/tenant-context');
 const { authMiddleware } = require('../middleware/auth');
 const attachTenant = require('../middleware/tenant');
 
@@ -96,6 +99,28 @@ router.get('/spend/:orgId', async (req, res, next) => {
         totalTokens: Number(r._sum.totalTokens || 0),
       })),
     });
+  } catch (err) { next(err); }
+});
+
+// GET /api/admin/ai/reconciliation?period=YYYY-MM — cross-checks
+// AiSpendEvent (accurate per-model AI cost) against TenantCostEvent's
+// mirrored ai_tokens rows (tenant cost/margin reporting) for the same
+// period, per org. This is the internal half of "GCP billing
+// cost-attribution reconciliation" -- it does NOT compare against a real
+// Google Cloud Billing API/invoice, which needs a live GCP billing account
+// this environment doesn't have (see TODO.md).
+//
+// Genuinely cross-tenant (aggregates every org) — an audited, admin-only
+// exception to per-org scoping, matching routes/tenants.js's `/top` (same
+// underlying lib/cost-attribution.js). Without runWithSystemAccess, RLS
+// under real Postgres would fail closed to just the caller's own org
+// (attachTenant already put this request inside runWithOrg), silently
+// under-reporting drift rather than exposing anything -- still a real
+// correctness bug for the one thing this endpoint exists to catch.
+router.get('/reconciliation', async (req, res, next) => {
+  try {
+    const result = await runWithSystemAccess(() => costAttribution.reconcileAiSpend(req.query.period));
+    res.json(result);
   } catch (err) { next(err); }
 });
 
