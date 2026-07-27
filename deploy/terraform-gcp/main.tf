@@ -312,6 +312,14 @@ resource "google_cloud_run_v2_service" "app" {
       env { name = "NODE_ENV"        value = "production" }
       env { name = "SERVE_DASHBOARD" value = "1" }
       env { name = "AI_PROVIDER"     value = "gemini" }
+      # @node-rs/bcrypt's async hash/compare runs on libuv's threadpool
+      # (default size 4) -- found via load testing (see TODO.md "Perf/
+      # load/soak testing") that this becomes the throughput ceiling under
+      # sustained concurrent login traffic. Documenting this in
+      # server/.env.example alone isn't enough for a real deployment to
+      # benefit from it -- has to actually be set where the container
+      # boots.
+      env { name = "UV_THREADPOOL_SIZE" value = "16" }
       env { name = "GCP_PROJECT_ID"  value = var.project_id }
       env { name = "GCP_LOCATION"    value = var.region }
       # Drives the public trust portal's data_residency claim

@@ -17,6 +17,9 @@
  * Usage: node prisma/seed-riverside-demo.js   (also: npm run db:seed:demo)
  */
 const crypto = require('crypto');
+// bcryptjs, not lib/security.js's @node-rs/bcrypt: this is a one-time,
+// offline, non-concurrent script -- the event-loop-blocking behavior
+// that motivated the switch in lib/security.js doesn't apply here.
 const bcrypt = require('bcryptjs');
 const prisma = require('../lib/prisma');
 const { runWithSystemAccess, runWithOrg } = require('../lib/tenant-context');

@@ -10,6 +10,9 @@
  */
 
 const crypto = require('crypto');
+// bcryptjs, not lib/security.js's @node-rs/bcrypt: this is a one-time,
+// offline, non-concurrent script -- the event-loop-blocking behavior
+// that motivated the switch in lib/security.js doesn't apply here.
 const bcrypt = require('bcryptjs');
 const prisma = require('../lib/prisma');
 const { runWithSystemAccess } = require('../lib/tenant-context');

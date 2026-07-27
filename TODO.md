@@ -510,7 +510,26 @@ is in STATUS.md. Everything below is either in progress or not started.
       (not silent auto-correction — this is an append-only event log, not
       a cache) into the existing hourly usage-aggregator job. See STATUS.md
       Phase 36.
-- [ ] Perf/load/soak testing
+- [x] Perf/load/soak testing — ground-up build, no tooling existed. New
+      `server/scripts/loadtest.js` (`npm run perf:load` / `perf:soak`)
+      spawns a throwaway Postgres container (SQLite's single-writer lock
+      model turned out to be the actual bottleneck at 50 concurrent
+      connections, not the app — found and worked around during
+      authoring), seeds real fixtures, spawns the real server, and drives
+      real concurrent HTTP load with explicit pass/fail thresholds. Found
+      a genuinely severe bug while chasing the numbers: `lib/security.js`
+      used `bcryptjs`, whose "async" compare synchronously blocks Node's
+      event loop for ~400-600ms, freezing the ENTIRE API under concurrent
+      logins, not just login itself. Confirmed with the user before fixing
+      (security-sensitive core-auth-path swap) — switched to
+      `@node-rs/bcrypt` (native, genuinely async, hash-format verified
+      compatible both directions). See STATUS.md Phase 37 for the full
+      writeup, including an honest caveat: the load test's Postgres
+      container runs without RLS applied (superuser connection) since RLS
+      correctness is separately covered by tests/postgres/rls.test.js, and
+      a secondary, deliberately-deferred finding (authenticated routes pay
+      for 2-3 sequential DB round trips before reaching route logic,
+      queuing under Prisma's connection pool at high concurrency).
 - [ ] Dashboard bundle splitting (801 KB chunk warning, was 773 KB)
 - [ ] DR/regional failover exercises
 

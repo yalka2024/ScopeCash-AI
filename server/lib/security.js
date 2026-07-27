@@ -2,7 +2,17 @@
  * Token, password & MFA utilities.
  */
 const crypto = require('crypto');
-const bcrypt = require('bcryptjs');
+// @node-rs/bcrypt (native, N-API, prebuilt binaries) not bcryptjs -- found
+// via load testing that bcryptjs's "async" hash/compare synchronously
+// blocks Node's single-threaded event loop for the full ~400-600ms of the
+// bcrypt computation itself (confirmed by timing bcryptjs.compare()'s
+// return), so concurrent logins serialize and stall EVERY other request
+// on the process, not just login's own. @node-rs/bcrypt genuinely runs
+// off-thread. Hash format is fully bcrypt-standard and cross-verified
+// compatible both directions with bcryptjs output (see
+// tests/unit/security-bcrypt-compat.test.js) -- existing stored password
+// hashes keep working unchanged.
+const bcrypt = require('@node-rs/bcrypt');
 const jwt = require('jsonwebtoken');
 
 const ACCESS_TTL  = process.env.ACCESS_TOKEN_TTL  || '15m';

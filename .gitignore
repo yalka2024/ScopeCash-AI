@@ -10,9 +10,12 @@ dev.db
 dev.db-journal
 *.db
 *.db-journal
+*.db-shm
+*.db-wal
 uploads/
 server/uploads/
 server/uploads-test/
+server/uploads-loadtest/
 server/eval-gate-report.json
 server/.gcp-sa-key.json
 logs/
