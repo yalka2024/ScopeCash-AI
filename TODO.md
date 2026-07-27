@@ -17,43 +17,26 @@ is in STATUS.md. Everything below is either in progress or not started.
         have 400'd; `gif`/`tiff` are intentionally left unsupported since
         Gemini vision doesn't officially support either format). Covered
         by new tests in `evidence-routes.test.js`.
-  - [ ] **Move analysis off the synchronous HTTP request path onto Cloud
-        Tasks.** Deliberately NOT attempted in Phase 10 — this is the
-        largest remaining P0 item and touches the core product's most
-        important code path; rushing it late in an already-long session
-        risked introducing a real bug in the most important part of the
-        product with no time left to properly verify it. `lib/cloud-tasks.js`
-        (enqueue) and `routes/jobs.js` (OIDC-verified push receiver) already
-        exist and are real (Phase 3) — this is "wire the existing evidence
-        pipeline through them," not "build Cloud Tasks support from
-        scratch." Concrete scope for whoever picks this up:
-        1. `POST /sourceDocuments/:id/analyze`, `POST /evidenceItems/:id/analyze`,
-           `POST /projects/:id/findings/generate` (all in `routes/evidence.js`)
-           change from "do the work, return 200 with the result" to "enqueue
-           a task via `lib/cloud-tasks.js#enqueueTask`, return 202 with a job
-           reference." The actual `lib/evidence-pipeline.js` calls move into
-           `routes/jobs.js`'s existing `/process-task` handler.
-        2. **Idempotency**: Cloud Tasks can and will redeliver. Each handler
-           must check current state first (e.g. skip if
-           `SourceDocument.extraction_status` is already `'extracted'`)
-           rather than blindly reprocessing and double-writing.
-        3. **Job status**: needs a poll-able status (reuse `AgentRunRecord`,
-           already created per-call by `withAgentRun` — the dashboard can
-           poll `GET /api/agentRunRecords/:id` for `status`/`completed_at`
-           instead of getting a synchronous response body).
-        4. **Dead-lettering**: Cloud Tasks' own `retry_config` (already in
-           `deploy/terraform-gcp/main.tf`'s queue resource) handles retry
-           exhaustion; decide what a permanently-failed task does to
-           `extraction_status` (`'failed'`, presumably) and whether/how to
-           surface that to the user.
-        5. **Dashboard**: `EvidenceItem`/`SourceDocument` analyze buttons
-           need to poll for completion instead of awaiting a synchronous
-           fetch — a real UX change, not just a backend one.
-        6. **Tests**: `evidence-routes.test.js` currently asserts
-           synchronous 200-with-full-result — every one of those
-           assertions needs to change shape (202 + poll) once this lands;
-           don't let the existing tests silently start testing the old
-           synchronous behavior of a route that no longer works that way.
+  - [x] **Move analysis off the synchronous HTTP request path onto Cloud
+        Tasks.** Done in Phase 13 — see STATUS.md. New `lib/evidence-jobs.js`
+        (same Cloud-Tasks/BullMQ/in-process resilience pattern as
+        `lib/async-runner.js`); all three routes now enqueue and return 202
+        with an `agentRunId` polled via the existing
+        `GET /api/agentRunRecords/:id`. Real idempotency via a new
+        `EvidenceItem.analysisStatus` column (redelivery no-ops verified by
+        a dedicated unit test, not just asserted). Added the "Analyze" UI
+        that never existed in the dashboard before this (verified in a real
+        browser). Found and fixed a severe, previously-undiscovered bug
+        along the way: `EntitiesPage.js` expected a bare array from the
+        generic list route, which has always returned a paginated `{ data,
+        nextCursor, limit }` envelope — every entity table across the whole
+        dashboard was silently showing zero rows regardless of real data.
+        Deliberately NOT touched: `routes/project.js` (a legacy, pre-pivot
+        generic scaffold mounted at `/api/projects`, singular — distinct
+        from the real `projectRecords`) and its own broken
+        `lib/worker.js#runJob` (references `fs` without importing it,
+        appears to have no dashboard UI reaching it at all) — a separate
+        cleanup item, kept out of this phase's diff on purpose.
   - [x] Add a real `mimeType` column to `EvidenceItem` instead of guessing
         image/jpeg or audio/mpeg in `routes/evidence.js`. Older pre-migration
         rows still fall back to the guess (no real mime data exists for them).

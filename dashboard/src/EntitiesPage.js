@@ -55,11 +55,57 @@ export function EntitySection({ entity }) {
   const [editing, setEditing] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [analyzing, setAnalyzing] = useState({}); // rowId -> { polling, error, agentRunId }
+  const mountedRef = React.useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
 
   const load = useCallback(() => {
-    apiJson(`/${entity.plural}`).then((d) => setRows(Array.isArray(d) ? d : [])).catch((e) => setError(e.message));
+    // The generic list route (routes/entities.js) returns a cursor-paginated
+    // { data, nextCursor, limit } envelope, not a bare array — this was
+    // silently unwrapped as [] here before, so every entity table across
+    // the whole app showed "No records yet" regardless of real data.
+    apiJson(`/${entity.plural}`)
+      .then((d) => setRows(Array.isArray(d) ? d : (Array.isArray(d?.data) ? d.data : [])))
+      .catch((e) => setError(e.message));
   }, [entity.plural]);
   useEffect(() => { load(); }, [load]);
+
+  // Enqueues async analysis (lib/evidence-jobs.js on the server — Gemini
+  // extraction/transcription/findings-generation all run in the background,
+  // never synchronously in this fetch) and polls the returned AgentRunRecord
+  // until it's done, then refreshes the row so the real result shows up.
+  async function triggerAnalyze(row) {
+    if (!entity.analyze) return;
+    setAnalyzing((s) => ({ ...s, [row.id]: { polling: true, error: null } }));
+    try {
+      const res = await apiJson(entity.analyze.path(row.id), { method: 'POST', body: JSON.stringify({}) });
+      const agentRunId = res.agentRunId;
+      if (!mountedRef.current) return;
+      setAnalyzing((s) => ({ ...s, [row.id]: { polling: true, error: null, agentRunId } }));
+      const started = Date.now();
+      const POLL_MS = 2000, TIMEOUT_MS = 5 * 60_000;
+      const poll = async () => {
+        if (!mountedRef.current) return;
+        if (Date.now() - started > TIMEOUT_MS) {
+          setAnalyzing((s) => ({ ...s, [row.id]: { polling: false, error: 'Timed out waiting for analysis — check Agent Activity for status.', agentRunId } }));
+          return;
+        }
+        let run;
+        try { run = await apiJson(`/agentRunRecords/${agentRunId}`); }
+        catch (e) { if (mountedRef.current) setAnalyzing((s) => ({ ...s, [row.id]: { polling: false, error: e.message, agentRunId } })); return; }
+        if (!mountedRef.current) return;
+        if (run.status === 'completed' || run.status === 'failed') {
+          setAnalyzing((s) => ({ ...s, [row.id]: { polling: false, error: run.status === 'failed' ? (run.error_message || 'Analysis failed') : null, agentRunId } }));
+          load();
+          return;
+        }
+        setTimeout(poll, POLL_MS);
+      };
+      setTimeout(poll, POLL_MS);
+    } catch (e) {
+      if (mountedRef.current) setAnalyzing((s) => ({ ...s, [row.id]: { polling: false, error: e.message } }));
+    }
+  }
 
   async function save() {
     setBusy(true); setError(null);
@@ -120,23 +166,41 @@ export function EntitySection({ entity }) {
                 {entity.fields.map((f) => (
                   <th key={f} className="border-b border-border p-2 text-left text-xs font-medium text-muted-foreground">{humanize(f)}</th>
                 ))}
+                {entity.analyze && <th className="border-b border-border p-2 text-left text-xs font-medium text-muted-foreground">Analysis</th>}
                 {!readOnly && <th className="border-b border-border" />}
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
-                <tr key={r.id} className="border-b border-border/50">
-                  {entity.fields.map((f) => <td key={f} className="p-2 text-sm text-foreground">{display(types[f], r[f])}</td>)}
-                  {!readOnly && (
-                    <td className="whitespace-nowrap p-2 text-right">
-                      <Button size="sm" variant="ghost" onClick={() => startEdit(r)}>Edit</Button>{' '}
-                      <Button size="sm" variant="ghost" className="text-red-400" onClick={() => remove(r.id)}>Delete</Button>
-                    </td>
-                  )}
-                </tr>
-              ))}
+              {rows.map((r) => {
+                const az = entity.analyze;
+                const state = analyzing[r.id];
+                const currentStatus = az?.statusField ? r[az.statusField] : null;
+                const isDone = az?.doneValues?.includes(currentStatus);
+                const isFailed = az?.failedValues?.includes(currentStatus);
+                const isBusy = !!state?.polling || currentStatus === 'processing';
+                return (
+                  <tr key={r.id} className="border-b border-border/50">
+                    {entity.fields.map((f) => <td key={f} className="p-2 text-sm text-foreground">{display(types[f], r[f])}</td>)}
+                    {az && (
+                      <td className="whitespace-nowrap p-2 text-sm">
+                        <Button size="sm" variant="outline" disabled={isBusy || isDone} onClick={() => triggerAnalyze(r)}>
+                          {isBusy ? 'Running…' : isDone ? 'Done' : az.label}
+                        </Button>
+                        {isFailed && !isBusy && <span className="ml-2 text-red-400">failed</span>}
+                        {state?.error && <div className="mt-1 max-w-[220px] whitespace-normal text-xs text-red-400">{state.error}</div>}
+                      </td>
+                    )}
+                    {!readOnly && (
+                      <td className="whitespace-nowrap p-2 text-right">
+                        <Button size="sm" variant="ghost" onClick={() => startEdit(r)}>Edit</Button>{' '}
+                        <Button size="sm" variant="ghost" className="text-red-400" onClick={() => remove(r.id)}>Delete</Button>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
               {rows.length === 0 && (
-                <tr><td className="p-2 text-sm text-muted-foreground" colSpan={entity.fields.length + (readOnly ? 0 : 1)}>
+                <tr><td className="p-2 text-sm text-muted-foreground" colSpan={entity.fields.length + (entity.analyze ? 1 : 0) + (readOnly ? 0 : 1)}>
                   {readOnly ? 'No records yet.' : 'No records yet — add one above.'}
                 </td></tr>
               )}

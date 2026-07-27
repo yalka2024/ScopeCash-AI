@@ -14,6 +14,7 @@ require('dotenv').config({ path: path.resolve(__dirname, '.env') });
 
 const { startBullWorker, stopBullWorker } = require('./lib/worker');
 const asyncRunner = require('./lib/async-runner');
+const evidenceJobs = require('./lib/evidence-jobs');
 
 if (!process.env.REDIS_URL) {
   console.log('[worker] REDIS_URL not set; nothing to do (API uses in-process queue).');
@@ -26,6 +27,7 @@ if (!w) {
   process.exit(1);
 }
 asyncRunner.startWorker();   // background agent/workflow/goal runs
+evidenceJobs.startWorker();  // background evidence analysis (documents/photos/audio/findings)
 console.log(`[worker] started; concurrency=${process.env.WORKER_CONCURRENCY || 4}`);
 
 let shuttingDown = false;
@@ -35,6 +37,7 @@ async function shutdown(signal) {
   console.log(`[worker] ${signal} received; draining...`);
   try { await stopBullWorker(); } catch {}
   try { await asyncRunner.stopWorker(); } catch {}
+  try { await evidenceJobs.stopWorker(); } catch {}
   process.exit(0);
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'));

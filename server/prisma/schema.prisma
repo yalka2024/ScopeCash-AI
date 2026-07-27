@@ -1222,6 +1222,7 @@ model EvidenceItem {
   uploadedById     String?
   duplicateOfId    String?
   quality          String?  // ok|low_quality|unreadable
+  analysisStatus   String?  // null=never analyzed|queued|processing|completed|failed — Cloud Tasks idempotency gate
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 

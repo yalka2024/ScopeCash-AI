@@ -16,13 +16,21 @@ export const ENTITIES = [
     fieldTypes: { name: 'String', legal_name: 'String', trade_types: 'String', timezone: 'String', currency: 'String', address: 'String', phone: 'String', website: 'String', billing_plan: 'String', default_markup: 'Float', default_tax_rate: 'Float', default_retention_policy: 'String' } },
   { model: 'projectRecord', plural: 'projectRecords',
     fields: ['customer_id', 'name', 'project_number', 'trade', 'status', 'address', 'start_date', 'expected_completion_date', 'contract_value', 'original_estimate_value', 'project_manager_id', 'estimator_id', 'original_scope_summary', 'exclusions_summary', 'audit_tier'],
-    fieldTypes: { customer_id: 'String', name: 'String', project_number: 'String', trade: 'String', status: 'String', address: 'String', start_date: 'DateTime', expected_completion_date: 'DateTime', contract_value: 'Float', original_estimate_value: 'Float', project_manager_id: 'String', estimator_id: 'String', original_scope_summary: 'String', exclusions_summary: 'String', audit_tier: 'String' } },
+    fieldTypes: { customer_id: 'String', name: 'String', project_number: 'String', trade: 'String', status: 'String', address: 'String', start_date: 'DateTime', expected_completion_date: 'DateTime', contract_value: 'Float', original_estimate_value: 'Float', project_manager_id: 'String', estimator_id: 'String', original_scope_summary: 'String', exclusions_summary: 'String', audit_tier: 'String' },
+    // Cross-references all evidence for the project into findings (routes/evidence.js).
+    // No per-row status field on projectRecord itself — poll the returned agentRunId.
+    analyze: { path: (id) => `/projects/${id}/findings/generate`, label: 'Generate findings' } },
   { model: 'sourceDocument', plural: 'sourceDocuments',
     fields: ['project_id', 'document_type', 'original_filename', 'storage_uri', 'mime_type', 'file_size_bytes', 'sha256_hash', 'uploaded_by_id', 'uploaded_at', 'extraction_status', 'page_count', 'document_date', 'superseded'],
-    fieldTypes: { project_id: 'String', document_type: 'String', original_filename: 'String', storage_uri: 'String', mime_type: 'String', file_size_bytes: 'Int', sha256_hash: 'String', uploaded_by_id: 'String', uploaded_at: 'DateTime', extraction_status: 'String', page_count: 'Int', document_date: 'DateTime', superseded: 'Boolean' } },
+    fieldTypes: { project_id: 'String', document_type: 'String', original_filename: 'String', storage_uri: 'String', mime_type: 'String', file_size_bytes: 'Int', sha256_hash: 'String', uploaded_by_id: 'String', uploaded_at: 'DateTime', extraction_status: 'String', page_count: 'Int', document_date: 'DateTime', superseded: 'Boolean' },
+    // Runs Gemini text extraction (+ contract baseline for contract/estimate/
+    // change_order types) via lib/evidence-jobs.js — async, poll agentRunId.
+    analyze: { path: (id) => `/sourceDocuments/${id}/analyze`, label: 'Analyze', statusField: 'extraction_status', doneValues: ['extracted'], failedValues: ['failed'] } },
   { model: 'evidenceItem', plural: 'evidenceItems',
-    fields: ['project_id', 'sourceDocumentId', 'evidenceType', 'storageUri', 'sha256Hash', 'mimeType', 'capturedAt', 'gpsLat', 'gpsLng', 'deviceMetadata', 'transcript', 'extractedText', 'uploadedById', 'duplicateOfId', 'quality'],
-    fieldTypes: { project_id: 'String', sourceDocumentId: 'String', evidenceType: 'String', storageUri: 'String', sha256Hash: 'String', mimeType: 'String', capturedAt: 'DateTime', gpsLat: 'Float', gpsLng: 'Float', deviceMetadata: 'String', transcript: 'String', extractedText: 'String', uploadedById: 'String', duplicateOfId: 'String', quality: 'String' } },
+    fields: ['project_id', 'sourceDocumentId', 'evidenceType', 'storageUri', 'sha256Hash', 'mimeType', 'capturedAt', 'gpsLat', 'gpsLng', 'deviceMetadata', 'transcript', 'extractedText', 'uploadedById', 'duplicateOfId', 'quality', 'analysisStatus'],
+    fieldTypes: { project_id: 'String', sourceDocumentId: 'String', evidenceType: 'String', storageUri: 'String', sha256Hash: 'String', mimeType: 'String', capturedAt: 'DateTime', gpsLat: 'Float', gpsLng: 'Float', deviceMetadata: 'String', transcript: 'String', extractedText: 'String', uploadedById: 'String', duplicateOfId: 'String', quality: 'String', analysisStatus: 'String' },
+    // Transcribes audio / interprets photos via Gemini — async, poll agentRunId.
+    analyze: { path: (id) => `/evidenceItems/${id}/analyze`, label: 'Analyze', statusField: 'analysisStatus', doneValues: ['completed'], failedValues: ['failed'] } },
   { model: 'changeEvent', plural: 'changeEvents',
     fields: ['project_id', 'title', 'description', 'event_date', 'status', 'reason_category', 'ai_confidence', 'risk_level', 'missing_evidence', 'contradictions', 'reviewer_notes', 'customer_validated_at'],
     fieldTypes: { project_id: 'String', title: 'String', description: 'String', event_date: 'DateTime', status: 'String', reason_category: 'String', ai_confidence: 'Float', risk_level: 'String', missing_evidence: 'String', contradictions: 'String', reviewer_notes: 'String', customer_validated_at: 'DateTime' } },

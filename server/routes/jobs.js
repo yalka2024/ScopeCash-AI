@@ -8,6 +8,7 @@ const express = require('express');
 const { asyncHandler, HttpError } = require('../lib/validate');
 const cloudTasks = require('../lib/cloud-tasks');
 const worker = require('../lib/worker');
+const evidenceJobs = require('../lib/evidence-jobs');
 
 const router = express.Router();
 
@@ -19,7 +20,17 @@ router.post('/process-task', asyncHandler(async (req, res) => {
   const audience = process.env.CLOUD_TASKS_PUSH_AUDIENCE || `${req.protocol}://${req.get('host')}/api/jobs/process-task`;
   await cloudTasks.verifyPushToken(authz.slice(7), audience); // throws on any invalid/expired/wrong-audience token
 
-  await worker.runJob(req.body || {});
+  const body = req.body || {};
+  // Two distinct job families can be pushed to this one endpoint (both use
+  // Cloud Tasks the same way) — the evidence-analysis pipeline
+  // (lib/evidence-jobs.js) and the legacy generic risk-scan worker
+  // (lib/worker.js). Payload shapes never overlap: only evidence jobs carry
+  // this marker.
+  if (body.__evidenceJob) {
+    await evidenceJobs.processJob(body);
+  } else {
+    await worker.runJob(body);
+  }
   res.json({ ok: true });
 }));
 

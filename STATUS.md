@@ -1084,6 +1084,78 @@ correctly in one submission — verified end-to-end in a real browser
 (screenshot-checked): submitted quote appears in the judge-facing report
 immediately, no console errors.
 
+## Phase 13 — Move evidence analysis onto Cloud Tasks (DONE, 2026-07-27)
+
+Closed the single largest remaining P0 item: `/sourceDocuments/:id/analyze`,
+`/evidenceItems/:id/analyze`, and `/projects/:id/findings/generate` ran the
+whole Gemini pipeline synchronously inside the HTTP request — real risk on a
+slow model response or a large document, and the exact thing `lib/cloud-
+tasks.js`/`routes/jobs.js` (built in Phase 3) existed to prevent but were
+never actually wired to.
+
+New `server/lib/evidence-jobs.js` — same three-backend resilience pattern
+already established by `lib/async-runner.js`/`lib/worker.js` (Cloud Tasks if
+`JOBS_BACKEND=cloud-tasks` and configured, else BullMQ if `REDIS_URL`, else
+in-process `setImmediate` — so local dev/CI need zero extra infrastructure).
+The three routes now enqueue and return 202 with an `agentRunId`; the client
+polls the existing, already-tenant-scoped `GET /api/agentRunRecords/:id`
+route rather than a new endpoint. `AgentRunRecord` rows are created eagerly
+(status `queued`) before dispatch specifically so there's something to poll
+immediately after the 202, not just once the background job actually starts.
+
+**Idempotency, for real, not just asserted**: added `EvidenceItem
+.analysisStatus` (mirroring `SourceDocument.extraction_status`, the only
+one of 21 generic entities missing an analogous column) as the redelivery
+gate — every handler re-checks the target row's own status before doing
+any work and no-ops a redelivered task rather than reprocessing, verified
+with a dedicated unit test that calls `processJob()` twice for the same
+job and asserts the Gemini mock was invoked exactly once. Route-level 409s
+(`already_processing`/`already_extracted`/`already_analyzed`/
+`already_running`) reject a second enqueue attempt outright before it ever
+reaches the queue.
+
+**Dashboard**: there was no "Analyze" UI anywhere in the dashboard before
+this — the whole Gemini pipeline (beyond upload) was reachable only via
+direct API calls. Added a real one: `entities.js`'s `sourceDocument`/
+`evidenceItem`/`projectRecord` entries now declare an `analyze` config,
+and `EntitySection` (the generic entity-table renderer) shows an Analyze/
+Generate-findings button that enqueues, polls the returned `agentRunId`
+every 2s, and refreshes the row when it settles — verified end-to-end in a
+real browser (screenshot-checked): uploaded a real invoice document via
+the real multipart endpoint, clicked Analyze in the actual UI, watched it
+go queued → "Running…" → "Done", confirmed `extraction_status` flipped to
+`extracted` for real.
+
+**Found via that same real browser test, not a hunch**: `EntitySection`'s
+`load()` expected the generic list route to return a bare array, but
+`routes/entities.js` has always returned a cursor-paginated `{ data,
+nextCursor, limit }` envelope — meaning `Array.isArray(d)` was always
+`false` and every entity table across the ENTIRE dashboard (Projects,
+Evidence, Findings, Packets, Outcomes, Customers, Organization, All
+records) has been silently showing "No records yet" regardless of how
+much real data existed, for as long as that pagination shape has existed.
+Fixed by unwrapping `.data`. This is a severe, high-impact, previously
+undiscovered bug — the entire generic data-browsing UI was unusable — and
+it only surfaced now because this phase tested a real upload against the
+real rendered table instead of trusting the build/API tests in isolation
+(the existing jest suites test the API directly via supertest, never
+through the actual React rendering, so they couldn't have caught this).
+
+Honest scope: `routes/project.js` (the legacy, pre-ScopeCash-pivot generic
+"risk-scan" scaffold, mounted at `/api/projects` — note singular, distinct
+from the real `projectRecords`) and its own `lib/worker.js#runJob` were
+left untouched. That subsystem's job handler is itself broken (references
+`fs` without importing it) and appears fully disconnected from any
+dashboard UI — a separate, pre-existing cleanup item, not touched here to
+keep this phase's diff focused on the real evidence pipeline.
+
+Full suite: 15/15 server test suites, 143 passing (2 new unit tests for
+redelivery idempotency, 1 new route-level 409 test, all existing analyze
+tests converted to the enqueue+poll shape); Postgres+RLS suite (4/4)
+re-verified against a real non-superuser role with the new migration
+applied; all 30 authenticated a11y/keyboard tests still pass; dashboard
+build clean.
+
 ## Not yet started
 
 See TODO.md.

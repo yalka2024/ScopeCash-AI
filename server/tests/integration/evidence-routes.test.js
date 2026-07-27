@@ -33,6 +33,22 @@ function bearer(user) {
 }
 function uid(prefix) { return `${prefix}-${crypto.randomBytes(6).toString('hex')}`; }
 
+// Analysis now runs via lib/evidence-jobs.js in the background (no
+// REDIS_URL/Cloud Tasks in tests, so it's the in-process setImmediate
+// fallback — fast, but still a separate tick from the enqueue response).
+// Poll the same AgentRunRecord the dashboard polls until it settles.
+// (Queried directly via Prisma rather than GET /api/agentRunRecords/:id —
+// this file's test app only mounts evidenceRoutes, not entities.js.)
+async function pollRun(agentRunId, { timeoutMs = 5000 } = {}) {
+  const started = Date.now();
+  for (;;) {
+    const run = await prisma.agentRunRecord.findUnique({ where: { id: agentRunId } });
+    if (run && (run.status === 'completed' || run.status === 'failed')) return run;
+    if (Date.now() - started > timeoutMs) throw new Error(`agentRunRecord ${agentRunId} did not settle within ${timeoutMs}ms (status=${run && run.status})`);
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
 async function makeOwnerAndProject() {
   const org = await prisma.organization.create({ data: { name: uid('Org') } });
   const user = await prisma.user.create({ data: { email: `${uid('u')}@test.local`, passwordHash: 'x', orgId: org.id, emailVerified: true } });
@@ -76,8 +92,11 @@ describe('evidence upload + analysis routes', () => {
       costUsd: 0.0003,
     });
     const analyzeDocRes = await request(app).post(`/api/sourceDocuments/${sourceDocumentId}/analyze`).set('Authorization', bearer(user));
-    expect(analyzeDocRes.status).toBe(200);
-    expect(analyzeDocRes.body.baseline.scopeItemCount).toBe(1);
+    expect(analyzeDocRes.status).toBe(202);
+    expect(analyzeDocRes.body.status).toBe('queued');
+    const docRun = await pollRun(analyzeDocRes.body.agentRunId);
+    expect(docRun.status).toBe('completed');
+    expect(JSON.parse(docRun.output_refs).baseline.scopeItemCount).toBe(1);
 
     // 3. Upload a photo.
     const photoRes = await request(app)
@@ -97,8 +116,12 @@ describe('evidence upload + analysis routes', () => {
       costUsd: 0.0002,
     });
     const analyzeImgRes = await request(app).post(`/api/evidenceItems/${evidenceItemId}/analyze`).set('Authorization', bearer(user));
-    expect(analyzeImgRes.status).toBe(200);
-    expect(analyzeImgRes.body.evidenceItem.extractedText).toMatch(/ductwork/);
+    expect(analyzeImgRes.status).toBe(202);
+    const imgRun = await pollRun(analyzeImgRes.body.agentRunId);
+    expect(imgRun.status).toBe('completed');
+    const updatedEvidenceItem = await prisma.evidenceItem.findUnique({ where: { id: evidenceItemId } });
+    expect(updatedEvidenceItem.analysisStatus).toBe('completed');
+    expect(updatedEvidenceItem.extractedText).toMatch(/ductwork/);
 
     // 5. Generate findings — mocked scope comparison, citing the real evidence item.
     vertex.generate.mockResolvedValueOnce({
@@ -115,9 +138,12 @@ describe('evidence upload + analysis routes', () => {
       costUsd: 0.001,
     });
     const findingsRes = await request(app).post(`/api/projects/${project.id}/findings/generate`).set('Authorization', bearer(user)).send({});
-    expect(findingsRes.status).toBe(200);
-    expect(findingsRes.body.findings).toHaveLength(1);
-    const findingId = findingsRes.body.findings[0].id;
+    expect(findingsRes.status).toBe(202);
+    const findingsRun = await pollRun(findingsRes.body.agentRunId);
+    expect(findingsRun.status).toBe('completed');
+    const findingsOutput = JSON.parse(findingsRun.output_refs);
+    expect(findingsOutput.findings).toHaveLength(1);
+    const findingId = findingsOutput.findings[0].id;
 
     // 6. Validate citations on the resulting finding.
     const validateRes = await request(app).get(`/api/evidenceFindings/${findingId}/citations/validate`).set('Authorization', bearer(user));
@@ -210,10 +236,13 @@ describe('evidence upload + analysis routes', () => {
     });
 
     const analyzeRes = await request(app).post(`/api/sourceDocuments/${uploadRes.body.id}/analyze`).set('Authorization', bearer(user));
-    expect(analyzeRes.status).toBe(200);
-    expect(analyzeRes.body.extraction.method).toBe('gemini-native');
-    expect(analyzeRes.body.extraction.geminiFallbackRunId).toBeTruthy();
-    expect(analyzeRes.body.baseline.scopeItemCount).toBe(1);
+    expect(analyzeRes.status).toBe(202);
+    const run = await pollRun(analyzeRes.body.agentRunId);
+    expect(run.status).toBe('completed');
+    const output = JSON.parse(run.output_refs);
+    expect(output.extraction.method).toBe('gemini-native');
+    expect(output.extraction.geminiFallbackRunId).toBeTruthy();
+    expect(output.baseline.scopeItemCount).toBe(1);
   });
 
   test('422s when Gemini-native fallback also cannot read the document', async () => {
@@ -235,7 +264,29 @@ describe('evidence upload + analysis routes', () => {
     });
 
     const analyzeRes = await request(app).post(`/api/sourceDocuments/${uploadRes.body.id}/analyze`).set('Authorization', bearer(user));
-    expect(analyzeRes.status).toBe(422);
-    expect(analyzeRes.body.code).toBe('extraction_unreadable');
+    expect(analyzeRes.status).toBe(202);
+    const run = await pollRun(analyzeRes.body.agentRunId);
+    expect(run.status).toBe('failed');
+    expect(run.error_message).toMatch(/could not read any text/);
+    const doc = await prisma.sourceDocument.findUnique({ where: { id: uploadRes.body.id } });
+    expect(doc.extraction_status).toBe('failed');
+  });
+
+  test('409s when analyzing a document that is already extracted', async () => {
+    const { user, project } = await makeOwnerAndProject();
+    const uploadRes = await request(app)
+      .post(`/api/projects/${project.id}/sourceDocuments`)
+      .set('Authorization', bearer(user))
+      .field('document_type', 'invoice')
+      .attach('file', Buffer.from('Invoice #1: $500 for HVAC filter replacement.'), { filename: 'invoice.txt', contentType: 'text/plain' });
+    expect(uploadRes.status).toBe(201);
+
+    const first = await request(app).post(`/api/sourceDocuments/${uploadRes.body.id}/analyze`).set('Authorization', bearer(user));
+    expect(first.status).toBe(202);
+    await pollRun(first.body.agentRunId);
+
+    const second = await request(app).post(`/api/sourceDocuments/${uploadRes.body.id}/analyze`).set('Authorization', bearer(user));
+    expect(second.status).toBe(409);
+    expect(second.body.code).toBe('already_extracted');
   });
 });

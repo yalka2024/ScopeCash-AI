@@ -22,12 +22,7 @@ const { audit } = require('../lib/audit');
 const limiters = require('../lib/ratelimit');
 const storage = require('../lib/storage');
 const pipeline = require('../lib/evidence-pipeline');
-const vertex = require('../lib/vertex-ai');
-
-// A pdf-parse/mammoth "success" with next to no text is what a scanned/
-// image-only document looks like (no text layer to extract) — not a real
-// extraction. Treat it the same as extractDocumentText returning null.
-const MIN_EXTRACTED_CHARS = 20;
+const evidenceJobs = require('../lib/evidence-jobs');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -117,107 +112,72 @@ router.post('/projects/:projectId/evidenceItems', requireAnyOrgRole(...UPLOAD_RO
 // ── Analysis triggers ──────────────────────────────────────────────────────
 const ANALYZE_ROLES = ['owner', 'admin', 'project_manager'];
 
+// All three routes below enqueue durable background work (lib/evidence-jobs.js)
+// rather than running the Gemini pipeline synchronously in the request —
+// these calls can take well over the typical HTTP/load-balancer timeout on a
+// large document or a slow model response. Each returns 202 with an
+// agentRunId the client polls via GET /api/agentRunRecords/:id (already a
+// generic, tenant-scoped, read-only entity route — see routes/entities.js).
+
 router.post('/sourceDocuments/:id/analyze', requireAnyOrgRole(...ANALYZE_ROLES), asyncHandler(async (req, res) => {
   const sourceDocument = await prisma.sourceDocument.findFirst({ where: { id: req.params.id, orgId: req.tenant.orgId } });
   if (!sourceDocument) return res.status(404).json({ error: 'not_found' });
-  const project = await prisma.projectRecord.findFirst({ where: { id: sourceDocument.project_id, orgId: req.tenant.orgId } });
-
-  // Local text extraction (pdf-parse/mammoth) needs bytes regardless of
-  // driver; only the Gemini multimodal fallback below would prefer gs://.
-  const stream = await storage.getStream(sourceDocument.storage_uri);
-  const chunks = [];
-  for await (const chunk of stream) chunks.push(chunk);
-  const buffer = Buffer.concat(chunks);
-
-  let extracted = await pipeline.extractDocumentText({ mimeType: sourceDocument.mime_type, buffer });
-  let geminiFallbackRunId = null;
-  const needsFallback = !extracted || (extracted.text || '').trim().length < MIN_EXTRACTED_CHARS;
-  if (needsFallback) {
-    if (!vertex.isConfigured()) {
-      await prisma.sourceDocument.update({ where: { id: sourceDocument.id }, data: { extraction_status: 'failed' } });
-      const reason = extracted ? 'appears to be a scanned/image-only document with no extractable text layer' : `no local text extractor for mime type ${sourceDocument.mime_type}`;
-      throw new HttpError(422, `This document ${reason}, and Gemini (the native-document fallback) is not configured — set GCP_PROJECT_ID.`, 'extraction_unsupported');
-    }
-    const gcsUri = storage.gcsUri(sourceDocument.storage_uri);
-    const viaGemini = await pipeline.extractDocumentTextViaGemini({
-      orgId: req.tenant.orgId, projectId: project.id, sourceDocumentId: sourceDocument.id,
-      mimeType: sourceDocument.mime_type, buffer: gcsUri ? undefined : buffer, gcsUri,
-    });
-    geminiFallbackRunId = viaGemini.agentRunId;
-    if (viaGemini.unreadable || viaGemini.text.trim().length === 0) {
-      await prisma.sourceDocument.update({ where: { id: sourceDocument.id }, data: { extraction_status: 'failed' } });
-      throw new HttpError(422, 'Gemini could not read any text from this document — it may be blank, corrupted, or too low quality to transcribe.', 'extraction_unreadable', { agentRunId: geminiFallbackRunId });
-    }
-    extracted = { text: viaGemini.text, pages: null, method: viaGemini.method };
+  if (sourceDocument.extraction_status === 'processing') {
+    throw new HttpError(409, 'Analysis is already in progress for this document', 'already_processing');
   }
-
-  let baseline = null;
-  if (['contract', 'estimate', 'change_order'].includes(sourceDocument.document_type)) {
-    baseline = await pipeline.extractContractBaseline({ orgId: req.tenant.orgId, project, sourceDocument, extractedText: extracted.text });
+  if (sourceDocument.extraction_status === 'extracted') {
+    throw new HttpError(409, 'This document has already been analyzed', 'already_extracted');
   }
-  await prisma.sourceDocument.update({
-    where: { id: sourceDocument.id },
-    data: { extraction_status: 'extracted', page_count: extracted.pages ? extracted.pages.length : sourceDocument.page_count },
+  const runId = await evidenceJobs.enqueueSourceDocumentAnalysis({
+    sourceDocumentId: sourceDocument.id, orgId: req.tenant.orgId, projectId: sourceDocument.project_id,
   });
-  await audit(req, 'sourceDocuments.analyze', { resource: 'sourceDocument', resourceId: sourceDocument.id, details: { method: extracted.method } });
-  res.json({
-    extraction: { method: extracted.method, textLength: extracted.text.length, pageCount: extracted.pages ? extracted.pages.length : null, geminiFallbackRunId },
-    baseline: baseline ? { scopeItemCount: baseline.scopeItems.length, contractProvisionCount: baseline.contractProvisions.length, agentRunId: baseline.agentRunId } : null,
-  });
+  await audit(req, 'sourceDocuments.analyze.enqueue', { resource: 'sourceDocument', resourceId: sourceDocument.id, details: { agentRunId: runId } });
+  res.status(202).json({ agentRunId: runId, status: 'queued', poll: `/api/agentRunRecords/${runId}` });
 }));
 
 router.post('/evidenceItems/:id/analyze', requireAnyOrgRole(...ANALYZE_ROLES), asyncHandler(async (req, res) => {
   const evidenceItem = await prisma.evidenceItem.findFirst({ where: { id: req.params.id, orgId: req.tenant.orgId } });
   if (!evidenceItem) return res.status(404).json({ error: 'not_found' });
-  // Real sniffed content-type, stored at upload time. Only pre-existing rows
-  // from before this column existed fall back to a guess.
-  const mimeType = evidenceItem.mimeType
-    || (evidenceItem.evidenceType === 'photo' ? 'image/jpeg' : 'audio/mpeg');
-
-  // Prefer a gs:// reference (no byte round-trip through this server) when
-  // the GCS storage driver is active; only fall back to reading+base64-
-  // inlining the bytes on the local/S3 drivers.
-  const gcsUri = storage.gcsUri(evidenceItem.storageUri);
-  let base64 = null;
-  if (!gcsUri) {
-    const stream = await storage.getStream(evidenceItem.storageUri);
-    const chunks = [];
-    for await (const chunk of stream) chunks.push(chunk);
-    base64 = Buffer.concat(chunks).toString('base64');
+  if (evidenceItem.analysisStatus === 'processing') {
+    throw new HttpError(409, 'Analysis is already in progress for this item', 'already_processing');
   }
-
-  let result;
-  if (evidenceItem.evidenceType === 'audio') {
-    result = await pipeline.transcribeAudio({ orgId: req.tenant.orgId, evidenceItem, gcsUri, base64, mimeType });
-  } else if (evidenceItem.evidenceType === 'photo') {
-    result = await pipeline.interpretImage({ orgId: req.tenant.orgId, evidenceItem, gcsUri, base64, mimeType });
-  } else {
+  if (evidenceItem.analysisStatus === 'completed') {
+    throw new HttpError(409, 'This item has already been analyzed', 'already_analyzed');
+  }
+  if (evidenceItem.evidenceType !== 'audio' && evidenceItem.evidenceType !== 'photo') {
     throw new HttpError(422, `No Gemini analysis path for evidenceType "${evidenceItem.evidenceType}" yet`, 'analysis_unsupported');
   }
-  await audit(req, 'evidenceItems.analyze', { resource: 'evidenceItem', resourceId: evidenceItem.id });
-  res.json({ evidenceItem: result.evidenceItem, agentRunId: result.agentRunId });
+  const runId = await evidenceJobs.enqueueEvidenceItemAnalysis({
+    evidenceItemId: evidenceItem.id, orgId: req.tenant.orgId, projectId: evidenceItem.project_id,
+  });
+  await audit(req, 'evidenceItems.analyze.enqueue', { resource: 'evidenceItem', resourceId: evidenceItem.id, details: { agentRunId: runId } });
+  res.status(202).json({ agentRunId: runId, status: 'queued', poll: `/api/agentRunRecords/${runId}` });
 }));
 
 const FindingRunSchema = z.object({ changeEventId: z.string().optional() });
 router.post('/projects/:id/findings/generate', requireAnyOrgRole(...ANALYZE_ROLES), validate(FindingRunSchema),
   asyncHandler(async (req, res) => {
     const project = await assertProjectInOrg(req.params.id, req.tenant.orgId);
-    const [scopeItems, contractProvisions, evidenceItems] = await Promise.all([
-      prisma.scopeItem.findMany({ where: { orgId: req.tenant.orgId, project_id: project.id } }),
-      prisma.contractProvision.findMany({ where: { orgId: req.tenant.orgId, project_id: project.id } }),
-      prisma.evidenceItem.findMany({ where: { orgId: req.tenant.orgId, project_id: project.id } }),
+    const [scopeItemCount, contractProvisionCount] = await Promise.all([
+      prisma.scopeItem.count({ where: { orgId: req.tenant.orgId, project_id: project.id } }),
+      prisma.contractProvision.count({ where: { orgId: req.tenant.orgId, project_id: project.id } }),
     ]);
-    if (scopeItems.length === 0 && contractProvisions.length === 0) {
+    if (scopeItemCount === 0 && contractProvisionCount === 0) {
       throw new HttpError(422, 'No contract baseline extracted for this project yet — analyze a contract/estimate source document first', 'no_baseline');
     }
-    const result = await pipeline.compareScopeToEvidence({
-      orgId: req.tenant.orgId, project, scopeItems, contractProvisions, evidenceItems,
-      changeEventId: req.body.changeEventId || null,
-    });
-    await audit(req, 'projects.findings.generate', { resource: 'projectRecord', resourceId: project.id, details: { findingCount: result.findings.length, discardedCount: result.discardedCount } });
-    res.json({
-      findings: result.findings, discardedCount: result.discardedCount, agentRunId: result.agentRunId,
-    });
+    let runId;
+    try {
+      runId = await evidenceJobs.enqueueFindingsGeneration({
+        projectId: project.id, orgId: req.tenant.orgId, changeEventId: req.body.changeEventId || null,
+      });
+    } catch (err) {
+      if (err.code === 'already_running') {
+        throw new HttpError(409, err.message, 'already_running', { agentRunId: err.runId });
+      }
+      throw err;
+    }
+    await audit(req, 'projects.findings.generate.enqueue', { resource: 'projectRecord', resourceId: project.id, details: { agentRunId: runId } });
+    res.status(202).json({ agentRunId: runId, status: 'queued', poll: `/api/agentRunRecords/${runId}` });
   }));
 
 router.get('/evidenceFindings/:id/citations/validate', asyncHandler(async (req, res) => {
