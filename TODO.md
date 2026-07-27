@@ -42,8 +42,17 @@ is in STATUS.md. Everything below is either in progress or not started.
         rows still fall back to the guess (no real mime data exists for them).
   - [x] Delete `lib/tools/vertexaigeminiclient.js` (dead code, unreferenced,
         superseded by `lib/vertex-ai.js`).
-  - [ ] Eval-dataset-driven tests for contradiction/duplicate detection
-        quality (Phase 8), not just citation-enforcement unit tests.
+  - [x] Eval-dataset-driven tests for contradiction/duplicate detection
+        quality — done in Phase 14. Real pipeline improvement (not just a
+        test): `compareScopeToEvidence()` now surfaces `EvidenceItem
+        .duplicateOfId` as an explicit hint in the model prompt instead of
+        making the model re-infer an exact-byte duplicate the platform
+        already detected at upload time. New integration tests cover
+        contradiction findings citing two different evidence sources and
+        duplicate findings with correct `finding_type` persistence. Extended
+        the real `evals/contractor_findings.json` dataset (the one
+        `scripts/eval-gate.js` runs against the actual pinned Vertex model)
+        with 4 new cases. See STATUS.md.
 - [x] **Phase 3 — GCP native integrations.** GCS storage driver, Cloud Tasks
       enqueuer + verified push endpoint, Secret Manager client — see
       STATUS.md. Remaining follow-ups:

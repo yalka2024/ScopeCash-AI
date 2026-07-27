@@ -1156,6 +1156,47 @@ re-verified against a real non-superuser role with the new migration
 applied; all 30 authenticated a11y/keyboard tests still pass; dashboard
 build clean.
 
+## Phase 14 — Contradiction/duplicate-detection quality: real signal + real tests (DONE, 2026-07-27)
+
+Closed the last open Phase 2 follow-up: "eval-dataset-driven tests for
+contradiction/duplicate detection quality, not just citation-enforcement
+unit tests." Three parts:
+
+- **Real pipeline improvement**, not just a test: `compareScopeToEvidence()`
+  built its evidence prompt without ever surfacing `EvidenceItem
+  .duplicateOfId` — a deterministic, exact-byte-hash duplicate signal
+  already computed at upload time (`routes/evidence.js`'s SHA-256 check) —
+  leaving the model to re-infer duplication from a text description alone
+  with no help from a check the platform had already done for free. Now
+  every evidence entry with `duplicateOfId` set carries an explicit
+  `[NOTE: identical file content to evidence:X — confirmed duplicate
+  upload, not independent corroboration]` annotation, and `FINDING_SYSTEM`
+  instructs the model to trust that annotation rather than re-derive it,
+  while still watching for un-annotated near-duplicates (same content,
+  different bytes) the hash check can't catch.
+- **New integration tests** in `evidence-pipeline.test.js` beyond the
+  existing citation-enforcement coverage: the duplicate hint actually
+  reaches the constructed prompt (and only for the duplicate entry, not
+  the original); a `contradiction` finding citing two different evidence
+  items persists with both citations (a contradiction is only a
+  contradiction because it spans two sources — this is the case the old
+  suite never covered); a `duplicate` finding persists with the correct
+  `finding_type` and cites both the original and the copy.
+- **Extended the real, CI-wired eval dataset** (`evals/contractor_findings
+  .json` — the suite `scripts/eval-gate.js` runs against the actual pinned
+  Vertex model when GCP secrets are configured, not a mock) with four new
+  cases: a genuine quantity contradiction (invoice vs. field photo),
+  a timestamp-precedes-contract contradiction, and a case specifically
+  testing the new duplicate-hint annotation format. Verified mechanically
+  via `lib/ai-evals.js` (all 4 new cases score correctly); confirmed via
+  reading `scripts/eval-gate.js` that this suite is intentionally excluded
+  from the mock-mode default (`['smoke']` only) — the pre-existing lower
+  mock-mode pass rate on the suite's original cases is not something CI
+  currently exercises or regresses, matching the already-documented gap
+  that this suite needs real GCP credentials to mean anything.
+
+Full suite: 15/15 server test suites, 146 passing (3 new).
+
 ## Not yet started
 
 See TODO.md.

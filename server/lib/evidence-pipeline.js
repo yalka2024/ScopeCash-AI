@@ -335,7 +335,11 @@ const FINDING_SYSTEM = 'You are a scope-change analyst for a home-services contr
   + '- scope_delta: work described in evidence that is not covered by the original scope (a potential change order / unbilled work).\n'
   + '- contradiction: two pieces of evidence that conflict with each other (e.g. different quantities claimed for the same item, a photo timestamped before the contract date).\n'
   + '- missing_evidence: an assertion made in one piece of evidence with no corroborating documentation.\n'
-  + '- duplicate: evidence that appears to be the same photo/event submitted more than once.\n\n'
+  + '- duplicate: evidence that appears to be the same photo/event submitted more than once. Some evidence entries are '
+  + 'pre-annotated "[NOTE: identical file content to evidence:X]" — this is a confirmed exact-byte duplicate detected '
+  + 'deterministically at upload time, not a guess; always raise a duplicate finding for these, and still watch for '
+  + 'un-annotated evidence that DESCRIBES the same event/content without being a byte-identical file (near-duplicates the '
+  + 'upload-time check cannot catch).\n\n'
   + 'CRITICAL RULES:\n'
   + '1. Every finding MUST cite at least one piece of evidence by its exact bracketed sourceKey, with a verbatim quoted excerpt. '
   + 'A finding with no citation will be discarded — do not return one anyway.\n'
@@ -368,7 +372,13 @@ async function compareScopeToEvidence({ orgId, project, scopeItems, contractProv
     const desc = ev.evidenceType === 'audio' ? `Audio transcript: ${ev.transcript || '(not transcribed)'}`
       : ev.evidenceType === 'photo' ? `Photo (captured ${ev.capturedAt || 'unknown time'}): ${ev.extractedText || '(not analyzed)'}`
         : `${ev.evidenceType}: ${ev.extractedText || ev.transcript || '(no extracted content)'}`;
-    evidenceParts.push({ text: `[${key}] ${desc}` });
+    // duplicateOfId is set deterministically at upload time (routes/evidence.js
+    // hashes the file's exact bytes) — a strictly stronger signal than asking
+    // the model to infer duplication from a text description alone. Surface
+    // it explicitly rather than making the model re-derive what upload-time
+    // hashing already proved.
+    const dupHint = ev.duplicateOfId ? ` [NOTE: identical file content to evidence:${ev.duplicateOfId} — confirmed duplicate upload, not independent corroboration]` : '';
+    evidenceParts.push({ text: `[${key}] ${desc}${dupHint}` });
   }
 
   return withAgentRun(

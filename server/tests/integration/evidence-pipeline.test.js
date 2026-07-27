@@ -166,6 +166,112 @@ describe('compareScopeToEvidence — mandatory citation enforcement', () => {
     expect(result.findings).toHaveLength(0);
     expect(result.discardedCount).toBe(1);
   });
+
+  // Beyond citation-enforcement: does the pipeline correctly detect and
+  // PERSIST contradiction/duplicate findings, not just scope_delta? A
+  // contradiction inherently needs citations from TWO different evidence
+  // sources (that's what makes it a contradiction, not a lone assertion);
+  // a duplicate needs the upload-time duplicateOfId hash-match signal
+  // actually reaching the model prompt rather than relying on the model to
+  // re-derive what deterministic hashing already proved.
+
+  test('duplicateOfId is surfaced to the model as an explicit, deterministic hint rather than left for the model to infer from text alone', async () => {
+    const { org, project } = await makeOrgProjectCustomer();
+    const original = await prisma.evidenceItem.create({
+      data: { orgId: org.id, project_id: project.id, evidenceType: 'photo', storageUri: 'local://dup1.jpg', sha256Hash: uid('sha'), extractedText: 'new ductwork in attic' },
+    });
+    const copy = await prisma.evidenceItem.create({
+      data: { orgId: org.id, project_id: project.id, evidenceType: 'photo', storageUri: 'local://dup2.jpg', sha256Hash: original.sha256Hash, extractedText: 'new ductwork in attic', duplicateOfId: original.id },
+    });
+    vertex.generate.mockResolvedValue({
+      text: '{}', json: { findings: [] },
+      modelVersion: 'gemini-2.5-pro-001', usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 }, costUsd: 0.0001,
+    });
+
+    await pipeline.compareScopeToEvidence({ orgId: org.id, project, scopeItems: [], contractProvisions: [], evidenceItems: [original, copy] });
+
+    const call = vertex.generate.mock.calls[0][0];
+    const promptText = call.parts.map((p) => p.text).join('\n');
+    expect(promptText).toMatch(new RegExp(`identical file content to evidence:${original.id}`));
+    // The original (non-duplicate) entry must NOT carry the hint itself.
+    const originalLine = promptText.split('\n').find((l) => l.includes(`[evidence:${original.id}]`));
+    expect(originalLine).not.toMatch(/identical file content/);
+  });
+
+  test('a contradiction finding citing two different evidence items persists with both citations, not just one', async () => {
+    const { org, project } = await makeOrgProjectCustomer();
+    const evidenceA = await prisma.evidenceItem.create({
+      data: { orgId: org.id, project_id: project.id, evidenceType: 'photo', storageUri: 'local://a.jpg', sha256Hash: uid('sha'), extractedText: 'Invoice shows 3 units replaced' },
+    });
+    const evidenceB = await prisma.evidenceItem.create({
+      data: { orgId: org.id, project_id: project.id, evidenceType: 'photo', storageUri: 'local://b.jpg', sha256Hash: uid('sha'), extractedText: 'Field photo shows only 2 units on site' },
+    });
+    vertex.generate.mockResolvedValue({
+      text: '{}',
+      json: {
+        findings: [{
+          findingType: 'contradiction',
+          assertion: 'Invoice claims 3 units replaced but field evidence shows only 2 units present',
+          severity: 'high', confidence: 0.82,
+          contradictoryEvidence: 'Quantity mismatch between invoice and field photo',
+          citations: [
+            { sourceKey: `evidence:${evidenceA.id}`, quotedText: '3 units replaced' },
+            { sourceKey: `evidence:${evidenceB.id}`, quotedText: 'only 2 units on site' },
+          ],
+        }],
+      },
+      modelVersion: 'gemini-2.5-pro-001',
+      usage: { promptTokens: 300, completionTokens: 60, totalTokens: 360 },
+      costUsd: 0.0006,
+    });
+
+    const result = await pipeline.compareScopeToEvidence({
+      orgId: org.id, project, scopeItems: [], contractProvisions: [], evidenceItems: [evidenceA, evidenceB],
+    });
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].finding_type).toBe('contradiction');
+    expect(result.findings[0].contradictory_evidence).toMatch(/Quantity mismatch/);
+    const citations = await prisma.citation.findMany({ where: { findingId: result.findings[0].id } });
+    expect(citations).toHaveLength(2);
+    expect(citations.map((c) => c.evidenceItemId).sort()).toEqual([evidenceA.id, evidenceB.id].sort());
+  });
+
+  test('a duplicate finding is persisted with finding_type "duplicate" and cites both the original and the copy', async () => {
+    const { org, project } = await makeOrgProjectCustomer();
+    const original = await prisma.evidenceItem.create({
+      data: { orgId: org.id, project_id: project.id, evidenceType: 'photo', storageUri: 'local://o.jpg', sha256Hash: uid('sha'), extractedText: 'ductwork in attic' },
+    });
+    const copy = await prisma.evidenceItem.create({
+      data: { orgId: org.id, project_id: project.id, evidenceType: 'photo', storageUri: 'local://c.jpg', sha256Hash: original.sha256Hash, extractedText: 'ductwork in attic', duplicateOfId: original.id },
+    });
+    vertex.generate.mockResolvedValue({
+      text: '{}',
+      json: {
+        findings: [{
+          findingType: 'duplicate',
+          assertion: 'This evidence is a duplicate upload of an earlier photo, not independent corroboration',
+          severity: 'low', confidence: 0.95,
+          citations: [
+            { sourceKey: `evidence:${copy.id}`, quotedText: 'ductwork in attic' },
+            { sourceKey: `evidence:${original.id}`, quotedText: 'ductwork in attic' },
+          ],
+        }],
+      },
+      modelVersion: 'gemini-2.5-pro-001',
+      usage: { promptTokens: 100, completionTokens: 30, totalTokens: 130 },
+      costUsd: 0.0002,
+    });
+
+    const result = await pipeline.compareScopeToEvidence({
+      orgId: org.id, project, scopeItems: [], contractProvisions: [], evidenceItems: [original, copy],
+    });
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].finding_type).toBe('duplicate');
+    const citations = await prisma.citation.findMany({ where: { findingId: result.findings[0].id } });
+    expect(citations.map((c) => c.evidenceItemId).sort()).toEqual([copy.id, original.id].sort());
+  });
 });
 
 describe('validateCitations', () => {

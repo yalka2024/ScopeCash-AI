@@ -53,6 +53,30 @@
       "expect": [
         { "kind": "regex", "value": "(not stated|cannot determine|no (cost|price|amount)|not (provided|available|specified))", "flags": "i" }
       ]
+    },
+    {
+      "id": "quantity-contradiction-detection",
+      "prompt": "Invoice line item states: 'Replaced 3 bathroom exhaust fans, qty 3.' Field photo taken the same day shows only 2 exhaust fan housings newly installed in the bathrooms, with the third bathroom's original fan still in place and unchanged. Is there a contradiction between the invoice and the field evidence, and if so, what is it?",
+      "expect": [
+        { "kind": "regex", "value": "(contradict|discrepanc|mismatch|inconsist|does not match|conflict)", "flags": "i" },
+        { "kind": "contains", "value": "3" },
+        { "kind": "contains", "value": "2" }
+      ]
+    },
+    {
+      "id": "timestamp-contradiction-detection",
+      "prompt": "Contract was signed and dated 2026-04-10. A field photo documenting the work is timestamped 2026-03-22 (three weeks before the contract date). Does this timestamp raise a documentation issue, and what specifically is inconsistent?",
+      "expect": [
+        { "kind": "regex", "value": "(before|prior to|earlier than|precedes|inconsist|contradict|issue|concern|flag)", "flags": "i" }
+      ]
+    },
+    {
+      "id": "confirmed-duplicate-not-independent-corroboration",
+      "prompt": "Evidence entry: '[evidence:photo-9f2] Photo (captured 2026-03-11): new ductwork installed in the attic [NOTE: identical file content to evidence:photo-a01 — confirmed duplicate upload, not independent corroboration]'. Question: does evidence:photo-9f2 provide a second, independent confirmation of the ductwork work, in addition to evidence:photo-a01?",
+      "expect": [
+        { "kind": "regex", "value": "(no|not independent|same (file|content|photo)|duplicate|single|one piece)", "flags": "i" },
+        { "kind": "not_contains", "value": "two separate" }
+      ]
     }
   ]
 }
