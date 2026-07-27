@@ -164,18 +164,48 @@ function verifyLocalSignature(key, exp, sig) {
 // format (docx/xlsx/pptx), and plain text backs csv/tsv/md/json. Each entry therefore
 // declares every extension its signature legitimately covers — comparing against a
 // single ext would reject a valid .csv (detected as text) or .xlsx (detected as zip).
-// HEIC/HEIF (iPhone default photo format) and WEBP both use a small
+// HEIC/HEIF (iPhone default photo format), M4A, and WEBP all use a small
 // "brand" identifier a fixed number of bytes in, rather than a fixed
-// leading signature — the shared helpers below read it.
+// leading signature — the shared ISOBMFF helper below reads it; HEIC and
+// M4A both use the "ftyp" box structure, differing only in which brand
+// set counts as a match, so the box-parsing itself isn't duplicated.
+function isobmfBrand(b) {
+  if (b.length < 12 || b.slice(4, 8).toString('ascii') !== 'ftyp') return null;
+  return b.slice(8, 12).toString('ascii').toLowerCase();
+}
 const ISOBMFF_HEIC_BRANDS = new Set(['heic', 'heix', 'heim', 'heis', 'hevc', 'hevx', 'hevm', 'hevs', 'mif1', 'msf1']);
-function isIsobmfHeic(b) {
-  if (b.length < 12) return false;
-  if (b.slice(4, 8).toString('ascii') !== 'ftyp') return false;
-  return ISOBMFF_HEIC_BRANDS.has(b.slice(8, 12).toString('ascii').toLowerCase());
+function isIsobmfHeic(b) { return ISOBMFF_HEIC_BRANDS.has(isobmfBrand(b)); }
+// M4A is an MPEG-4 audio container — same ftyp-box structure as HEIC,
+// different brand. Deliberately narrow (just 'M4A '/'M4B ' — note the
+// trailing space, a real 4-byte ISO brand code, not a typo): the generic
+// 'isom'/'mp42' MPEG-4 brands also back ordinary MP4 *video* files, and
+// this app's only audio-upload path is a plain <input accept="audio/*">
+// file picker (no MediaRecorder producing audio-only generic-brand output),
+// so accepting them would just let a renamed video pass as "audio".
+const ISOBMFF_M4A_BRANDS = new Set(['m4a ', 'm4b ']);
+function isIsobmfM4a(b) { return ISOBMFF_M4A_BRANDS.has(isobmfBrand(b)); }
+// RIFF container: 'RIFF' at the start, a 4-byte format id at offset 8 —
+// same shared-prefix structure as the ISOBMFF brand check above.
+function riffFormat(b) {
+  if (b.length < 12 || b.slice(0, 4).toString('ascii') !== 'RIFF') return null;
+  return b.slice(8, 12).toString('ascii');
 }
-function isRiffWebp(b) {
-  return b.length >= 12 && b.slice(0, 4).toString('ascii') === 'RIFF' && b.slice(8, 12).toString('ascii') === 'WEBP';
+function isRiffWebp(b) { return riffFormat(b) === 'WEBP'; }
+function isRiffWav(b) { return riffFormat(b) === 'WAVE'; }
+// MP3: either an ID3v2 tag (most files from real recording/editing tools)
+// or a bare MPEG frame sync with no tag (0xFF followed by a byte whose
+// top 3 bits are all set) — both are real, common MP3 shapes, not one
+// contrived case standing in for the format.
+function isMp3(b) {
+  if (b.length >= 3 && b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) return true; // "ID3"
+  return b.length >= 2 && b[0] === 0xff && (b[1] & 0xe0) === 0xe0;
 }
+// Ogg container (Vorbis/Opus audio) — fixed 4-byte "OggS" capture pattern.
+function isOgg(b) { return b.length >= 4 && b.slice(0, 4).toString('ascii') === 'OggS'; }
+// WebM (Matroska) — fixed 4-byte EBML header. Only 'webm' maps to this
+// signature (not a video variant) since that's the only WebM extension
+// AUDIO_EXTS (routes/evidence.js) currently accepts.
+function isEbmlWebm(b) { return b.length >= 4 && b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3; }
 
 const MAGIC = [
   { exts: ['pdf'], mime: 'application/pdf', match: b => b.slice(0, 4).toString() === '%PDF' },
@@ -188,6 +218,17 @@ const MAGIC = [
   { exts: ['heic', 'heif'], mime: 'image/heic', match: isIsobmfHeic },
   { exts: ['docx', 'xlsx', 'pptx', 'zip'], mime: 'application/zip',
     match: b => b[0] === 0x50 && b[1] === 0x4b && b[2] === 0x03 && b[3] === 0x04 },
+  // Audio (voice-note evidence — routes/evidence.js's AUDIO_EXTS). Real
+  // binary audio content previously had no matching signature at all here
+  // and fell through to the printable-text catch-all below, which always
+  // rejects real binary bytes -- every genuine audio upload 400'd
+  // regardless of its declared extension. Gemini's audio understanding
+  // accepts all five of these directly — see lib/evidence-pipeline.js.
+  { exts: ['mp3'], mime: 'audio/mpeg', match: isMp3 },
+  { exts: ['wav'], mime: 'audio/wav', match: isRiffWav },
+  { exts: ['ogg'], mime: 'audio/ogg', match: isOgg },
+  { exts: ['m4a'], mime: 'audio/mp4', match: isIsobmfM4a },
+  { exts: ['webm'], mime: 'audio/webm', match: isEbmlWebm },
   // Catch-all, must stay last: any run of printable/UTF-8 bytes. NUL and other
   // control bytes fail it, which is what keeps real binaries out.
   { exts: ['txt', 'csv', 'tsv', 'md', 'json'], mime: 'text/plain',
@@ -204,6 +245,11 @@ const EXT_MIME = {
   heic: 'image/heic',
   heif: 'image/heif',
   zip: 'application/zip',
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  ogg: 'audio/ogg',
+  m4a: 'audio/mp4',
+  webm: 'audio/webm',
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',

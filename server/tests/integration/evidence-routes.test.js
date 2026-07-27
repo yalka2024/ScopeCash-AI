@@ -207,6 +207,31 @@ describe('evidence upload + analysis routes', () => {
     expect(res.body.mimeType).toBe('image/heic');
   });
 
+  test.each([
+    // Minimal-but-real magic bytes for each format storage.js#MAGIC now
+    // recognizes, one real fixture per AUDIO_EXTS entry (routes/evidence.js).
+    ['note.mp3', 'audio/mpeg', Buffer.concat([Buffer.from('ID3'), Buffer.from([0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])])],
+    ['note.mp3', 'audio/mpeg', Buffer.from([0xff, 0xfb, 0x90, 0x00])], // bare MPEG frame sync, no ID3 tag
+    ['note.wav', 'audio/wav', Buffer.concat([Buffer.from('RIFF'), Buffer.from([0x24, 0x00, 0x00, 0x00]), Buffer.from('WAVE')])],
+    ['note.ogg', 'audio/ogg', Buffer.from([0x4f, 0x67, 0x67, 0x53, 0x00, 0x02, 0x00, 0x00])],
+    ['note.m4a', 'audio/mp4', Buffer.concat([Buffer.from([0x00, 0x00, 0x00, 0x18]), Buffer.from('ftyp'), Buffer.from('M4A '), Buffer.from([0x00, 0x00, 0x00, 0x00]), Buffer.from('M4A mp42')])],
+    ['note.webm', 'audio/webm', Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x01, 0x02, 0x03, 0x04])],
+  ])('accepts a real %s upload (magic-byte sniffing, not just extension)', async (filename, expectedMime, bytes) => {
+    const { user, project } = await makeOwnerAndProject();
+    const res = await request(app).post(`/api/projects/${project.id}/evidenceItems`).set('Authorization', bearer(user))
+      .attach('file', bytes, { filename, contentType: expectedMime });
+    expect(res.status).toBe(201);
+    expect(res.body.mimeType).toBe(expectedMime);
+    expect(res.body.evidenceType).toBe('audio');
+  });
+
+  test('rejects a .wav upload whose bytes are not actually RIFF/WAVE (magic-byte mismatch)', async () => {
+    const { user, project } = await makeOwnerAndProject();
+    const res = await request(app).post(`/api/projects/${project.id}/evidenceItems`).set('Authorization', bearer(user))
+      .attach('file', Buffer.from('plain text pretending to be audio'), { filename: 'note.wav', contentType: 'audio/wav' });
+    expect(res.status).toBe(400);
+  });
+
   test('falls back to Gemini-native document extraction when local extraction finds no text layer (scanned document)', async () => {
     const { user, project } = await makeOwnerAndProject();
     const uploadRes = await request(app)
@@ -543,14 +568,9 @@ describe('GET /evidenceItems/:id/view', () => {
 
   test('422s for a non-photo evidence item (e.g. audio)', async () => {
     const { user, project } = await makeOwnerAndProject();
-    // Seeded directly, not via POST .../evidenceItems: this codebase's
-    // storage.js#MAGIC array has no signature for ANY audio format at all
-    // (mp3/wav/ogg/m4a/webm) — real binary audio content is currently
-    // rejected by validateBuffer's magic-byte check with a 400 regardless
-    // of extension, a separate, real, pre-existing gap unrelated to this
-    // item (HEIC/image handling) and out of scope to fix here. Seeding
-    // directly tests the VIEW route's own 422-for-non-photo logic without
-    // depending on that unrelated, currently-broken upload path.
+    // Seeded directly, not via POST .../evidenceItems, to test the VIEW
+    // route's own 422-for-non-photo logic in isolation from the upload
+    // path's magic-byte sniffing (covered separately below).
     const row = await prisma.evidenceItem.create({
       data: {
         orgId: project.orgId, project_id: project.id, evidenceType: 'audio',

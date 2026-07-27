@@ -405,11 +405,15 @@ is in STATUS.md. Everything below is either in progress or not started.
       (`lib/image-convert.js`, `heic-convert` — pure JS, no native build
       step); stored bytes never touched. "View" link added to the upload
       widget. See STATUS.md Phase 26.
-- [ ] **Found while building the above, real and separate**: `storage.js`'s
-      magic-byte signature list has no entry for any audio format
-      (mp3/wav/ogg/m4a/webm) — real binary audio content fails the
-      magic-byte check with a 400 regardless of extension. Audio evidence
-      upload likely does not work today for genuine audio files.
+- [x] **Found while building the above, real and separate**: `storage.js`'s
+      magic-byte signature list had no entry for any audio format
+      (mp3/wav/ogg/m4a/webm) — real binary audio content failed the
+      magic-byte check with a 400 regardless of extension; audio evidence
+      upload didn't work for genuine audio files. Added real signature
+      matchers for all 5 formats (ID3/bare-frame-sync MP3, RIFF/WAVE,
+      OggS, ISOBMFF ftyp/M4A brand, EBML/WebM), deliberately narrow (e.g.
+      M4A brand set excludes generic 'isom'/'mp42' so a renamed video
+      can't pass as audio). See STATUS.md Phase 40.
 - [x] Near-duplicate image detection — no perceptual-image-hash dependency
       added (would need native pixel decoding, unlike everything else this
       codebase deliberately keeps pure-JS). Instead reuses Gemini's own
