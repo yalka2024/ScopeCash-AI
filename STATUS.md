@@ -1936,6 +1936,73 @@ Full suite: 16/16 e2e tests passing (clean run), confirmed failing
 correctly on a deliberately reintroduced regression, clean again after
 revert.
 
+## Phase 23 — Explicit regional/data-residency configuration (DONE, 2026-07-27)
+
+TODO.md's item was a bare, unelaborated bullet — research first to scope it
+against what this codebase actually is (single-region-per-deployment, no
+per-customer region selection anywhere in the product or schema) rather
+than building an unpromised per-tenant residency feature.
+
+Found the real, concrete gap: `lib/trust-pack.js`'s public trust-portal
+summary (`GET /api/trust/summary`, unauthenticated — exactly what a
+vendor-risk team pulls to decide whether to trust this vendor with their
+data) hardcoded `data_residency: ['US', 'EU']`, unconditionally claiming
+both regions were simultaneously available. That's a materially false
+claim about a single-region architecture, and it directly contradicts
+`trust/ropa-template.md`/`trust/subprocessors.json`'s own (already
+correct, from Phase 6) wording — "Hosted in the US by default, region
+configurable per deployment." The correction made to those two docs back
+in Phase 6 never propagated to this live JSON endpoint.
+
+Fixed by reading a new explicit `DATA_RESIDENCY_REGION` env var instead
+(defaults to `'US'` to match the existing docs), wired through
+`deploy/terraform-gcp/main.tf`'s Cloud Run env vars as `var.region` passed
+through verbatim. First attempt at that Terraform wiring was itself a
+correctness bug, caught by the same-session `/security-review` pass before
+push: `startswith(var.region, "europe-") ? "EU" : "US"` silently mapped
+every Asia/Australia/South America region to `"US"` too — exactly the
+class of false public claim this change exists to prevent. Fixed by
+dropping the lossy bucketing and passing the real region code through
+as-is.
+
+Also found and fixed a second, unrelated real gap in the same Terraform
+module while in the area: `google_secret_manager_secret.app_secrets` used
+`replication { auto {} }` — Google-managed multi-region replication,
+entirely decoupled from `var.region` — while every OTHER resource in the
+module (Cloud SQL, GCS, Cloud Tasks, Cloud Run, Vertex AI) already respects
+the chosen region. A deployment picking a specific region for residency
+reasons would still have every credential silently replicated outside it.
+Fixed to `replication { user_managed { replicas { location = var.region } } }`.
+
+Documented (`DEPLOY.md`) a real, pre-existing architectural asymmetry
+found during research: `AI_PROVIDER=gemini`+`GEMINI_API_KEY` (the AI
+Assistant chat feature, `routes/ai.js`) calls the public Generative
+Language API — a global endpoint with no regional control at all,
+regardless of any region setting. The evidence-document pipeline (the
+product's actual sensitive-data path — contracts, photos, receipts;
+`lib/vertex-ai.js`) is unaffected: it always goes through Vertex AI, which
+does honor `GCP_LOCATION`. Not a code fix (the underlying Google API
+genuinely has no regional variant) — documented the caveat and the
+region-controlled alternative (self-hosted `ollama`) instead.
+
+### Known gap found, not fixed here
+
+`deploy/terraform-gcp/main.tf` sets `AI_PROVIDER = "gemini"` on the Cloud
+Run service but never provisions a `gemini-api-key` secret (`local
+.secret_ids` has no such entry) — meaning a deployment applied via this
+Terraform module as-is would have `routes/ai.js`'s AI Assistant chat
+feature permanently report "no AI provider configured"
+(`GEMINI_API_KEY` would be unset at runtime) even though the evidence
+pipeline works fine via `GCP_PROJECT_ID`/`GCP_LOCATION`. Unrelated to
+residency — flagging rather than fixing under this phase's scope; the
+right fix depends on a product decision (default the IaC path to Vertex
+for the chat feature too, since there's no 'vertex' option in
+`routes/ai.js` today, or provision the Gemini API key secret).
+
+3 new unit tests (`trust-pack-residency.test.js`). Full suite: 24/24
+server test suites, 231 passing. Pre-push `/security-review` caught the
+region-bucketing bug above before it shipped.
+
 ## Not yet started
 
 See TODO.md.

@@ -47,6 +47,15 @@ specific need to keep a deployment's data in-region for a particular
 market. The `[[mounts]]` block reserves `/data` for local uploads; swap
 `STORAGE_DRIVER=s3` for production-scale storage.
 
+Whichever platform you deploy to, also set `DATA_RESIDENCY_REGION` (e.g.
+`US` or `EU`) to match the region you actually chose — it drives the
+public trust portal's (`GET /api/trust/summary`, unauthenticated, pulled
+directly by vendor-risk reviewers) `data_residency` claim, so it reflects
+reality instead of a guess. This is a single value for the whole
+deployment: there's no per-customer region selection in the product today,
+only a deploy-time choice of where the one running instance and its
+database live.
+
 ## Google Cloud Run
 
 For a full infrastructure-as-code path (VPC, private-IP Cloud SQL, Cloud
@@ -71,7 +80,7 @@ DATABASE_URL="postgresql://..." ADMIN_EMAIL=... ADMIN_PASSWORD=... npm run db:po
 
 # deploy (from the project root; uses the Dockerfile)
 gcloud run deploy scopecash-ai --source . --region us-central1 --allow-unauthenticated \
-  --set-env-vars NODE_ENV=production,SERVE_DASHBOARD=1,AI_PROVIDER=gemini \
+  --set-env-vars NODE_ENV=production,SERVE_DASHBOARD=1,AI_PROVIDER=gemini,DATA_RESIDENCY_REGION=US \
   --set-secrets DATABASE_URL=...,JWT_SECRET=...,ENCRYPTION_KEY=...,ENCRYPTION_SEARCH_KEY=...,GEMINI_API_KEY=...
 ```
 
@@ -79,6 +88,17 @@ Store secrets in Secret Manager (`gcloud secrets create`) and reference them
 with `--set-secrets`. After the first deploy, set `CORS_ORIGIN` to the printed
 `*.run.app` URL and redeploy. `AI_PROVIDER=gemini` + `GEMINI_API_KEY` route all
 model calls through the Gemini API.
+
+**Residency note**: `AI_PROVIDER=gemini`/`GEMINI_API_KEY` (the AI Assistant
+chat feature, `routes/ai.js`) calls the public Generative Language API
+(`generativelanguage.googleapis.com`) — a global endpoint with no regional
+control, regardless of `--region` above. The evidence-document pipeline
+(the product's actual sensitive-data path — contracts, photos, receipts;
+`lib/vertex-ai.js`) is unaffected: it always goes through Vertex AI, which
+*does* honor `GCP_LOCATION`. If a deployment has a hard requirement to keep
+every model call in-region including chat, set `GCP_PROJECT_ID` +
+`GCP_LOCATION` and leave `AI_PROVIDER` unset/pointed at a self-hosted
+`ollama` instead of `gemini`.
 
 ## Local Docker test
 

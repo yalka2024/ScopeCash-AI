@@ -230,7 +230,19 @@ locals {
 resource "google_secret_manager_secret" "app_secrets" {
   for_each  = toset(local.secret_ids)
   secret_id = "${var.name}-${var.environment}-${each.key}"
-  replication { auto {} }
+  # Pinned to var.region, NOT `replication { auto {} }` — every other
+  # resource in this module (Cloud SQL, GCS, Cloud Tasks, Cloud Run,
+  # Vertex AI via GCP_LOCATION) already respects the chosen region, but
+  # Secret Manager's `auto {}` mode hands region selection to Google's own
+  # multi-region replication policy, entirely decoupled from `var.region`.
+  # A deployment picking a specific region for data-residency reasons (see
+  # ropa-template.md's "region configurable per deployment" claim) would
+  # have every credential silently replicated outside it regardless.
+  replication {
+    user_managed {
+      replicas { location = var.region }
+    }
+  }
   depends_on = [google_project_service.apis]
 }
 
@@ -302,6 +314,17 @@ resource "google_cloud_run_v2_service" "app" {
       env { name = "AI_PROVIDER"     value = "gemini" }
       env { name = "GCP_PROJECT_ID"  value = var.project_id }
       env { name = "GCP_LOCATION"    value = var.region }
+      # Drives the public trust portal's data_residency claim
+      # (lib/trust-pack.js) so it reflects whatever region this deployment
+      # was actually applied with, instead of a hardcoded, possibly-false
+      # value. Passes var.region through as-is (e.g. "us-central1") rather
+      # than bucketing it into a coarse "US"/"EU" label — an earlier
+      # version of this tried `startswith(var.region, "europe-") ? "EU" :
+      # "US"`, which silently mapped every Asia/Australia/South America
+      # region to "US" too, producing exactly the kind of false public
+      # compliance claim this change exists to prevent. A real GCP region
+      # code is unambiguous and still meaningful to a vendor-risk reviewer.
+      env { name = "DATA_RESIDENCY_REGION" value = var.region }
       env { name = "STORAGE_DRIVER"  value = "gcs" }
       env { name = "STORAGE_BUCKET"  value = google_storage_bucket.uploads.name }
       env { name = "CLOUD_TASKS_QUEUE"      value = google_cloud_tasks_queue.jobs.name }

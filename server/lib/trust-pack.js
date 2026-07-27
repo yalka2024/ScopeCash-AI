@@ -17,6 +17,21 @@ const archiver = require('archiver');
 const TRUST_ROOT = path.join(__dirname, '..', 'trust');
 const PACKAGE_VERSION = require('../package.json').version;
 
+// Explicit, operator-set data-residency region for this deployment — see
+// DEPLOY.md and trust/ropa-template.md's "Hosted in the US by default
+// (region configurable per deployment)". This used to be a hardcoded
+// `['US', 'EU']` literal in the summary below, unconditionally claiming
+// BOTH regions were simultaneously available in the public trust portal
+// (served unauthenticated, exactly what a vendor-risk team pulls to decide
+// whether to trust this vendor with their data) — but the actual
+// architecture is single-region-per-deployment with no per-customer region
+// choice anywhere in the product. Reading it from an env var instead makes
+// the claim track whatever region the deployment was actually configured
+// for, cloud-agnostic (works the same whether the operator set GCP's
+// `region`, AWS's `region`, or Fly's `primary_region` in their own deploy
+// config) — defaults to 'US' to match the already-corrected ropa-template.
+const DATA_RESIDENCY_REGION = process.env.DATA_RESIDENCY_REGION || 'US';
+
 let _summaryCache = null;
 
 /** Public trust posture summary. Safe to expose unauthenticated. */
@@ -46,7 +61,7 @@ function getPublicSummary() {
       mfa_supported:         true,
       sso_supported:         true,
       audit_log:             true,
-      data_residency:        ['US', 'EU'],
+      data_residency:        [DATA_RESIDENCY_REGION],
       sbom:                  'CycloneDX/SPDX, signed via cosign keyless (sigstore)',
       attestations:          ['SLSA Build L3 (provenance)', 'SBOM attestation (cosign)'],
     },

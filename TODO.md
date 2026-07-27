@@ -329,7 +329,19 @@ is in STATUS.md. Everything below is either in progress or not started.
       anything this change introduced. Review the first real run's
       findings on the Security tab, fix what's real, then flip
       `exit-code` to `'1'`.
-- [ ] Explicit regional/data-residency configuration.
+- [x] Explicit regional/data-residency configuration — found the real gap:
+      `lib/trust-pack.js`'s public (unauthenticated) trust-summary
+      hardcoded `data_residency: ['US', 'EU']`, contradicting Phase 6's
+      own correction to `ropa-template.md`/`subprocessors.json` ("US by
+      default, region configurable per deployment"). Now reads a new
+      `DATA_RESIDENCY_REGION` env var, wired through Terraform as the
+      real region code. Also pinned Secret Manager's replication to
+      `var.region` (was `auto {}`, decoupled from every other resource's
+      region choice) and documented that `AI_PROVIDER=gemini`'s chat
+      feature uses a global, non-regional endpoint unlike the
+      region-controlled evidence pipeline. New gap found, not fixed:
+      the Terraform module sets `AI_PROVIDER=gemini` but never
+      provisions a `GEMINI_API_KEY` secret. See STATUS.md Phase 23.
 - [x] WCAG 2.2 AA — automated scanning (Playwright + axe-core, wired into
       CI) done in Phase 9; found and fixed 4 real contrast bugs, see
       STATUS.md. Only public pages are covered — the authenticated
