@@ -221,8 +221,13 @@ is blocked by definition — those live in the last section and can never be
       sums across outcomes with the six stages kept separate — see
       STATUS.md. Any future dashboard/CSV/PDF work should build on this,
       not re-derive its own totals.
-- [ ] Durable GCP jobs: idempotency, retries, heartbeat, cancellation,
-      progress, dead-lettering, replay (folds into Phase 3).
+- [~] Durable GCP jobs: idempotency, retries, heartbeat, cancellation,
+      progress, dead-lettering, replay. Idempotency + retries landed in
+      Phase 13/17; heartbeat, cancellation, progress, dead-lettering and
+      replay in Phase 41 (see the re-audit section below for what each
+      closed and the two real bugs found). Remaining: an operational job
+      dashboard in the UI, and progress reporting on the two shorter job
+      kinds.
 - [x] Transactional outbox for billing/notifications/job creation/audit —
       done in Phase 17 for billing + job creation (the two real, concrete
       dual-write hazards found); notifications and audit deliberately
@@ -448,11 +453,17 @@ the audit was right every time, and three gaps were worse than reported.
       and called by nothing).
 - [x] Both Terraform modules parse and validate; blocking CI job added.
 - [x] Cloud Logging structured fields + Monitoring alerts/metrics/SLO.
-- [ ] **Durable GCP jobs — the one substantive code item from this audit not
-      yet done**: heartbeats, user cancellation, persistent progress events,
-      dead-letter administration, replay controls, and an operational job
-      dashboard. Idempotency and retries already exist (Phase 13/17); this
-      is the rest. Duplicated at the P1 entry above — track it there.
+- [~] Durable GCP jobs — heartbeats, cancellation, progress events,
+      dead-lettering and replay are DONE (Phase 41). Two real bugs closed:
+      `reconcileStuckJobs` only ever swept `queued`, so a run whose worker
+      died mid-execution stayed `running` forever and was never recovered;
+      and nothing counted attempts, so an undispatchable job was redispatched
+      on every tick indefinitely. Cancellation is cooperative (checked at
+      stage boundaries) so a job is never killed between a storage write and
+      its database row. New `POST /api/agentRunRecords/:id/{cancel,replay}`.
+      Still open: an operational job dashboard (dashboard UI — the API is
+      there, nothing renders it), and per-stage progress on the two shorter
+      job kinds (only the document-analysis path reports stages today).
 
 ## P2 — maturity (lower priority)
 

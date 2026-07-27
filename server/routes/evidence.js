@@ -456,6 +456,42 @@ router.post('/projects/:id/findings/generate', requireAnyOrgRole(...ANALYZE_ROLE
     res.status(202).json({ agentRunId: runId, status: 'queued', poll: `/api/agentRunRecords/${runId}` });
   }));
 
+// ── Job control: cancel / replay ──────────────────────────────────────────
+// A queued or running analysis had no way to be stopped, and a failed or
+// dead-lettered one no way to be retried without re-uploading the source.
+// Both are org-scoped: an operator can only act on their own org's runs.
+
+/** Cooperative cancellation — see lib/evidence-jobs.js#requestCancel. */
+router.post('/agentRunRecords/:id/cancel', requireAnyOrgRole(...ANALYZE_ROLES), asyncHandler(async (req, res) => {
+  const run = await prisma.agentRunRecord.findFirst({ where: { id: req.params.id, orgId: req.tenant.orgId } });
+  if (!run) return res.status(404).json({ error: 'not_found' });
+  if (run.project_id) assertApiKeyCanTouchProject(req, run.project_id);
+
+  const result = await evidenceJobs.requestCancel(run.id);
+  if (!result.ok) {
+    throw new HttpError(409, `Run cannot be cancelled (status: ${result.status || result.reason})`, result.reason, { status: result.status });
+  }
+  await audit(req, 'agentRunRecords.cancel', { resource: 'agentRunRecord', resourceId: run.id, details: { result: result.status } });
+  res.json({ agentRunId: run.id, status: result.status });
+}));
+
+/** Replay a failed/dead-lettered/cancelled run after the cause is fixed. */
+router.post('/agentRunRecords/:id/replay', requireAnyOrgRole(...ANALYZE_ROLES), asyncHandler(async (req, res) => {
+  const run = await prisma.agentRunRecord.findFirst({ where: { id: req.params.id, orgId: req.tenant.orgId } });
+  if (!run) return res.status(404).json({ error: 'not_found' });
+  if (run.project_id) assertApiKeyCanTouchProject(req, run.project_id);
+
+  const result = await evidenceJobs.replayJob(run.id);
+  if (!result.ok) {
+    const msg = result.reason === 'not_replayable'
+      ? `Only failed, dead-lettered or cancelled runs can be replayed (status: ${result.status})`
+      : `Run cannot be replayed (${result.reason})`;
+    throw new HttpError(409, msg, result.reason, { status: result.status });
+  }
+  await audit(req, 'agentRunRecords.replay', { resource: 'agentRunRecord', resourceId: run.id });
+  res.status(202).json({ agentRunId: run.id, status: 'queued', poll: `/api/agentRunRecords/${run.id}` });
+}));
+
 router.get('/evidenceFindings/:id/citations/validate', asyncHandler(async (req, res) => {
   const finding = await prisma.evidenceFinding.findFirst({ where: { id: req.params.id, orgId: req.tenant.orgId } });
   if (!finding) return res.status(404).json({ error: 'not_found' });

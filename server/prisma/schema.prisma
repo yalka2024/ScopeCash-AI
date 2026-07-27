@@ -1221,6 +1221,13 @@ model AgentRunRecord {
   latency_ms       Int?
   error_message    String?
   human_decision   String?
+  // Durable-job fields. status gains: queued|running|completed|failed|
+  // awaiting_approval|cancelled|dead_lettered.
+  heartbeat_at     DateTime? // last liveness ping from the worker executing this run — a `running` row with a stale heartbeat is a crashed worker, which the reconciler previously could never detect (it only swept `queued`)
+  attempt_count    Int      @default(0) // incremented per dispatch; bounds redispatch so a permanently-failing job dead-letters instead of looping forever
+  cancel_requested_at DateTime? // set by the cancel route; the worker checks it at stage boundaries and stops cooperatively rather than being killed mid-write
+  progress         String?  // JSON: { stage, pct, note } — last reported progress, so a long run isn't an opaque "running"
+  dead_lettered_at DateTime?
   completed_at     DateTime?
   userId           String?
   createdAt        DateTime @default(now())

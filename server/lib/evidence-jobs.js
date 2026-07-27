@@ -141,7 +141,59 @@ async function _finishJobRun(runId, { status, outputRefs, errorMessage }) {
 }
 
 async function _markRunning(runId) {
-  return prisma.agentRunRecord.update({ where: { id: runId }, data: { status: 'running' } }).catch(() => {});
+  return prisma.agentRunRecord.update({
+    where: { id: runId },
+    data: { status: 'running', heartbeat_at: new Date() },
+  }).catch(() => {});
+}
+
+/**
+ * Liveness ping + progress report from inside a running job, and the
+ * cooperative cancellation check.
+ *
+ * Returns false when the run has been cancelled, so callers can stop at a
+ * safe point instead of being killed mid-write. Long stages should call this
+ * between steps: without a heartbeat a crashed worker leaves the row in
+ * `running` forever, which the reconciler could not previously detect at all
+ * (it only ever swept `queued`).
+ */
+async function heartbeat(runId, progress) {
+  const run = await prisma.agentRunRecord.update({
+    where: { id: runId },
+    data: {
+      heartbeat_at: new Date(),
+      progress: progress ? JSON.stringify(progress) : undefined,
+    },
+    select: { cancel_requested_at: true },
+  }).catch(() => null);
+  return !(run && run.cancel_requested_at);
+}
+
+/** Mark a run cancelled at a safe point. Distinct from `failed`: nothing went
+ * wrong, a human asked it to stop. */
+async function _markCancelled(runId) {
+  return prisma.agentRunRecord.update({
+    where: { id: runId },
+    data: { status: 'cancelled', completed_at: new Date(), error_message: 'Cancelled by request' },
+  }).catch(() => {});
+}
+
+// A run is redispatched at most this many times before dead-lettering. Without
+// a bound, a job that fails to dispatch (bad payload, permanently-missing
+// referenced row) is retried by the reconciler on every tick, forever.
+const MAX_ATTEMPTS = Number(process.env.EVIDENCE_JOB_MAX_ATTEMPTS || 5);
+
+async function _deadLetter(runId, reason) {
+  console.error(JSON.stringify({
+    severity: 'ERROR', type: 'evidence_job_dead_lettered', runId, reason,
+  }));
+  return prisma.agentRunRecord.update({
+    where: { id: runId },
+    data: {
+      status: 'dead_lettered', dead_lettered_at: new Date(), completed_at: new Date(),
+      error_message: reason,
+    },
+  }).catch(() => {});
 }
 
 // ── SourceDocument analysis ──────────────────────────────────────────────
@@ -169,10 +221,15 @@ async function _processSourceDocumentAnalyze({ runId, sourceDocumentId, orgId, p
     for await (const chunk of stream) chunks.push(chunk);
     const buffer = Buffer.concat(chunks);
 
+    if (!await heartbeat(runId, { stage: 'extracting', pct: 25 })) return _markCancelled(runId);
+
     let extracted = await pipeline.extractDocumentText({ mimeType: sourceDocument.mime_type, buffer });
     let geminiFallbackRunId = null;
     const needsFallback = !extracted || (extracted.text || '').trim().length < MIN_EXTRACTED_CHARS;
     if (needsFallback) {
+      // Stage boundary before the slowest step in the job (a Gemini call on a
+      // whole document) — the most valuable place to notice a cancel.
+      if (!await heartbeat(runId, { stage: 'gemini_fallback', pct: 45 })) return _markCancelled(runId);
       if (!vertex.isConfigured()) {
         await prisma.sourceDocument.update({ where: { id: sourceDocument.id }, data: { extraction_status: 'failed' } });
         const reason = extracted ? 'appears to be a scanned/image-only document with no extractable text layer' : `no local text extractor for mime type ${sourceDocument.mime_type}`;
@@ -190,6 +247,8 @@ async function _processSourceDocumentAnalyze({ runId, sourceDocumentId, orgId, p
       }
       extracted = { text: viaGemini.text, pages: null, method: viaGemini.method };
     }
+
+    if (!await heartbeat(runId, { stage: 'baseline_extraction', pct: 70 })) return _markCancelled(runId);
 
     let baseline = null;
     if (['contract', 'estimate', 'change_order'].includes(sourceDocument.document_type)) {
@@ -379,18 +438,105 @@ function _reconstructJob(run) {
 async function reconcileStuckJobs({ olderThanMs = STUCK_JOB_THRESHOLD_MS, limit = 25 } = {}) {
   const cutoff = new Date(Date.now() - olderThanMs);
   const stuck = await runWithSystemAccess(async () => prisma.agentRunRecord.findMany({
-    where: { status: 'queued', createdAt: { lt: cutoff }, agent_type: { in: Object.keys(AGENT_TYPE_TO_KIND) } },
+    where: {
+      agent_type: { in: Object.keys(AGENT_TYPE_TO_KIND) },
+      OR: [
+        // Never picked up.
+        { status: 'queued', createdAt: { lt: cutoff } },
+        // Picked up, then the worker died. Previously invisible to this
+        // sweep — it only looked at `queued`, so a run that crashed mid-
+        // execution stayed `running` forever and was never recovered.
+        // A null heartbeat means it predates heartbeating; fall back to
+        // createdAt so those aren't stranded either.
+        { status: 'running', heartbeat_at: { lt: cutoff } },
+        { status: 'running', heartbeat_at: null, createdAt: { lt: cutoff } },
+      ],
+    },
     take: limit, orderBy: { createdAt: 'asc' },
   }));
   let redispatched = 0;
+  let deadLettered = 0;
+  let cancelled = 0;
   for (const run of stuck) {
-    const job = _reconstructJob(run);
-    if (!job) continue;
-    console.warn(`[evidence-jobs] reconciling stuck run ${run.id} (${run.agent_type}, queued since ${run.createdAt.toISOString()}) — redispatching`);
-    await _dispatch(job);
-    redispatched++;
+    await runWithSystemAccess(async () => {
+      // A cancel requested while the job was stuck should be honoured here —
+      // nothing is going to reach a stage boundary to notice it.
+      if (run.cancel_requested_at) {
+        await _markCancelled(run.id);
+        cancelled++;
+        return;
+      }
+      const job = _reconstructJob(run);
+      if (!job) {
+        // Unreconstructable: redispatching can never succeed, so retrying
+        // forever would just be noise.
+        await _deadLetter(run.id, `Cannot reconstruct job for agent_type "${run.agent_type}"`);
+        deadLettered++;
+        return;
+      }
+      const attempts = (run.attempt_count || 0) + 1;
+      if (attempts > MAX_ATTEMPTS) {
+        await _deadLetter(run.id, `Exceeded ${MAX_ATTEMPTS} dispatch attempts without completing`);
+        deadLettered++;
+        return;
+      }
+      await prisma.agentRunRecord.update({
+        where: { id: run.id },
+        data: { attempt_count: attempts, status: 'queued' },
+      }).catch(() => {});
+      console.warn(`[evidence-jobs] reconciling stuck run ${run.id} (${run.agent_type}, ${run.status} since ${run.createdAt.toISOString()}) — redispatch attempt ${attempts}/${MAX_ATTEMPTS}`);
+      await _dispatch(job);
+      redispatched++;
+    });
   }
-  return { checked: stuck.length, redispatched };
+  return { checked: stuck.length, redispatched, deadLettered, cancelled };
+}
+
+/**
+ * Request cancellation. Cooperative by design: the worker stops at its next
+ * heartbeat/stage boundary rather than being killed mid-write, so a job can
+ * never be interrupted between a storage write and its database row. A run
+ * that hasn't started yet is cancelled outright, since there's nothing to
+ * cooperate with.
+ */
+async function requestCancel(runId) {
+  const run = await prisma.agentRunRecord.findUnique({ where: { id: runId } });
+  if (!run) return { ok: false, reason: 'not_found' };
+  if (['completed', 'failed', 'cancelled', 'dead_lettered'].includes(run.status)) {
+    return { ok: false, reason: 'already_finished', status: run.status };
+  }
+  if (run.status === 'queued') {
+    await _markCancelled(runId);
+    return { ok: true, status: 'cancelled' };
+  }
+  await prisma.agentRunRecord.update({ where: { id: runId }, data: { cancel_requested_at: new Date() } });
+  return { ok: true, status: 'cancel_requested' };
+}
+
+/**
+ * Replay a run that failed, was dead-lettered, or was cancelled — the manual
+ * counterpart to the automatic reconciler, for after an operator has fixed
+ * whatever caused it. Resets the attempt budget, since this is a deliberate
+ * human decision rather than another blind retry.
+ */
+async function replayJob(runId) {
+  const run = await prisma.agentRunRecord.findUnique({ where: { id: runId } });
+  if (!run) return { ok: false, reason: 'not_found' };
+  if (!['failed', 'dead_lettered', 'cancelled'].includes(run.status)) {
+    return { ok: false, reason: 'not_replayable', status: run.status };
+  }
+  const job = _reconstructJob(run);
+  if (!job) return { ok: false, reason: 'not_reconstructable' };
+  await prisma.agentRunRecord.update({
+    where: { id: runId },
+    data: {
+      status: 'queued', attempt_count: 0, error_message: null,
+      dead_lettered_at: null, cancel_requested_at: null, completed_at: null,
+      heartbeat_at: null, progress: null,
+    },
+  });
+  await _dispatch(job);
+  return { ok: true, status: 'queued' };
 }
 
 let reconcileTimer = null;
@@ -414,4 +560,8 @@ module.exports = {
   reconcileStuckJobs,
   startReconciler,
   stopReconciler,
+  heartbeat,
+  requestCancel,
+  replayJob,
+  MAX_ATTEMPTS,
 };

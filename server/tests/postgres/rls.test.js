@@ -827,7 +827,7 @@ d('Postgres RLS', () => {
     // prisma.tenantTransaction() instead.
     const tool = require('../../lib/tools/emailnotificationsender');
     const email = require('../../lib/email');
-    const sendSpy = jest.spyOn(email, 'send').mockResolvedValue({ id: 'msg_test' });
+    const sendSpy = jest.spyOn(email, 'sendTemplate').mockResolvedValue({ id: 'msg_test' });
     jest.spyOn(email, 'isConfigured').mockReturnValue(true);
     const prevMode = process.env.INTEGRATION_EMAILNOTIFICATIONSENDER_MODE;
     process.env.INTEGRATION_EMAILNOTIFICATIONSENDER_MODE = 'live';
@@ -841,7 +841,7 @@ d('Postgres RLS', () => {
       const customer = await prisma.customer.create({ data: { orgId: org.id, name: uid('Customer') } });
       const project = await prisma.projectRecord.create({ data: { orgId: org.id, customer_id: customer.id, name: uid('Project'), userId: user.id } });
       const packet = await prisma.evidencePacket.create({
-        data: { orgId: org.id, project_id: project.id, packet_number: 'PK-1', version: 1, userId: user.id, status: 'approved', approved_by_id: approver.id, approved_at: new Date() },
+        data: { orgId: org.id, project_id: project.id, packet_number: 'PK-1', version: 1, userId: user.id, status: 'approved', approved_by_id: approver.id, approved_at: new Date(), recipient: 'customer@test.local' },
       });
       // A real approving member of otherOrg — isolates the cross-org
       // check below to "wrong org's packet id," not the separate
@@ -853,7 +853,7 @@ d('Postgres RLS', () => {
 
     // No runWithOrg/runWithSystemAccess anywhere around this call — the point.
     const result = await tool.run(
-      { recipient_email: 'customer@test.local', evidence_packet_id: packet.id },
+      { recipient_email: 'customer@test.local', evidence_packet_id: packet.id, template_id: 'packet-ready' },
       { userId: user.id, orgId: org.id },
     );
     expect(result.delivery_status).toBe('sent');
