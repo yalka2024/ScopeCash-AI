@@ -33,3 +33,10 @@ dashboard/playwright-report/
 dashboard/test-results/
 dashboard/pdf-visual/.tmp/
 server/data-exports/
+
+# Terraform working dirs / state (provider binaries are ~120MB; state holds secrets)
+**/.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+crash.log

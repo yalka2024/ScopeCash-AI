@@ -14,12 +14,20 @@
 # (customer-managed encryption keys, VPC Service Controls, Binary
 # Authorization, org-policy constraints) before relying on it as-is.
 #
-# NOT deployed or billed for by the agent that authored this — no live GCP
-# project was available in that session. Written directly against this
-# repo's actual GCP integration code (env var names verified against
-# server/lib/*.js), not generated from a generic template, but the actual
-# `terraform apply` path is unverified. Run `terraform plan` and read it
-# carefully before `apply`.
+# Verification status — read before relying on this:
+#   `terraform fmt`, `terraform init` and `terraform validate` all PASS
+#   against the real hashicorp/google v6.10 provider schema (2026-07-27).
+#   Until then this module had never been run through the Terraform CLI at
+#   all, only hand-checked, and it did not parse: five `variable` blocks and
+#   thirteen `env`/`database_flags` blocks put two arguments on a single line
+#   (HCL allows one), and `depends_on` used concat() where a static list is
+#   required. None of it could ever have been applied.
+#
+#   `terraform plan` and `apply` are still UNVERIFIED — both need real GCP
+#   credentials and a live project, which no authoring session has had.
+#   validate checks syntax, provider schema, and reference integrity; it does
+#   NOT check quotas, IAM permissions, API enablement, or resource-name
+#   collisions. Run `terraform plan` and read it carefully before `apply`.
 
 terraform {
   required_version = ">= 1.6"
@@ -28,11 +36,28 @@ terraform {
   }
 }
 
-variable "project_id"  { type = string }
-variable "region"      { type = string  default = "us-central1" }
-variable "environment" { type = string  default = "prod" }
-variable "name"        { type = string  default = "scopecash-ai" }
-variable "db_password" { type = string  sensitive = true }
+variable "project_id" { type = string }
+# HCL allows at most ONE argument in a single-line block, so these four cannot
+# be collapsed onto one line each — with a second argument the file does not
+# parse at all ("Invalid single-argument block definition"), which is what
+# `terraform fmt`/`validate` reported the first time they were run against
+# this module.
+variable "region" {
+  type    = string
+  default = "us-central1"
+}
+variable "environment" {
+  type    = string
+  default = "prod"
+}
+variable "name" {
+  type    = string
+  default = "scopecash-ai"
+}
+variable "db_password" {
+  type      = string
+  sensitive = true
+}
 variable "container_image" {
   type        = string
   description = "Full image ref (Artifact Registry path) to deploy to Cloud Run. Push one before first apply — Cloud Run needs an existing image to create the service against."
@@ -45,11 +70,13 @@ variable "cloud_sql_iam_auth" {
     Run runtime service account (no static DB password) alongside the
     existing password-based `app` user. Additive and off by default so
     existing deployments are undisturbed by upgrading this module.
-    Application-side wiring (lib/prisma.js#createPrismaClientWithIamAuth /
-    lib/cloud-sql-connector.js) exists and is unit-tested but is NOT yet
-    invoked from index.js's default boot path — see TODO.md. Setting this
-    to true provisions the IAM identity + grants only; DATABASE_URL still
-    uses the password-based user until that follow-up lands.
+    Application-side wiring is now live: index.js awaits
+    lib/prisma.js#initCloudSqlIamAuth() before accepting traffic, which
+    swaps in the IAM-authenticated client. Setting this variable provisions
+    the IAM identity and grants; the application also needs
+    CLOUD_SQL_IAM_AUTH=1 plus CLOUD_SQL_INSTANCE / CLOUD_SQL_IAM_USER /
+    CLOUD_SQL_DATABASE (see server/.env.example) to actually use it —
+    otherwise it keeps using the password-based `app` user.
   EOT
   default     = false
 }
@@ -143,7 +170,11 @@ resource "google_sql_database_instance" "postgres" {
       private_network = google_compute_network.vpc.id
     }
 
-    database_flags { name = "cloudsql.iam_authentication" value = "on" } # required for var.cloud_sql_iam_auth's google_sql_user.app_iam below — see TODO.md
+    # required for var.cloud_sql_iam_auth's google_sql_user.app_iam below
+    database_flags {
+      name  = "cloudsql.iam_authentication"
+      value = "on"
+    }
   }
 }
 
@@ -183,7 +214,7 @@ resource "google_storage_bucket" "uploads" {
 
   lifecycle_rule {
     condition { age = 1 }
-    action    { type = "AbortIncompleteMultipartUpload" }
+    action { type = "AbortIncompleteMultipartUpload" }
   }
 }
 
@@ -197,9 +228,9 @@ resource "google_cloud_tasks_queue" "jobs" {
     max_dispatches_per_second = 10
   }
   retry_config {
-    max_attempts = 8
-    min_backoff  = "5s"
-    max_backoff  = "600s"
+    max_attempts  = 8
+    min_backoff   = "5s"
+    max_backoff   = "600s"
     max_doublings = 5
   }
   depends_on = [google_project_service.apis]
@@ -284,8 +315,8 @@ resource "google_storage_bucket_iam_member" "run_sa_uploads" {
 # by this same service account — CLOUD_TASKS_INVOKER_SA in the Cloud Run env.
 resource "google_service_account_iam_member" "run_sa_self_token_creator" {
   service_account_id = google_service_account.run_sa.name
-  role                = "roles/iam.serviceAccountTokenCreator"
-  member              = "serviceAccount:${google_service_account.run_sa.email}"
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "serviceAccount:${google_service_account.run_sa.email}"
 }
 
 # --- Cloud Run service ------------------------------------------------------
@@ -309,20 +340,41 @@ resource "google_cloud_run_v2_service" "app" {
       image = var.container_image
       ports { container_port = 8080 }
 
-      env { name = "NODE_ENV"        value = "production" }
-      env { name = "SERVE_DASHBOARD" value = "1" }
-      env { name = "AI_PROVIDER"     value = "gemini" }
-      # @node-rs/bcrypt's async hash/compare runs on libuv's threadpool
+      env {
+
+        name = "NODE_ENV"
+
+        value = "production"
+
+      }
+      env {
+        name  = "SERVE_DASHBOARD"
+        value = "1"
+      }
+      env {
+        # @node-rs/bcrypt's async hash/compare runs on libuv's threadpool
+        name  = "AI_PROVIDER"
+        value = "gemini"
+      }
       # (default size 4) -- found via load testing (see TODO.md "Perf/
       # load/soak testing") that this becomes the throughput ceiling under
       # sustained concurrent login traffic. Documenting this in
       # server/.env.example alone isn't enough for a real deployment to
       # benefit from it -- has to actually be set where the container
       # boots.
-      env { name = "UV_THREADPOOL_SIZE" value = "16" }
-      env { name = "GCP_PROJECT_ID"  value = var.project_id }
-      env { name = "GCP_LOCATION"    value = var.region }
-      # Drives the public trust portal's data_residency claim
+      env {
+        name  = "UV_THREADPOOL_SIZE"
+        value = "16"
+      }
+      env {
+        name  = "GCP_PROJECT_ID"
+        value = var.project_id
+      }
+      env {
+        # Drives the public trust portal's data_residency claim
+        name  = "GCP_LOCATION"
+        value = var.region
+      }
       # (lib/trust-pack.js) so it reflects whatever region this deployment
       # was actually applied with, instead of a hardcoded, possibly-false
       # value. Passes var.region through as-is (e.g. "us-central1") rather
@@ -332,16 +384,31 @@ resource "google_cloud_run_v2_service" "app" {
       # region to "US" too, producing exactly the kind of false public
       # compliance claim this change exists to prevent. A real GCP region
       # code is unambiguous and still meaningful to a vendor-risk reviewer.
-      env { name = "DATA_RESIDENCY_REGION" value = var.region }
-      env { name = "STORAGE_DRIVER"  value = "gcs" }
-      env { name = "STORAGE_BUCKET"  value = google_storage_bucket.uploads.name }
-      env { name = "CLOUD_TASKS_QUEUE"      value = google_cloud_tasks_queue.jobs.name }
-      env { name = "CLOUD_TASKS_INVOKER_SA" value = google_service_account.run_sa.email }
       env {
+        name  = "DATA_RESIDENCY_REGION"
+        value = var.region
+      }
+      env {
+        name  = "STORAGE_DRIVER"
+        value = "gcs"
+      }
+      env {
+        name  = "STORAGE_BUCKET"
+        value = google_storage_bucket.uploads.name
+      }
+      env {
+        name  = "CLOUD_TASKS_QUEUE"
+        value = google_cloud_tasks_queue.jobs.name
+      }
+      env {
+        name  = "CLOUD_TASKS_INVOKER_SA"
+        value = google_service_account.run_sa.email
+      }
+      env {
+        # Provisions the IAM identity + grants only (google_sql_user.app_iam,
         name  = "DATABASE_URL"
         value = "postgresql://${google_sql_user.app.name}:${var.db_password}@localhost/${google_sql_database.app.name}?host=/cloudsql/${google_sql_database_instance.postgres.connection_name}"
       }
-      # Provisions the IAM identity + grants only (google_sql_user.app_iam,
       # run_sa_cloudsql_instance_user above) — DATABASE_URL still uses the
       # password-based user regardless of this flag until
       # lib/prisma.js#createPrismaClientWithIamAuth is actually wired into
@@ -393,10 +460,18 @@ resource "google_cloud_run_v2_service" "app" {
     }
   }
 
-  depends_on = concat(
-    [google_project_iam_member.run_sa_roles, google_storage_bucket_iam_member.run_sa_uploads],
-    var.cloud_sql_iam_auth ? [google_project_iam_member.run_sa_cloudsql_instance_user[0], google_sql_user.app_iam[0]] : [],
-  )
+  # depends_on takes a STATIC list of references — Terraform builds the
+  # dependency graph before evaluating expressions, so concat()/conditionals
+  # here are a parse error ("A static list expression is required"). The two
+  # IAM-auth resources are count-gated; referencing them WITHOUT an index
+  # means "all instances of this resource", which is correctly zero when
+  # var.cloud_sql_iam_auth is false. Same behaviour as the concat, and valid.
+  depends_on = [
+    google_project_iam_member.run_sa_roles,
+    google_storage_bucket_iam_member.run_sa_uploads,
+    google_project_iam_member.run_sa_cloudsql_instance_user,
+    google_sql_user.app_iam,
+  ]
 }
 
 resource "google_cloud_run_v2_service_iam_member" "public_invoker" {
@@ -412,8 +487,8 @@ output "cloud_run_url" {
   value = var.container_image == null ? null : google_cloud_run_v2_service.app[0].uri
 }
 output "cloud_sql_connection_name" { value = google_sql_database_instance.postgres.connection_name }
-output "uploads_bucket"            { value = google_storage_bucket.uploads.name }
-output "artifact_registry_repo"    { value = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.containers.repository_id}" }
-output "cloud_tasks_queue"         { value = google_cloud_tasks_queue.jobs.name }
-output "run_service_account"       { value = google_service_account.run_sa.email }
-output "cloud_sql_iam_user"        { value = var.cloud_sql_iam_auth ? google_sql_user.app_iam[0].name : null }
+output "uploads_bucket" { value = google_storage_bucket.uploads.name }
+output "artifact_registry_repo" { value = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.containers.repository_id}" }
+output "cloud_tasks_queue" { value = google_cloud_tasks_queue.jobs.name }
+output "run_service_account" { value = google_service_account.run_sa.email }
+output "cloud_sql_iam_user" { value = var.cloud_sql_iam_auth ? google_sql_user.app_iam[0].name : null }

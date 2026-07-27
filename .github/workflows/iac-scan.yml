@@ -48,3 +48,34 @@ jobs:
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-iac.sarif
+
+  # Syntax/schema validation, separate from the security scan above. This is
+  # BLOCKING: until 2026-07-27 the GCP module had never been run through the
+  # Terraform CLI and did not parse at all (two arguments on single-line
+  # blocks, concat() in depends_on), so it could never have been applied. A
+  # module that doesn't parse is a build error, not a finding to triage.
+  terraform-validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        module: [deploy/terraform-gcp, deploy/terraform]
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+      - name: terraform fmt
+        working-directory: ${{ matrix.module }}
+        run: terraform fmt -check -diff -recursive
+      # -backend=false: no remote state or credentials needed to check syntax
+      # and provider schemas. `plan` would need real cloud credentials and is
+      # deliberately NOT run here.
+      - name: terraform init
+        working-directory: ${{ matrix.module }}
+        run: terraform init -backend=false -input=false
+      - name: terraform validate
+        working-directory: ${{ matrix.module }}
+        run: terraform validate
