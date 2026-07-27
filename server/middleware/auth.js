@@ -38,7 +38,14 @@ async function authMiddleware(req, res, next) {
     // 3. API key
     if (authHeader.startsWith('ApiKey ')) {
       const key = authHeader.slice(7);
-      const prefix = key.slice(0, 8);
+      // Slice from AFTER the constant "scopecash-ai_" literal (13 chars) —
+      // slicing from 0 would give every key the identical prefix
+      // "scopecas", making the field useless for its purpose (a short,
+      // per-key-distinguishing identifier for display/lookup). Must match
+      // routes/apikey.js's identical computation exactly, or a real key's
+      // stored prefix would never match what's recomputed here at auth
+      // time, and every login with that key would 401.
+      const prefix = key.slice(13, 21);
       const keyHash = crypto.createHash('sha256').update(key).digest('hex');
       const apiKey = await prisma.apiKey.findFirst({ where: { keyHash, prefix, active: true } });
       if (!apiKey) return res.status(401).json({ error: 'Invalid API key', code: 'auth_invalid_key' });

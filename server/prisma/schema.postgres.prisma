@@ -116,8 +116,28 @@ model ApiKey {
   scopes      String   @default("read")
   active      Boolean  @default(true)
   createdAt   DateTime @default(now())
+  projectGrants ApiKeyProjectGrant[]
 
   @@index([userId])
+}
+
+// Restricts a key to specific projects instead of every project in the
+// org — a key with ZERO grant rows stays org-wide (the pre-existing,
+// backward-compatible default); one or more rows narrows it. Kept as a
+// real join table (matching how this schema models every other
+// many-to-many relation) rather than a JSON/CSV column, so it survives a
+// ProjectRecord being deleted (cascade) and can be reverse-queried
+// ("which keys grant project X") without parsing free text.
+model ApiKeyProjectGrant {
+  id        String   @id @default(uuid())
+  apiKeyId  String
+  apiKey    ApiKey   @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+  projectId String
+  createdAt DateTime @default(now())
+
+  @@unique([apiKeyId, projectId])
+  @@index([apiKeyId])
+  @@index([projectId])
 }
 
 // ─── Activity Log (append-only audit trail) ───────────

@@ -262,14 +262,25 @@ is in STATUS.md. Everything below is either in progress or not started.
         model approach needs a `SAVEPOINT` per attempt — without it, the
         very first ordering-related failure would have crashed the whole
         sweep on real production Postgres. See STATUS.md.
-  - [ ] **API-key project-level scopes**: `ApiKey.scopes` (Phase 1) is
-        org-wide (`read`/`write`/etc across every project in the org).
-        Project-level scoping needs either a join table
-        (`ApiKeyProjectGrant`) or a JSON allowlist column, plus every
-        route currently checking `requireScope(...)` to additionally
-        check the target resource's `project_id` against that key's
-        grant — a change to the authorization model, not just the
-        `ApiKey` schema.
+  - [x] **API-key project-level scopes** — done in Phase 20. Corrected a
+        premise in this note along the way: `requireScope`-gated routes
+        (8 legacy/AI-analysis endpoints) never carry `project_id` at all
+        — the real project-scoped surface is `entities.js`/`evidence.js`,
+        gated by `requireAnyOrgRole` and (before this phase) never
+        checking `req.authScopes`, meaning a key had the full run of its
+        owning user's org role regardless of its declared scopes. New
+        `ApiKeyProjectGrant` join table (zero grants = org-wide, the
+        pre-existing default); `entities.js`'s `scope()` and a new
+        `assertApiKeyProjectWrite()` enforce it across all 20 generic CRUD
+        routes plus the packet/outcome action routes; `evidence.js`'s
+        `assertProjectInOrg()` plus three direct-id-lookup routes enforce
+        the same on the real upload/analyze surface. `POST /api/api-keys`
+        accepts `projectIds`; new `PUT /api/api-keys/:id/projects` manages
+        an existing key's grants. Found and fixed a real, unrelated bug
+        along the way: every API key's `prefix` field was the identical
+        constant string (sliced the wrong part of the raw key), useless
+        for its display/lookup purpose. 17 new integration tests. See
+        STATUS.md.
   - [ ] **Audit coverage + log-redaction tests**: no systematic audit of
         which sensitive actions call `lib/audit.js#audit(...)` and which
         don't exists yet — this needs a route-by-route pass (similar in

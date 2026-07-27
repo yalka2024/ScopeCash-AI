@@ -27,10 +27,12 @@ const attachTenant = require('../middleware/tenant');
 const { requireAnyOrgRole } = require('../lib/roles');
 const { z, validate, asyncHandler, HttpError } = require('../lib/validate');
 const { audit } = require('../lib/audit');
+const { attachApiKeyProjectScope } = require('../lib/api-key-scope');
 
 const router = express.Router();
 router.use(authMiddleware);
 router.use(attachTenant);
+router.use(attachApiKeyProjectScope);
 
 // ── Idempotency-Key (in-process; multi-instance deployments need a shared
 // store, e.g. Redis — same caveat as the in-process rate-limit buckets in
@@ -260,8 +262,37 @@ function pick(body, fields) {
   return out;
 }
 
-function scope(req, extra) {
-  return Object.assign({ orgId: req.tenant.orgId }, extra || {});
+// Which field a project-scoped API key's allowlist filters on for a given
+// entity — 'id' for projectRecord itself (its own id IS the project id),
+// 'project_id' for anything with that field (including agentRunRecord,
+// which is readOnly so isn't listed in `fields` but has the real column),
+// or null for entities with no project dimension at all (customer,
+// organizationRecord, citation — reached only via findingId, not
+// project_id directly — rateSheet/rateSheetItem, testimonial,
+// retentionLegalHold, competitionEvidence). A project-scoped key can
+// never act on a null-field entity — there's nothing to check its
+// allowlist against, so denying outright is the safe default.
+function projectIdFieldFor(e) {
+  if (e.model === 'projectRecord') return 'id';
+  if (e.model === 'agentRunRecord') return 'project_id';
+  if (e.fields && e.fields.includes('project_id')) return 'project_id';
+  return null;
+}
+
+function scope(req, e, extra) {
+  const where = Object.assign({ orgId: req.tenant.orgId }, extra || {});
+  if (req.apiKeyProjectIds) {
+    const field = projectIdFieldFor(e);
+    if (!field) throw new HttpError(403, 'This API key is restricted to specific projects and cannot access this resource type', 'project_scope_denied');
+    // Only apply the blanket allowlist filter if `extra` didn't already put
+    // an explicit value on this same field — a caller that did (e.g. the
+    // /commercialOutcomes/summary route below, for a specific ?projectId=)
+    // is expected to have already validated that value against the
+    // allowlist itself; overwriting it here would silently widen a
+    // deliberately narrowed query back out to every granted project.
+    if (!(field in where)) where[field] = { in: req.apiKeyProjectIds };
+  }
+  return where;
 }
 
 async function assertForeignKeys(e, data, orgId) {
@@ -271,6 +302,27 @@ async function assertForeignKeys(e, data, orgId) {
     if (val === undefined || val === null) continue;
     const owner = await prisma[fkModel].findFirst({ where: { id: val, orgId } });
     if (!owner) throw new HttpError(400, `${field} does not reference a record in your organization`, 'invalid_reference');
+  }
+}
+
+// Guards create/update against a project-scoped key writing outside its
+// allowlist — scope()'s WHERE-clause restriction alone only protects
+// reads and the row-selection half of an update/delete; it can't stop a
+// create from targeting an ungranted project_id, or an update from moving
+// a row INTO one, since those are values in the request BODY, not the
+// WHERE clause.
+function assertApiKeyProjectWrite(req, e, data) {
+  if (!req.apiKeyProjectIds) return;
+  const field = projectIdFieldFor(e);
+  if (!field || field === 'id') {
+    // No project dimension to check (field === null), or this IS
+    // projectRecord itself (field === 'id') — a project-scoped key can
+    // never create a brand-new project, since there's nothing yet to
+    // validate against its allowlist.
+    throw new HttpError(403, 'This API key is restricted to specific projects and cannot create/modify this resource type', 'project_scope_denied');
+  }
+  if (field in data && (!data[field] || !req.apiKeyProjectIds.includes(data[field]))) {
+    throw new HttpError(403, 'This API key is not granted access to that project', 'project_scope_denied');
   }
 }
 
@@ -286,8 +338,12 @@ const PAGE_MAX = 200;
 // per-entity `GET /commercialOutcomes/:id` route below (Express matches
 // routes in registration order — a later-registered `/summary` would be
 // shadowed by the earlier `:id` pattern treating "summary" as an id).
+const COMMERCIAL_OUTCOME_ENTITY = { model: 'commercialOutcome', fields: ['project_id'] };
 router.get('/commercialOutcomes/summary', asyncHandler(async (req, res) => {
-  const where = scope(req, req.query.projectId ? { project_id: String(req.query.projectId) } : {});
+  if (req.query.projectId && req.apiKeyProjectIds && !req.apiKeyProjectIds.includes(String(req.query.projectId))) {
+    throw new HttpError(403, 'This API key is not granted access to that project', 'project_scope_denied');
+  }
+  const where = scope(req, COMMERCIAL_OUTCOME_ENTITY, req.query.projectId ? { project_id: String(req.query.projectId) } : {});
   const outcomes = await prisma.commercialOutcome.findMany({ where });
   const totals = { identified_amount: 0, validated_amount: 0, submitted_amount: 0, approved_amount: 0, invoiced_amount: 0, collected_amount: 0 };
   for (const o of outcomes) {
@@ -304,7 +360,7 @@ for (const e of ENTITIES) {
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || PAGE_DEFAULT, 1), PAGE_MAX);
     const cursorArgs = req.query.cursor ? { cursor: { id: String(req.query.cursor) }, skip: 1 } : {};
     const rows = await prisma[model].findMany({
-      where: scope(req),
+      where: scope(req, e),
       orderBy: { [e.sortField || 'createdAt']: 'desc' },
       take: limit + 1,
       ...cursorArgs,
@@ -315,7 +371,7 @@ for (const e of ENTITIES) {
   }));
 
   router.get(base + '/:id', asyncHandler(async (req, res) => {
-    const row = await prisma[model].findFirst({ where: scope(req, { id: req.params.id }) });
+    const row = await prisma[model].findFirst({ where: scope(req, e, { id: req.params.id }) });
     if (!row) return res.status(404).json({ error: 'not_found' });
     res.json(row);
   }));
@@ -333,6 +389,7 @@ for (const e of ENTITIES) {
     }
     const data = pick(req.body, e.fields);
     await assertForeignKeys(e, data, req.tenant.orgId);
+    assertApiKeyProjectWrite(req, e, data);
     data.orgId = req.tenant.orgId;
     if (e.hasUserId) data.userId = req.user.id;
     const row = await prisma[model].create({ data });
@@ -344,15 +401,16 @@ for (const e of ENTITIES) {
   router.put(base + '/:id', requireAnyOrgRole(...e.writeRoles), validate(updateSchema), asyncHandler(async (req, res) => {
     const data = pick(req.body, e.fields);
     await assertForeignKeys(e, data, req.tenant.orgId);
-    const result = await prisma[model].updateMany({ where: scope(req, { id: req.params.id }), data });
+    assertApiKeyProjectWrite(req, e, data);
+    const result = await prisma[model].updateMany({ where: scope(req, e, { id: req.params.id }), data });
     if (!result.count) return res.status(404).json({ error: 'not_found' });
-    const row = await prisma[model].findFirst({ where: scope(req, { id: req.params.id }) });
+    const row = await prisma[model].findFirst({ where: scope(req, e, { id: req.params.id }) });
     await audit(req, `${e.plural}.update`, { resource: model, resourceId: req.params.id, details: { fields: Object.keys(data) } });
     res.json(row);
   }));
 
   router.delete(base + '/:id', requireAnyOrgRole(...(e.deleteRoles || e.writeRoles)), asyncHandler(async (req, res) => {
-    const result = await prisma[model].deleteMany({ where: scope(req, { id: req.params.id }) });
+    const result = await prisma[model].deleteMany({ where: scope(req, e, { id: req.params.id }) });
     if (!result.count) return res.status(404).json({ error: 'not_found' });
     await audit(req, `${e.plural}.delete`, { resource: model, resourceId: req.params.id });
     res.status(204).end();
@@ -364,9 +422,10 @@ for (const e of ENTITIES) {
 // write this entity at all," which every non-viewer role satisfies. Approval
 // is a state transition with its own, tighter role gate and audit trail.
 const PACKET_APPROVE_ROLES = ['owner', 'admin', 'project_manager'];
+const EVIDENCE_PACKET_ENTITY = { model: 'evidencePacket', fields: ['project_id'] };
 
 router.post('/evidencePackets/:id/approve', requireAnyOrgRole(...PACKET_APPROVE_ROLES), asyncHandler(async (req, res) => {
-  const packet = await prisma.evidencePacket.findFirst({ where: scope(req, { id: req.params.id }) });
+  const packet = await prisma.evidencePacket.findFirst({ where: scope(req, EVIDENCE_PACKET_ENTITY, { id: req.params.id }) });
   if (!packet) return res.status(404).json({ error: 'not_found' });
   if (packet.status === 'approved') throw new HttpError(409, 'Packet already approved', 'already_approved');
   const row = await prisma.evidencePacket.update({
@@ -382,7 +441,7 @@ const SubmitSchema = z.object({
   external_reference: z.string().max(200).optional(),
 });
 router.post('/evidencePackets/:id/submit', requireAnyOrgRole(...PACKET_APPROVE_ROLES), validate(SubmitSchema), asyncHandler(async (req, res) => {
-  const packet = await prisma.evidencePacket.findFirst({ where: scope(req, { id: req.params.id }) });
+  const packet = await prisma.evidencePacket.findFirst({ where: scope(req, EVIDENCE_PACKET_ENTITY, { id: req.params.id }) });
   if (!packet) return res.status(404).json({ error: 'not_found' });
   if (packet.status !== 'approved') throw new HttpError(409, 'Packet must be approved before submission', 'not_approved');
   const row = await prisma.evidencePacket.update({
@@ -400,7 +459,7 @@ router.post('/evidencePackets/:id/submit', requireAnyOrgRole(...PACKET_APPROVE_R
 
 const ExportSchema = z.object({ pdf_storage_uri: z.string().max(2000).optional() });
 router.post('/evidencePackets/:id/export', requireAnyOrgRole(...PACKET_APPROVE_ROLES), validate(ExportSchema), asyncHandler(async (req, res) => {
-  const packet = await prisma.evidencePacket.findFirst({ where: scope(req, { id: req.params.id }) });
+  const packet = await prisma.evidencePacket.findFirst({ where: scope(req, EVIDENCE_PACKET_ENTITY, { id: req.params.id }) });
   if (!packet) return res.status(404).json({ error: 'not_found' });
   const row = await prisma.evidencePacket.update({
     where: { id: packet.id },
@@ -427,7 +486,7 @@ const TransitionSchema = z.object({
 
 router.post('/commercialOutcomes/:id/transition', requireAnyOrgRole('owner', 'admin', 'project_manager'),
   validate(TransitionSchema), asyncHandler(async (req, res) => {
-    const outcome = await prisma.commercialOutcome.findFirst({ where: scope(req, { id: req.params.id }) });
+    const outcome = await prisma.commercialOutcome.findFirst({ where: scope(req, COMMERCIAL_OUTCOME_ENTITY, { id: req.params.id }) });
     if (!outcome) return res.status(404).json({ error: 'not_found' });
 
     const lastTransition = await prisma.stageTransition.findFirst({
@@ -462,7 +521,7 @@ router.post('/commercialOutcomes/:id/transition', requireAnyOrgRole('owner', 'ad
   }));
 
 router.get('/commercialOutcomes/:id/transitions', asyncHandler(async (req, res) => {
-  const outcome = await prisma.commercialOutcome.findFirst({ where: scope(req, { id: req.params.id }) });
+  const outcome = await prisma.commercialOutcome.findFirst({ where: scope(req, COMMERCIAL_OUTCOME_ENTITY, { id: req.params.id }) });
   if (!outcome) return res.status(404).json({ error: 'not_found' });
   const rows = await prisma.stageTransition.findMany({ where: { outcomeId: outcome.id }, orderBy: { createdAt: 'asc' } });
   res.json({ data: rows });

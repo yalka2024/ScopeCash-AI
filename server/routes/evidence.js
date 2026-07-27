@@ -23,10 +23,12 @@ const limiters = require('../lib/ratelimit');
 const storage = require('../lib/storage');
 const pipeline = require('../lib/evidence-pipeline');
 const evidenceJobs = require('../lib/evidence-jobs');
+const { attachApiKeyProjectScope } = require('../lib/api-key-scope');
 
 const router = express.Router();
 router.use(authMiddleware);
 router.use(attachTenant);
+router.use(attachApiKeyProjectScope);
 
 const MAX_BYTES = parseInt(process.env.UPLOAD_MAX_BYTES || `${20 * 1024 * 1024}`, 10);
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_BYTES } });
@@ -133,9 +135,24 @@ function assertStagingKeyOwnedByUser(stagingKey, userId) {
   if (rest === '.' || rest === '..' || !STAGING_KEY_REST_RE.test(rest)) return reject();
 }
 
-async function assertProjectInOrg(projectId, orgId) {
-  const project = await prisma.projectRecord.findFirst({ where: { id: projectId, orgId } });
+// A project-scoped API key (ApiKeyProjectGrant — see lib/api-key-scope.js)
+// is additionally restricted to specific projects within the org; a key
+// with no grants stays org-wide (the pre-existing default). Checked at
+// every route below that resolves a project either directly (:projectId
+// params, via assertProjectInOrg) or indirectly (a document/item/finding
+// fetched by its own id, whose project_id is then checked here) — the
+// equivalent chokepoint to routes/entities.js's scope() for this file's
+// real upload/analyze surface.
+function assertApiKeyCanTouchProject(req, projectId) {
+  if (req.apiKeyProjectIds && !req.apiKeyProjectIds.includes(projectId)) {
+    throw new HttpError(403, 'This API key is not granted access to that project', 'project_scope_denied');
+  }
+}
+
+async function assertProjectInOrg(req, projectId) {
+  const project = await prisma.projectRecord.findFirst({ where: { id: projectId, orgId: req.tenant.orgId } });
   if (!project) throw new HttpError(404, 'project not found', 'not_found');
+  assertApiKeyCanTouchProject(req, project.id);
   return project;
 }
 
@@ -146,7 +163,7 @@ const DocMetaSchema = z.object({ document_type: z.string().min(1).max(60) });
 router.post('/projects/:projectId/sourceDocuments', requireAnyOrgRole(...UPLOAD_ROLES), upload.single('file'),
   validate(DocMetaSchema, 'body'), asyncHandler(async (req, res) => {
     if (!req.file) throw new HttpError(400, 'No file uploaded', 'invalid_request');
-    const project = await assertProjectInOrg(req.params.projectId, req.tenant.orgId);
+    const project = await assertProjectInOrg(req, req.params.projectId);
     const ext = path.extname(req.file.originalname).slice(1).toLowerCase();
     if (!DOCUMENT_EXTS.has(ext)) throw new HttpError(400, `Unsupported document type ".${ext}"`, 'unsupported_file_type');
 
@@ -177,7 +194,7 @@ router.post('/projects/:projectId/sourceDocuments', requireAnyOrgRole(...UPLOAD_
 const UploadUrlSchema = z.object({ filename: z.string().min(1).max(255), contentType: z.string().min(1).max(127) });
 
 router.post('/projects/:projectId/sourceDocuments/upload-url', requireAnyOrgRole(...UPLOAD_ROLES), validate(UploadUrlSchema), asyncHandler(async (req, res) => {
-  await assertProjectInOrg(req.params.projectId, req.tenant.orgId);
+  await assertProjectInOrg(req, req.params.projectId);
   const ext = path.extname(req.body.filename).slice(1).toLowerCase();
   if (!DOCUMENT_EXTS.has(ext)) throw new HttpError(400, `Unsupported document type ".${ext}"`, 'unsupported_file_type');
   const stagingKey = storage.newKey(req.user.id, req.body.filename);
@@ -189,7 +206,7 @@ router.post('/projects/:projectId/sourceDocuments/upload-url', requireAnyOrgRole
 const ConfirmUploadSchema = z.object({ stagingKey: z.string().min(1).max(500), originalFilename: z.string().min(1).max(255), document_type: z.string().min(1).max(60) });
 
 router.post('/projects/:projectId/sourceDocuments/confirm-upload', requireAnyOrgRole(...UPLOAD_ROLES), validate(ConfirmUploadSchema), asyncHandler(async (req, res) => {
-  const project = await assertProjectInOrg(req.params.projectId, req.tenant.orgId);
+  const project = await assertProjectInOrg(req, req.params.projectId);
   assertStagingKeyOwnedByUser(req.body.stagingKey, req.user.id);
 
   const existing = await prisma.sourceDocument.findFirst({ where: { storage_uri: req.body.stagingKey } });
@@ -222,7 +239,7 @@ router.post('/projects/:projectId/sourceDocuments/confirm-upload', requireAnyOrg
 router.post('/projects/:projectId/evidenceItems', requireAnyOrgRole(...UPLOAD_ROLES), upload.single('file'),
   asyncHandler(async (req, res) => {
     if (!req.file) throw new HttpError(400, 'No file uploaded', 'invalid_request');
-    const project = await assertProjectInOrg(req.params.projectId, req.tenant.orgId);
+    const project = await assertProjectInOrg(req, req.params.projectId);
     const ext = path.extname(req.file.originalname).slice(1).toLowerCase();
     const evidenceType = IMAGE_EXTS.has(ext) ? 'photo' : AUDIO_EXTS.has(ext) ? 'audio' : DOCUMENT_EXTS.has(ext) ? 'receipt' : null;
     if (!evidenceType) throw new HttpError(400, `Unsupported evidence file type ".${ext}"`, 'unsupported_file_type');
@@ -245,7 +262,7 @@ router.post('/projects/:projectId/evidenceItems', requireAnyOrgRole(...UPLOAD_RO
 // Same rationale and validate-after-upload shape as the sourceDocuments
 // pair above — see its comment.
 router.post('/projects/:projectId/evidenceItems/upload-url', requireAnyOrgRole(...UPLOAD_ROLES), validate(UploadUrlSchema), asyncHandler(async (req, res) => {
-  await assertProjectInOrg(req.params.projectId, req.tenant.orgId);
+  await assertProjectInOrg(req, req.params.projectId);
   const ext = path.extname(req.body.filename).slice(1).toLowerCase();
   const evidenceType = IMAGE_EXTS.has(ext) ? 'photo' : AUDIO_EXTS.has(ext) ? 'audio' : DOCUMENT_EXTS.has(ext) ? 'receipt' : null;
   if (!evidenceType) throw new HttpError(400, `Unsupported evidence file type ".${ext}"`, 'unsupported_file_type');
@@ -258,7 +275,7 @@ router.post('/projects/:projectId/evidenceItems/upload-url', requireAnyOrgRole(.
 const ConfirmEvidenceUploadSchema = z.object({ stagingKey: z.string().min(1).max(500), originalFilename: z.string().min(1).max(255) });
 
 router.post('/projects/:projectId/evidenceItems/confirm-upload', requireAnyOrgRole(...UPLOAD_ROLES), validate(ConfirmEvidenceUploadSchema), asyncHandler(async (req, res) => {
-  const project = await assertProjectInOrg(req.params.projectId, req.tenant.orgId);
+  const project = await assertProjectInOrg(req, req.params.projectId);
   assertStagingKeyOwnedByUser(req.body.stagingKey, req.user.id);
 
   const alreadyConfirmed = await prisma.evidenceItem.findFirst({ where: { storageUri: req.body.stagingKey } });
@@ -300,6 +317,7 @@ const ANALYZE_ROLES = ['owner', 'admin', 'project_manager'];
 router.post('/sourceDocuments/:id/analyze', requireAnyOrgRole(...ANALYZE_ROLES), asyncHandler(async (req, res) => {
   const sourceDocument = await prisma.sourceDocument.findFirst({ where: { id: req.params.id, orgId: req.tenant.orgId } });
   if (!sourceDocument) return res.status(404).json({ error: 'not_found' });
+  assertApiKeyCanTouchProject(req, sourceDocument.project_id);
   if (sourceDocument.extraction_status === 'processing') {
     throw new HttpError(409, 'Analysis is already in progress for this document', 'already_processing');
   }
@@ -316,6 +334,7 @@ router.post('/sourceDocuments/:id/analyze', requireAnyOrgRole(...ANALYZE_ROLES),
 router.post('/evidenceItems/:id/analyze', requireAnyOrgRole(...ANALYZE_ROLES), asyncHandler(async (req, res) => {
   const evidenceItem = await prisma.evidenceItem.findFirst({ where: { id: req.params.id, orgId: req.tenant.orgId } });
   if (!evidenceItem) return res.status(404).json({ error: 'not_found' });
+  assertApiKeyCanTouchProject(req, evidenceItem.project_id);
   if (evidenceItem.analysisStatus === 'processing') {
     throw new HttpError(409, 'Analysis is already in progress for this item', 'already_processing');
   }
@@ -335,7 +354,7 @@ router.post('/evidenceItems/:id/analyze', requireAnyOrgRole(...ANALYZE_ROLES), a
 const FindingRunSchema = z.object({ changeEventId: z.string().optional() });
 router.post('/projects/:id/findings/generate', requireAnyOrgRole(...ANALYZE_ROLES), validate(FindingRunSchema),
   asyncHandler(async (req, res) => {
-    const project = await assertProjectInOrg(req.params.id, req.tenant.orgId);
+    const project = await assertProjectInOrg(req, req.params.id);
     const [scopeItemCount, contractProvisionCount] = await Promise.all([
       prisma.scopeItem.count({ where: { orgId: req.tenant.orgId, project_id: project.id } }),
       prisma.contractProvision.count({ where: { orgId: req.tenant.orgId, project_id: project.id } }),
@@ -361,6 +380,7 @@ router.post('/projects/:id/findings/generate', requireAnyOrgRole(...ANALYZE_ROLE
 router.get('/evidenceFindings/:id/citations/validate', asyncHandler(async (req, res) => {
   const finding = await prisma.evidenceFinding.findFirst({ where: { id: req.params.id, orgId: req.tenant.orgId } });
   if (!finding) return res.status(404).json({ error: 'not_found' });
+  assertApiKeyCanTouchProject(req, finding.project_id);
   const results = await pipeline.validateCitations({ orgId: req.tenant.orgId, findingId: finding.id });
   res.json({ data: results });
 }));

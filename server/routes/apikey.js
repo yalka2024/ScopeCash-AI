@@ -8,39 +8,100 @@ const router = express.Router();
 router.use(authMiddleware);
 
 const VALID_SCOPES = ['read', 'write', 'upload', 'delete', 'admin', '*'];
+const MAX_PROJECT_GRANTS = 50;
 const CreateSchema = z.object({
   name: z.string().min(1).max(120),
   scopes: z.string().regex(/^[a-z*,\s]+$/i).optional(),
   expiresInDays: z.number().int().min(1).max(3650).optional(),
+  // Restricts the key to specific projects instead of every project in the
+  // org (routes/entities.js#scope, routes/evidence.js#assertProjectInOrg —
+  // see lib/api-key-scope.js). Omitted/empty = org-wide, the pre-existing
+  // default.
+  projectIds: z.array(z.string().min(1)).max(MAX_PROJECT_GRANTS).optional(),
 });
 
+/** Every id in `projectIds` must be a real ProjectRecord in the caller's
+ * own org — otherwise a key could be minted with a grant for a project
+ * that doesn't exist (silently useless) or, worse, an id copy-pasted from
+ * a DIFFERENT org (silently a no-op there too, since every check below
+ * ANDs the grant with the caller's own orgId regardless — but rejecting
+ * up front gives a real error instead of a silently-inert grant). */
+async function assertProjectsInOrg(projectIds, orgId) {
+  if (!projectIds || projectIds.length === 0) return;
+  const found = await prisma.projectRecord.findMany({ where: { id: { in: projectIds }, orgId }, select: { id: true } });
+  const foundIds = new Set(found.map((p) => p.id));
+  const missing = projectIds.filter((id) => !foundIds.has(id));
+  if (missing.length) {
+    throw new HttpError(400, `These project ids do not reference a project in your organization: ${missing.join(', ')}`, 'invalid_project_reference');
+  }
+}
+
 router.post('/', validate(CreateSchema), asyncHandler(async (req, res) => {
-  const { name, scopes, expiresInDays } = req.body;
+  const { name, scopes, expiresInDays, projectIds } = req.body;
   const requested = (scopes || 'read').split(/[,\s]+/).filter(Boolean);
   for (const s of requested) {
     if (!VALID_SCOPES.includes(s)) throw new HttpError(400, `Invalid scope: ${s}`, 'invalid_scope');
   }
+  const uniqueProjectIds = projectIds ? [...new Set(projectIds)] : [];
+  await assertProjectsInOrg(uniqueProjectIds, req.user.orgId);
 
   const rawKey = `scopecash-ai_${crypto.randomBytes(32).toString('hex')}`;
-  const prefix = rawKey.slice(0, 8);
+  // Slice from AFTER the constant "scopecash-ai_" literal (13 chars) — must
+  // match middleware/auth.js's identical computation exactly, or this key
+  // could never authenticate (its stored prefix would never match what
+  // auth recomputes from the raw key at request time).
+  const prefix = rawKey.slice(13, 21);
   const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex');
   const expiresAt = expiresInDays ? new Date(Date.now() + expiresInDays * 86400000) : null;
 
-  const created = await prisma.apiKey.create({ data: {
-    userId: req.user.id, name, keyHash, prefix,
-    scopes: requested.join(','), expiresAt,
-  }});
-  await audit(req, 'apikey.create', { resource: 'apiKey', resourceId: created.id, details: { scopes: requested } });
-  res.status(201).json({ key: rawKey, prefix, name, scopes: requested, expiresAt,
+  const created = await prisma.$transaction(async (tx) => {
+    const key = await tx.apiKey.create({ data: {
+      userId: req.user.id, name, keyHash, prefix,
+      scopes: requested.join(','), expiresAt,
+    }});
+    if (uniqueProjectIds.length) {
+      await tx.apiKeyProjectGrant.createMany({
+        data: uniqueProjectIds.map((projectId) => ({ apiKeyId: key.id, projectId })),
+      });
+    }
+    return key;
+  });
+
+  await audit(req, 'apikey.create', { resource: 'apiKey', resourceId: created.id, details: { scopes: requested, projectIds: uniqueProjectIds } });
+  res.status(201).json({ id: created.id, key: rawKey, prefix, name, scopes: requested, expiresAt, projectIds: uniqueProjectIds,
     message: 'Save this key — it cannot be shown again.' });
 }));
 
 router.get('/', asyncHandler(async (req, res) => {
   const keys = await prisma.apiKey.findMany({
     where: { userId: req.user.id },
-    select: { id: true, name: true, prefix: true, scopes: true, active: true, lastUsedAt: true, expiresAt: true, createdAt: true }
+    select: {
+      id: true, name: true, prefix: true, scopes: true, active: true, lastUsedAt: true, expiresAt: true, createdAt: true,
+      projectGrants: { select: { projectId: true } },
+    },
   });
-  res.json({ keys });
+  res.json({ keys: keys.map(({ projectGrants, ...k }) => ({ ...k, projectIds: projectGrants.map((g) => g.projectId) })) });
+}));
+
+const ProjectGrantsSchema = z.object({ projectIds: z.array(z.string().min(1)).max(MAX_PROJECT_GRANTS) });
+
+// PUT /api/apikey/:id/projects — replace the full project-grant set for an
+// existing key. An empty array reverts the key to org-wide (the default).
+router.put('/:id/projects', validate(ProjectGrantsSchema), asyncHandler(async (req, res) => {
+  const key = await prisma.apiKey.findFirst({ where: { id: req.params.id, userId: req.user.id } });
+  if (!key) return res.status(404).json({ error: 'not_found' });
+  const uniqueProjectIds = [...new Set(req.body.projectIds)];
+  await assertProjectsInOrg(uniqueProjectIds, req.user.orgId);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.apiKeyProjectGrant.deleteMany({ where: { apiKeyId: key.id } });
+    if (uniqueProjectIds.length) {
+      await tx.apiKeyProjectGrant.createMany({ data: uniqueProjectIds.map((projectId) => ({ apiKeyId: key.id, projectId })) });
+    }
+  });
+
+  await audit(req, 'apikey.projects.replace', { resource: 'apiKey', resourceId: key.id, details: { projectIds: uniqueProjectIds } });
+  res.json({ id: key.id, projectIds: uniqueProjectIds });
 }));
 
 router.delete('/:id', asyncHandler(async (req, res) => {
@@ -50,4 +111,3 @@ router.delete('/:id', asyncHandler(async (req, res) => {
 }));
 
 module.exports = router;
-

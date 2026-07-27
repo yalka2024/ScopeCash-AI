@@ -1684,6 +1684,81 @@ exact deterministic collision and confirms deletion still succeeds,
 falling back to a randomized email. Full suite: 20/20 server test suites,
 200 passing; re-verified against real Postgres+RLS (9/9) once more.
 
+## Phase 20 — API-key project-level scopes (DONE, 2026-07-27)
+
+Research first corrected the TODO item's own premise: `requireScope`
+(the API-key scope gate) only guards 8 legacy/AI-analysis routes
+(`project.js`, `agents.js`, `goals.js`, etc.) — none of which carry
+`project_id`. The real project-scoped domain surface (`routes/entities.js`'s
+generic CRUD, `routes/evidence.js`'s real upload/analyze endpoints) is
+gated entirely by `requireAnyOrgRole` and never consulted `req.authScopes`
+at all, meaning an API key today has exactly the same permissions as its
+owning user's org role — the `scopes` field restricts nothing on the
+surface where customers' actual data lives. Scoped this item at the real
+surface, not the one the TODO's wording assumed.
+
+- **New `ApiKeyProjectGrant` join table** — a key with zero grant rows
+  stays org-wide (the pre-existing default, fully backward compatible);
+  one or more rows restricts it to exactly those projects.
+- **`lib/api-key-scope.js`** — `attachApiKeyProjectScope` resolves
+  `req.apiKeyProjectIds` once per request (`null` for cookie/Bearer
+  session auth and for keys with no grants).
+- **`routes/entities.js`**: `scope()` now takes the entity config and
+  merges the allowlist into the `WHERE` clause for every model with a
+  `project_id` field (or `projectRecord` itself, via its own `id`) —
+  covering all 20 route call sites across the generic CRUD loop plus the
+  packet-approval/outcome-transition/summary routes. A new
+  `assertApiKeyProjectWrite()` additionally validates `POST`/`PUT` request
+  *bodies* (the WHERE-clause restriction alone can't stop a create
+  targeting an ungranted `project_id`, or an update trying to move a row
+  into one). Entities with no project dimension at all (`customer`,
+  `organizationRecord`, `citation`, `rateSheet`, etc.) are denied outright
+  for a project-scoped key — safe-by-default, since there's nothing to
+  check an allowlist against. A project-scoped key can never create a
+  brand-new `projectRecord` either (nothing to validate against yet).
+- **`routes/evidence.js`**: `assertProjectInOrg()` (the equivalent
+  chokepoint for the real upload/analyze surface) gained the same check;
+  three routes that resolve their target by document/item/finding id
+  directly (not `:projectId`) — the two `/analyze` triggers and citation
+  validation — needed their own explicit `assertApiKeyCanTouchProject()`
+  call since they never went through `assertProjectInOrg` at all.
+- **`routes/apikey.js`**: `POST /` accepts an optional `projectIds` array
+  (validated against the caller's own org), and a new
+  `PUT /:id/projects` replaces a key's grant set atomically (empty array
+  reverts to org-wide).
+- **Found and fixed a real, unrelated bug while writing these tests**:
+  `prefix = rawKey.slice(0, 8)` sliced the CONSTANT `"scopecash-ai_"`
+  literal (13 chars), not the random portion of the key — every API key
+  ever created got the identical prefix `"scopecas"`, making the field
+  useless for its purpose (a short, per-key-distinguishing identifier).
+  Harmless for authentication itself (`keyHash` alone already uniquely
+  disambiguates), but genuinely broken for display/lookup. Fixed the
+  slice range in both `routes/apikey.js` and `middleware/auth.js`
+  identically (they must match exactly, or a key's stored prefix would
+  never match what auth recomputes from the raw key at request time).
+  Also added `id` to the create response — useful in its own right for a
+  client that wants to manage a key it just created, and what tests now
+  use instead of relying on `prefix` for lookup.
+- **17 new integration tests** (`tests/integration/api-key-scope.test.js`,
+  real Express app + real routes, a key created via one router used to
+  authenticate against the other two — exactly like a real API consumer):
+  grant creation/listing/rejection of cross-org project ids; full CRUD
+  within a granted project; denial across projects (create, read, update,
+  delete, and moving a resource's `project_id` via `PUT`); denial on
+  non-project entities; denial creating a new project; list filtering;
+  the same enforcement via `evidence.js`'s real upload/analyze routes
+  including the direct-id-lookup case; cookie/Bearer session auth fully
+  unaffected regardless of any keys the same user has created;
+  `PUT /:id/projects` replace/revert and cross-user rejection. Re-verified
+  the full RLS-sensitive route surface (`entities.js`/`evidence.js`)
+  against a real non-superuser Postgres+RLS role afterward — this feature
+  adds no new background/detached execution context (it runs entirely
+  within normal authenticated requests, already covered by the existing,
+  proven `attachTenant` pattern), so no new regression tests were needed
+  there, only confirmation nothing broke (9/9 still passing).
+
+Full suite: 21/21 server test suites, 217 passing (17 new).
+
 ## Not yet started
 
 See TODO.md.
