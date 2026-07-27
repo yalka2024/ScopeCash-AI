@@ -35,6 +35,7 @@ const storage = require('./storage');
 const pipeline = require('./evidence-pipeline');
 const vertex = require('./vertex-ai');
 const cloudTasks = require('./cloud-tasks');
+const { runWithOrg } = require('./tenant-context');
 
 const MIN_EXTRACTED_CHARS = 20;
 const QUEUE_NAME = 'scopecash-ai-evidence-jobs';
@@ -296,15 +297,31 @@ async function _processFindingsGenerate({ runId, projectId, orgId, changeEventId
 }
 
 /** Single entry point for every backend (BullMQ Worker, in-process
- * setImmediate, and the Cloud Tasks push receiver in routes/jobs.js). */
+ * setImmediate, and the Cloud Tasks push receiver in routes/jobs.js).
+ *
+ * Unlike the enqueue*() functions above — which run synchronously inside
+ * the original HTTP request and so already inherit attachTenant's
+ * runWithOrg() AsyncLocalStorage context — this function runs LATER,
+ * detached from that request (a BullMQ Worker callback, a fresh Cloud
+ * Tasks push, or even the in-process setImmediate fallback, which only
+ * happens to inherit context by accident of scheduling and shouldn't be
+ * relied on). Without explicitly re-establishing tenant context here,
+ * every Prisma call below would run with neither org nor system-access
+ * context — Postgres RLS (prisma/rls.sql) is fail-closed, so in a real
+ * Postgres+RLS deployment every query would silently see zero rows and
+ * every job would incorrectly fail as "no longer exists," not because of
+ * a real permission problem but because nothing ever told RLS which
+ * tenant this job belongs to. */
 async function processJob(job) {
-  switch (job.kind) {
-    case 'sourceDocument.analyze': return _processSourceDocumentAnalyze(job);
-    case 'evidenceItem.analyze': return _processEvidenceItemAnalyze(job);
-    case 'project.findingsGenerate': return _processFindingsGenerate(job);
-    default:
-      console.error(`[evidence-jobs] unknown job kind: ${job.kind}`);
-  }
+  return runWithOrg(job.orgId, async () => {
+    switch (job.kind) {
+      case 'sourceDocument.analyze': return _processSourceDocumentAnalyze(job);
+      case 'evidenceItem.analyze': return _processEvidenceItemAnalyze(job);
+      case 'project.findingsGenerate': return _processFindingsGenerate(job);
+      default:
+        console.error(`[evidence-jobs] unknown job kind: ${job.kind}`);
+    }
+  });
 }
 
 module.exports = {

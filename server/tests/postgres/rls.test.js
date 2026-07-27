@@ -27,6 +27,11 @@
  */
 const crypto = require('crypto');
 
+jest.mock('../../lib/storage', () => ({
+  getStream: jest.fn(async () => require('stream').Readable.from([Buffer.from('Invoice #1: real content for the RLS regression test.')])),
+  gcsUri: jest.fn(() => null),
+}));
+
 const isPg = !!(process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith('postgres'));
 const d = isPg ? describe : describe.skip;
 
@@ -108,6 +113,47 @@ d('Postgres RLS', () => {
       where: { name: { in: [nameA, nameB] } },
     }));
     expect(names.map((c) => c.name).sort()).toEqual([nameA, nameB]);
+  });
+
+  test('regression: evidence-jobs.js#processJob() establishes its own tenant context when invoked with zero ambient context', async () => {
+    // Simulates exactly how a real BullMQ Worker callback or Cloud Tasks
+    // push delivers a job: completely detached from any request's
+    // runWithOrg() wrapping. Before this was fixed, every Prisma call
+    // inside processJob() ran with neither org nor system-access context,
+    // so RLS's fail-closed policy silently blinded every query to zero
+    // rows — every job "failed" with "no longer exists" even though the
+    // row plainly does, in production, with real Cloud Tasks/BullMQ.
+    const evidenceJobs = require('../../lib/evidence-jobs');
+    const { org, project, sourceDocument, run } = await runWithSystemAccess(async () => {
+      const org = await prisma.organization.create({ data: { name: uid('Org') } });
+      const user = await prisma.user.create({ data: { email: `${uid('u')}@test.local`, passwordHash: 'x', orgId: org.id, emailVerified: true } });
+      const customer = await prisma.customer.create({ data: { orgId: org.id, name: uid('Customer') } });
+      const project = await prisma.projectRecord.create({ data: { orgId: org.id, customer_id: customer.id, name: 'RLS regression project', userId: user.id } });
+      const sourceDocument = await prisma.sourceDocument.create({
+        data: {
+          orgId: org.id, project_id: project.id, document_type: 'invoice',
+          original_filename: 'x.txt', storage_uri: 'irrelevant-mocked-key',
+          sha256_hash: uid('sha'), uploaded_at: new Date(), extraction_status: 'processing', userId: user.id,
+          mime_type: 'text/plain',
+        },
+      });
+      const run = await prisma.agentRunRecord.create({
+        data: { orgId: org.id, project_id: project.id, agent_type: 'sourceDocument_analyze_job', status: 'queued' },
+      });
+      return { org, project, sourceDocument, run };
+    });
+
+    // No runWithOrg/runWithSystemAccess anywhere around this call — the point.
+    await evidenceJobs.processJob({
+      runId: run.id, kind: 'sourceDocument.analyze',
+      sourceDocumentId: sourceDocument.id, orgId: org.id, projectId: project.id,
+    });
+
+    const finalRun = await runWithSystemAccess(async () => prisma.agentRunRecord.findUnique({ where: { id: run.id } }));
+    expect(finalRun.status).toBe('completed');
+    expect(finalRun.error_message).toBeFalsy();
+    const finalDoc = await runWithSystemAccess(async () => prisma.sourceDocument.findUnique({ where: { id: sourceDocument.id } }));
+    expect(finalDoc.extraction_status).toBe('extracted');
   });
 });
 
