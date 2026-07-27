@@ -94,12 +94,27 @@ is blocked by definition — those live in the last section and can never be
         account, and the Cloud Run service itself — env vars wired
         directly to the real `server/lib/{vertex-ai,storage,cloud-tasks,
         secret-manager}.js` integration code, not generic placeholders.
-        **Not run against a live GCP project** (none was available in the
-        authoring session) — no Terraform CLI was available to run
-        `terraform validate`/`plan` either, only a manual brace-balance
-        check and careful re-reading against the real env var names. Run
+        **Not run against a live GCP project** (none has been available in
+        any authoring session). Terraform CLI verification WAS done in
+        Phase 41: both this module and the AWS one now pass `fmt`, `init`
+        and `validate` against the real provider schemas, with a blocking
+        CI job. That first run showed neither module *parsed* — 26
+        single-line blocks with two arguments each (HCL allows one) and a
+        `depends_on = concat(...)` where a static list is required — so
+        neither could ever have been applied. `plan`/`apply` are still
+        unverified: they need real credentials. validate does not check
+        quotas, IAM, API enablement, or name collisions. Run
         `terraform plan` and read it before ever running `apply`.
-  - [ ] Cloud Logging structured fields / Cloud Monitoring alert policies.
+  - [x] Cloud Logging structured fields / Cloud Monitoring alert policies —
+        done in Phase 41. `lib/gcp-logging.js` adds the fields Cloud Logging
+        actually special-cases (`severity`, `httpRequest`, trace/span
+        correlation); without them every line was ingested as DEFAULT
+        severity, so severity filters and alert policies matched nothing.
+        Terraform gains 2 log-based metrics, 3 alert policies, a
+        notification channel and a 99.9%/28d availability SLO — which work
+        only because severity/status are now set. Alerts are provisioned but
+        never *fired* against a live project; see the `terraform plan/apply`
+        item, still open.
 - [x] **Phase 4 — Riverside HVAC demo.** See STATUS.md. `npm run
       db:seed:demo`. No open follow-ups from this phase.
 - [x] **Phase 5 — Competition Evidence Center.** See STATUS.md.
@@ -319,7 +334,14 @@ is blocked by definition — those live in the last section and can never be
         Phase 21.
 - [ ] Real backup/restore drills, RPO/RTO — see non-code items, this needs a
       real target environment first.
-- [ ] Cloud Monitoring alert policies, SLOs, on-call — folds into Phase 3.
+- [~] Cloud Monitoring alert policies, SLOs, on-call — alert policies, a
+      notification channel, log-based metrics and a 99.9%/28d availability
+      SLO are defined in `deploy/terraform-gcp/main.tf` and pass
+      `terraform validate` (Phase 41). Still open, and NOT closeable by an
+      engineering session: none of it has been applied to a live project, so
+      no alert has ever actually fired, and on-call rotation, escalation
+      policy, error-budget review and incident-response drills are
+      organizational rather than code.
 - [x] Dependency/container/secret scanning in CI — mostly already existed
       before this pass and was more complete than the audit assumed:
       `.github/workflows/secret-scan.yml` (gitleaks, daily + every push/PR),
@@ -400,6 +422,37 @@ is blocked by definition — those live in the last section and can never be
       to an arbitrary recipient is still possible for a caller who
       genuinely can approve packets — the 5 templates the tool's own
       description names don't actually exist yet. See STATUS.md Phase 24.
+
+## Re-audit remediation (2026-07-27) — see STATUS.md Phase 41
+
+A re-audit found several `[x]` items were "code written" rather than
+"working end to end". Each was verified against the code before acting;
+the audit was right every time, and three gaps were worse than reported.
+
+- [x] `npm test` self-bootstraps — it failed on any clean checkout without a
+      `postinstall` run (`npm ci --ignore-scripts`, cached `node_modules`,
+      cleaned `.prisma`) because globalSetup migrated but never generated
+      the client. Verified by deleting `node_modules/.prisma` and running cold.
+- [x] All five unenforced plan quotas (`storage_gb`, `api_calls_per_month`,
+      `ai_tokens_per_month`, `webhooks`, `data_retention_days`) now enforced.
+      Also fixed: `getActiveSubscription` could never report
+      `suspended`/`canceled`, making every downgrade branch that checks for
+      them dead code, so suspended orgs kept full access. Retention deletion
+      is report-only unless `DATA_RETENTION_ENFORCE=1` and honours
+      `RetentionLegalHold`.
+- [x] Packet export renders a real PDF through the org's template, instead of
+      stamping `exported_at` and storing a caller-supplied URI.
+- [x] Outbound email is templated-only to an authorized recipient; the five
+      advertised templates now exist.
+- [x] Cloud SQL IAM auth is on the real boot path (was implemented, tested,
+      and called by nothing).
+- [x] Both Terraform modules parse and validate; blocking CI job added.
+- [x] Cloud Logging structured fields + Monitoring alerts/metrics/SLO.
+- [ ] **Durable GCP jobs — the one substantive code item from this audit not
+      yet done**: heartbeats, user cancellation, persistent progress events,
+      dead-letter administration, replay controls, and an operational job
+      dashboard. Idempotency and retries already exist (Phase 13/17); this
+      is the rest. Duplicated at the P1 entry above — track it there.
 
 ## P2 — maturity (lower priority)
 
