@@ -80,7 +80,7 @@
     "openai": "^6.34.0",
     "papaparse": "^5.5.4",
     "pdf-parse": "^2.4.5",
-    "pdfkit": "^0.15.0",
+    "pdfkit": "^0.19.1",
     "pg": "^8.20.0",
     "prisma": "^7.7.0",
     "prom-client": "^15.1.3",
