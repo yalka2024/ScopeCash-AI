@@ -1197,6 +1197,61 @@ unit tests." Three parts:
 
 Full suite: 15/15 server test suites, 146 passing (3 new).
 
+## Phase 15 — Real client-side signed upload URLs (direct browser-to-storage PUT) (DONE, 2026-07-27)
+
+Closed the next P0 item: every file (source documents, evidence photos)
+transited the app server's own request body even though `lib/storage.js`
+already supports GCS/S3 — real cost and latency for large photo/video
+evidence with zero benefit, and the kind of thing a signed-URL flow exists
+to avoid.
+
+- **`lib/storage.js#signedUploadUrl({key, contentType, ttlSeconds})`** — a
+  real V4 GCS write URL (`getSignedUrl({version:'v4', action:'write',
+  expires, contentType})`) or a real S3 presigned PUT (reusing the existing
+  `__signedUrlFn` injection point `signedDownloadUrl` already uses), or
+  `null` on the local driver (no separate storage tier to hand out a direct
+  URL for — callers fall back to the existing multipart endpoint).
+- **New route pairs** in `routes/evidence.js`: `POST .../upload-url` mints a
+  staging key (`storage.newKey`) and a signed PUT URL; `POST
+  .../confirm-upload` re-fetches the bytes that landed at that key
+  (`storage.getStream`) and re-runs the *exact same* magic-byte-sniff + AV
+  scan + SHA-256 hash checks the multipart path always ran, before ever
+  creating a `SourceDocument`/`EvidenceItem` row — the signed URL only
+  proves *something* was PUT to that key, never what it is. Refactored the
+  shared validation into `validateBuffer()`/`validateStagedUpload()`, reused
+  by both upload paths so there is exactly one place file-content trust
+  decisions get made.
+- **Staging-key ownership check**: `storage.newKey()` already embeds the
+  calling user's id as the key's first path segment, so
+  `assertStagingKeyOwnedByUser()` cheaply rejects (403
+  `staging_key_mismatch`) one user confirming a key staged under another
+  user's prefix, without needing a new DB-backed reservation table.
+- Duplicate handling mirrors the existing multipart routes exactly:
+  sourceDocuments confirm-upload 409s on an exact SHA-256 match (and
+  deletes the now-orphaned staged object); evidenceItems confirm-upload
+  does not reject — it records `duplicateOfId`, matching the deliberate
+  "field worker may re-photograph the same thing twice" policy already
+  encoded on `EvidenceItem.sha256Hash`'s non-unique constraint.
+- On the local driver (this repo's test/dev default) `upload-url` returns
+  501 `direct_upload_unsupported` with a message pointing back at the
+  multipart endpoint — an explicit, typed fallback signal rather than a
+  silent no-op.
+- **New tests**: `tests/unit/storage-signed-upload.test.js` (3 tests — GCS
+  V4 URL shape, S3 presigned URL shape, local-driver null, all via
+  `jest.doMock`/`jest.isolateModulesAsync` against mocked SDK clients, never
+  real network calls) plus 5 new integration tests in
+  `evidence-routes.test.js` covering the 501 fallback, a real confirm-upload
+  success path (bytes placed at a real key via the same `storage.putObject`
+  the app uses, then confirmed through the real endpoint), the staging-key
+  ownership rejection, magic-byte-sniff rejection with orphan cleanup
+  (verified by draining the deleted key's stream and observing the async
+  `'error'` event — the local driver's `getStream()` resolves immediately
+  with a lazily-opened `fs.createReadStream`, so the ENOENT only surfaces
+  once something reads from it), and evidenceItems' non-rejecting
+  duplicate-tracking behavior.
+
+Full suite: 16/16 server test suites, 154 passing (8 new).
+
 ## Not yet started
 
 See TODO.md.

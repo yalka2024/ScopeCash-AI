@@ -290,3 +290,96 @@ describe('evidence upload + analysis routes', () => {
     expect(second.body.code).toBe('already_extracted');
   });
 });
+
+describe('direct-to-storage signed upload URLs', () => {
+  const storage = require('../../lib/storage');
+
+  test('upload-url 501s on the local storage driver (this test env) with a clear fallback message', async () => {
+    const { user, project } = await makeOwnerAndProject();
+    const res = await request(app)
+      .post(`/api/projects/${project.id}/sourceDocuments/upload-url`)
+      .set('Authorization', bearer(user))
+      .send({ filename: 'contract.pdf', contentType: 'application/pdf' });
+    expect(res.status).toBe(501);
+    expect(res.body.code).toBe('direct_upload_unsupported');
+    expect(res.body.error).toMatch(/multipart upload endpoint/);
+  });
+
+  test('confirm-upload validates real bytes already placed at the staging key and creates the row', async () => {
+    const { user, project } = await makeOwnerAndProject();
+    // Simulate the browser's direct PUT having already happened: place real
+    // bytes at a real key via the same storage module the app uses — not a
+    // hand-constructed path — then confirm it through the real endpoint.
+    const stagingKey = storage.newKey(user.id, 'invoice.txt');
+    await storage.putObject({ key: stagingKey, body: Buffer.from('Invoice #77: real staged content.'), contentType: 'text/plain' });
+
+    const res = await request(app)
+      .post(`/api/projects/${project.id}/sourceDocuments/confirm-upload`)
+      .set('Authorization', bearer(user))
+      .send({ stagingKey, originalFilename: 'invoice.txt', document_type: 'invoice' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.storage_uri).toBe(stagingKey);
+    expect(res.body.mime_type).toBe('text/plain');
+    const row = await prisma.sourceDocument.findUnique({ where: { id: res.body.id } });
+    expect(row.extraction_status).toBe('pending');
+  });
+
+  test('confirm-upload rejects a stagingKey belonging to a different user', async () => {
+    const { user: userA } = await makeOwnerAndProject();
+    const { user: userB, project: projectB } = await makeOwnerAndProject();
+    const stagingKeyForA = storage.newKey(userA.id, 'x.txt');
+    await storage.putObject({ key: stagingKeyForA, body: Buffer.from('content'), contentType: 'text/plain' });
+
+    const res = await request(app)
+      .post(`/api/projects/${projectB.id}/sourceDocuments/confirm-upload`)
+      .set('Authorization', bearer(userB))
+      .send({ stagingKey: stagingKeyForA, originalFilename: 'x.txt', document_type: 'invoice' });
+
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('staging_key_mismatch');
+  });
+
+  test('confirm-upload deletes the staged object and rejects content that fails magic-byte sniffing', async () => {
+    const { user, project } = await makeOwnerAndProject();
+    const stagingKey = storage.newKey(user.id, 'fake.pdf');
+    // Declares .pdf but the bytes are plain text — magic-byte mismatch.
+    await storage.putObject({ key: stagingKey, body: Buffer.from('not actually a pdf'), contentType: 'application/pdf' });
+
+    const res = await request(app)
+      .post(`/api/projects/${project.id}/sourceDocuments/confirm-upload`)
+      .set('Authorization', bearer(user))
+      .send({ stagingKey, originalFilename: 'fake.pdf', document_type: 'invoice' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('invalid_file');
+    // Local driver's getStream() resolves immediately with a lazily-opened
+    // fs.createReadStream — the ENOENT only surfaces as an async 'error'
+    // event once something reads from it, so drain it to observe that.
+    const stream = await storage.getStream(stagingKey);
+    await expect(new Promise((resolve, reject) => {
+      stream.on('error', reject);
+      stream.on('end', resolve);
+      stream.resume();
+    })).rejects.toThrow(); // cleaned up, not left orphaned
+  });
+
+  test('confirm-upload for evidenceItems tracks (not rejects) duplicate content, matching the multipart endpoint', async () => {
+    const { user, project } = await makeOwnerAndProject();
+    const bytes = Buffer.from([0xff, 0xd8, 0xff, 0x00, 0x01, 0x02, 0x03]);
+
+    const firstUpload = await request(app).post(`/api/projects/${project.id}/evidenceItems`).set('Authorization', bearer(user))
+      .attach('file', bytes, { filename: 'first.jpg', contentType: 'image/jpeg' });
+    expect(firstUpload.status).toBe(201);
+
+    const stagingKey = storage.newKey(user.id, 'second.jpg');
+    await storage.putObject({ key: stagingKey, body: bytes, contentType: 'image/jpeg' });
+    const confirmRes = await request(app)
+      .post(`/api/projects/${project.id}/evidenceItems/confirm-upload`)
+      .set('Authorization', bearer(user))
+      .send({ stagingKey, originalFilename: 'second.jpg' });
+
+    expect(confirmRes.status).toBe(201);
+    expect(confirmRes.body.duplicateOfId).toBe(firstUpload.body.id);
+  });
+});

@@ -41,16 +41,60 @@ const DOCUMENT_EXTS = new Set(['pdf', 'docx', 'doc', 'txt', 'csv']);
 const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif']);
 const AUDIO_EXTS = new Set(['mp3', 'wav', 'ogg', 'm4a', 'webm']);
 
+// Shared by both upload paths: the classic multipart endpoints below (bytes
+// arrive in the request body) and the signed-upload confirm endpoints
+// (bytes already sit in storage; fetched back here to run the identical
+// check before anything is allowed to reference them as a real row).
+async function validateBuffer(buffer, ext) {
+  const sniff = storage.sniffMagicBytes(buffer, ext);
+  if (!sniff.ok) throw new HttpError(400, `File content does not match its extension (.${ext})`, 'invalid_file');
+  const av = await storage.scanForViruses(buffer);
+  if (!av.ok) throw new HttpError(400, `File rejected by virus scanner: ${av.reason}`, 'av_failed');
+  const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
+  return { sniff, sha256 };
+}
+
 async function persistFile(req, file) {
   const ext = path.extname(file.originalname).slice(1).toLowerCase();
-  const sniff = storage.sniffMagicBytes(file.buffer, ext);
-  if (!sniff.ok) throw new HttpError(400, `File content does not match its extension (.${ext})`, 'invalid_file');
-  const av = await storage.scanForViruses(file.buffer);
-  if (!av.ok) throw new HttpError(400, `File rejected by virus scanner: ${av.reason}`, 'av_failed');
-  const sha256 = crypto.createHash('sha256').update(file.buffer).digest('hex');
+  const { sniff, sha256 } = await validateBuffer(file.buffer, ext);
   const key = storage.newKey(req.user.id, file.originalname);
   const put = await storage.putObject({ key, body: file.buffer, contentType: sniff.mime });
   return { key, provider: put.provider, mime: sniff.mime, sha256, ext };
+}
+
+async function streamToBuffer(stream) {
+  const chunks = [];
+  for await (const chunk of stream) chunks.push(chunk);
+  return Buffer.concat(chunks);
+}
+
+/** Confirms a signed-upload-URL staging key really has the bytes the
+ * client claims (re-fetches and re-validates — never trusted on the
+ * client's word alone), or throws and cleans up the staged object. */
+async function validateStagedUpload(stagingKey, originalFilename) {
+  const ext = path.extname(originalFilename || '').slice(1).toLowerCase();
+  let buffer;
+  try {
+    buffer = await streamToBuffer(await storage.getStream(stagingKey));
+  } catch {
+    throw new HttpError(400, 'Upload not found — the signed URL may have expired or the upload never completed', 'upload_not_found');
+  }
+  try {
+    const { sniff, sha256 } = await validateBuffer(buffer, ext);
+    return { mime: sniff.mime, sha256, fileSize: buffer.length };
+  } catch (err) {
+    await storage.deleteObject(stagingKey).catch(() => {});
+    throw err;
+  }
+}
+
+/** Every staging key is minted as newKey(userId, ...), so the caller's own
+ * id is always its first path segment — reject a confirm-upload call for a
+ * key some OTHER user's upload-url request generated. */
+function assertStagingKeyOwnedByUser(stagingKey, userId) {
+  if (typeof stagingKey !== 'string' || !stagingKey.startsWith(`${userId}/`)) {
+    throw new HttpError(403, 'stagingKey does not belong to the calling user', 'staging_key_mismatch');
+  }
 }
 
 async function assertProjectInOrg(projectId, orgId) {
@@ -86,6 +130,55 @@ router.post('/projects/:projectId/sourceDocuments', requireAnyOrgRole(...UPLOAD_
     res.status(201).json(row);
   }));
 
+// ── SourceDocument direct-to-storage upload (real V4/presigned PUT URL) ──
+// The multipart route above proxies every byte through this server's own
+// memory (multer memoryStorage) — fine for typical documents, wasteful for
+// a large scanned contract or a long field video. This pair lets the
+// browser PUT bytes straight to GCS/S3: request a signed URL, upload
+// directly, then confirm (which re-fetches and re-validates the bytes —
+// the signed URL itself proves nothing about content, only that SOME bytes
+// landed at that key). GCS/S3 only; storage.js#signedUploadUrl returns null
+// on the local driver, so this 501s there with a clear fallback message.
+const UploadUrlSchema = z.object({ filename: z.string().min(1).max(255), contentType: z.string().min(1).max(127) });
+
+router.post('/projects/:projectId/sourceDocuments/upload-url', requireAnyOrgRole(...UPLOAD_ROLES), validate(UploadUrlSchema), asyncHandler(async (req, res) => {
+  await assertProjectInOrg(req.params.projectId, req.tenant.orgId);
+  const ext = path.extname(req.body.filename).slice(1).toLowerCase();
+  if (!DOCUMENT_EXTS.has(ext)) throw new HttpError(400, `Unsupported document type ".${ext}"`, 'unsupported_file_type');
+  const stagingKey = storage.newKey(req.user.id, req.body.filename);
+  const signed = await storage.signedUploadUrl({ key: stagingKey, contentType: req.body.contentType, ttlSeconds: 600 });
+  if (!signed) throw new HttpError(501, `Direct upload URLs require STORAGE_DRIVER=gcs or s3 (current: ${storage.DRIVER}) — use the multipart upload endpoint instead`, 'direct_upload_unsupported');
+  res.json({ uploadUrl: signed.url, method: signed.method, headers: signed.headers, stagingKey, expiresIn: 600 });
+}));
+
+const ConfirmUploadSchema = z.object({ stagingKey: z.string().min(1).max(500), originalFilename: z.string().min(1).max(255), document_type: z.string().min(1).max(60) });
+
+router.post('/projects/:projectId/sourceDocuments/confirm-upload', requireAnyOrgRole(...UPLOAD_ROLES), validate(ConfirmUploadSchema), asyncHandler(async (req, res) => {
+  const project = await assertProjectInOrg(req.params.projectId, req.tenant.orgId);
+  assertStagingKeyOwnedByUser(req.body.stagingKey, req.user.id);
+
+  const existing = await prisma.sourceDocument.findFirst({ where: { storage_uri: req.body.stagingKey } });
+  if (existing) throw new HttpError(409, 'This staged upload has already been confirmed', 'already_confirmed', { sourceDocumentId: existing.id });
+
+  const { mime, sha256, fileSize } = await validateStagedUpload(req.body.stagingKey, req.body.originalFilename);
+  const dup = await prisma.sourceDocument.findUnique({ where: { sha256_hash: sha256 } });
+  if (dup) {
+    await storage.deleteObject(req.body.stagingKey).catch(() => {});
+    throw new HttpError(409, 'A document with this exact content already exists', 'duplicate_document', { sourceDocumentId: dup.id });
+  }
+
+  const row = await prisma.sourceDocument.create({
+    data: {
+      orgId: req.tenant.orgId, project_id: project.id, document_type: req.body.document_type,
+      original_filename: req.body.originalFilename, storage_uri: req.body.stagingKey, mime_type: mime,
+      file_size_bytes: fileSize, sha256_hash: sha256, uploaded_by_id: req.user.id,
+      uploaded_at: new Date(), extraction_status: 'pending', userId: req.user.id,
+    },
+  });
+  await audit(req, 'sourceDocuments.upload', { resource: 'sourceDocument', resourceId: row.id, details: { method: 'direct_signed_url' } });
+  res.status(201).json(row);
+}));
+
 // ── EvidenceItem upload (photos, audio, receipts, field media) ────────────
 router.post('/projects/:projectId/evidenceItems', requireAnyOrgRole(...UPLOAD_ROLES), upload.single('file'),
   asyncHandler(async (req, res) => {
@@ -108,6 +201,52 @@ router.post('/projects/:projectId/evidenceItems', requireAnyOrgRole(...UPLOAD_RO
     await audit(req, 'evidenceItems.upload', { resource: 'evidenceItem', resourceId: row.id, details: { duplicate: !!existing } });
     res.status(201).json(row);
   }));
+
+// ── EvidenceItem direct-to-storage upload (real V4/presigned PUT URL) ────
+// Same rationale and validate-after-upload shape as the sourceDocuments
+// pair above — see its comment.
+router.post('/projects/:projectId/evidenceItems/upload-url', requireAnyOrgRole(...UPLOAD_ROLES), validate(UploadUrlSchema), asyncHandler(async (req, res) => {
+  await assertProjectInOrg(req.params.projectId, req.tenant.orgId);
+  const ext = path.extname(req.body.filename).slice(1).toLowerCase();
+  const evidenceType = IMAGE_EXTS.has(ext) ? 'photo' : AUDIO_EXTS.has(ext) ? 'audio' : DOCUMENT_EXTS.has(ext) ? 'receipt' : null;
+  if (!evidenceType) throw new HttpError(400, `Unsupported evidence file type ".${ext}"`, 'unsupported_file_type');
+  const stagingKey = storage.newKey(req.user.id, req.body.filename);
+  const signed = await storage.signedUploadUrl({ key: stagingKey, contentType: req.body.contentType, ttlSeconds: 600 });
+  if (!signed) throw new HttpError(501, `Direct upload URLs require STORAGE_DRIVER=gcs or s3 (current: ${storage.DRIVER}) — use the multipart upload endpoint instead`, 'direct_upload_unsupported');
+  res.json({ uploadUrl: signed.url, method: signed.method, headers: signed.headers, stagingKey, expiresIn: 600, evidenceType });
+}));
+
+const ConfirmEvidenceUploadSchema = z.object({ stagingKey: z.string().min(1).max(500), originalFilename: z.string().min(1).max(255) });
+
+router.post('/projects/:projectId/evidenceItems/confirm-upload', requireAnyOrgRole(...UPLOAD_ROLES), validate(ConfirmEvidenceUploadSchema), asyncHandler(async (req, res) => {
+  const project = await assertProjectInOrg(req.params.projectId, req.tenant.orgId);
+  assertStagingKeyOwnedByUser(req.body.stagingKey, req.user.id);
+
+  const alreadyConfirmed = await prisma.evidenceItem.findFirst({ where: { storageUri: req.body.stagingKey } });
+  if (alreadyConfirmed) throw new HttpError(409, 'This staged upload has already been confirmed', 'already_confirmed', { evidenceItemId: alreadyConfirmed.id });
+
+  const ext = path.extname(req.body.originalFilename).slice(1).toLowerCase();
+  const evidenceType = IMAGE_EXTS.has(ext) ? 'photo' : AUDIO_EXTS.has(ext) ? 'audio' : DOCUMENT_EXTS.has(ext) ? 'receipt' : null;
+  if (!evidenceType) throw new HttpError(400, `Unsupported evidence file type ".${ext}"`, 'unsupported_file_type');
+
+  const { mime, sha256 } = await validateStagedUpload(req.body.stagingKey, req.body.originalFilename);
+  // Deliberately NOT rejected as a conflict, unlike sourceDocuments: a field
+  // worker genuinely re-photographing the same thing twice must still be
+  // able to upload both — see the identical comment on EvidenceItem.sha256Hash
+  // in prisma/schema.prisma.
+  const existing = await prisma.evidenceItem.findFirst({ where: { orgId: req.tenant.orgId, sha256Hash: sha256 } });
+
+  const row = await prisma.evidenceItem.create({
+    data: {
+      orgId: req.tenant.orgId, project_id: project.id, evidenceType, storageUri: req.body.stagingKey,
+      sha256Hash: sha256, mimeType: mime, uploadedById: req.user.id,
+      duplicateOfId: existing ? existing.id : null,
+      quality: existing ? 'ok' : null,
+    },
+  });
+  await audit(req, 'evidenceItems.upload', { resource: 'evidenceItem', resourceId: row.id, details: { duplicate: !!existing, method: 'direct_signed_url' } });
+  res.status(201).json(row);
+}));
 
 // ── Analysis triggers ──────────────────────────────────────────────────────
 const ANALYZE_ROLES = ['owner', 'admin', 'project_manager'];

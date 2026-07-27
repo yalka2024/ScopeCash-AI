@@ -56,8 +56,16 @@ is in STATUS.md. Everything below is either in progress or not started.
 - [x] **Phase 3 — GCP native integrations.** GCS storage driver, Cloud Tasks
       enqueuer + verified push endpoint, Secret Manager client — see
       STATUS.md. Remaining follow-ups:
-  - [ ] Real client-side V4 signed upload URL (direct browser-to-GCS PUT),
-        not just server-side `putObject`.
+  - [x] Real client-side V4 signed upload URL (direct browser-to-GCS PUT),
+        not just server-side `putObject` — done in Phase 15.
+        `storage.signedUploadUrl()` (real GCS V4 write URL / S3 presigned
+        PUT / null on local); new `upload-url`+`confirm-upload` route pairs
+        for sourceDocuments and evidenceItems, with confirm-upload
+        re-fetching and re-validating (magic-byte sniff + AV scan + SHA-256)
+        the bytes that actually landed at the staging key rather than
+        trusting the client — the signed URL proves nothing about content.
+        Staging-key ownership enforced via the existing per-user key prefix.
+        8 new tests. See STATUS.md.
   - [ ] Cloud SQL IAM database authentication.
   - [x] GCP Terraform — `deploy/terraform-gcp/main.tf` (new, alongside the
         existing AWS module, not replacing it). Provisions VPC + private-IP

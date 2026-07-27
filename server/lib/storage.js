@@ -14,6 +14,11 @@
  *   getStream(key) -> Readable
  *   deleteObject(key)
  *   signedDownloadUrl(key, ttlSeconds)
+ *   signedUploadUrl({ key, contentType, ttlSeconds }) -> { url, method: 'PUT', headers } | null
+ *     Real V4 (GCS) / presigned (S3) direct-to-storage PUT URL — the caller's
+ *     bytes never transit this server. null on the local driver (nothing to
+ *     sign; there's no separate storage tier to upload to directly) — the
+ *     caller must fall back to the classic multipart upload endpoint.
  *   gcsUri(key) -> "gs://bucket/key" | null (GCS driver only)
  *   sniffMagicBytes(buffer, declaredExt) -> { ok, detectedExt, mime }
  *   scanForViruses(buffer)               -> { ok, reason? }
@@ -98,6 +103,30 @@ async function deleteObject(key) {
   }
   const p = path.join(LOCAL_ROOT, key);
   if (fs.existsSync(p)) fs.unlinkSync(p);
+}
+
+/**
+ * Real direct-to-storage upload URL (not server-side putObject): the
+ * browser PUTs bytes straight to GCS/S3 with this URL, so a large evidence
+ * file never round-trips through this server's own memory/bandwidth.
+ * Content-Type is bound into the signature (S3) / left for the caller to
+ * match exactly (GCS V4 PUT — GCS validates the header against what was
+ * signed) so a captured URL can't be reused to upload a different content
+ * type than what was authorized.
+ */
+async function signedUploadUrl({ key, contentType, ttlSeconds = 300 }) {
+  if (DRIVER === 's3') {
+    const cmd = new S3Cmd.PutObjectCommand({ Bucket: BUCKET, Key: key, ContentType: contentType });
+    const url = await module.exports.__signedUrlFn(s3, cmd, { expiresIn: ttlSeconds });
+    return { url, method: 'PUT', headers: { 'Content-Type': contentType } };
+  }
+  if (DRIVER === 'gcs') {
+    const [url] = await gcsBucket.file(key).getSignedUrl({
+      version: 'v4', action: 'write', expires: Date.now() + ttlSeconds * 1000, contentType,
+    });
+    return { url, method: 'PUT', headers: { 'Content-Type': contentType } };
+  }
+  return null; // local driver: no separate storage tier to upload to directly
 }
 
 async function signedDownloadUrl(key, ttlSeconds = 300) {
@@ -218,7 +247,7 @@ async function scanForViruses(buffer) {
 }
 
 module.exports = {
-  DRIVER, putObject, getStream, deleteObject, signedDownloadUrl, gcsUri,
+  DRIVER, putObject, getStream, deleteObject, signedDownloadUrl, signedUploadUrl, gcsUri,
   newKey, sniffMagicBytes, scanForViruses, verifyLocalSignature,
 };
 
