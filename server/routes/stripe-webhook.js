@@ -60,7 +60,22 @@ router.post(
       // marker written for a delivery that never actually took effect.
       await runWithSystemAccess(async () => {
         await prisma.tenantTransaction(async (tx) => {
-          await tx.stripeEvent.create({ data: { id: event.id, type: event.type } });
+          try {
+            await tx.stripeEvent.create({ data: { id: event.id, type: event.type } });
+          } catch (err) {
+            // Only THIS insert's own collision means "genuinely a duplicate
+            // delivery" — tagged distinctly so the outer catch doesn't
+            // mistake an unrelated P2002 later in this same transaction
+            // (e.g. a real Subscription.stripeSubId collision) for a
+            // duplicate event and silently ack it instead of letting Stripe
+            // retry a mutation that never actually happened.
+            if (err && err.code === 'P2002') {
+              const dup = new Error('duplicate Stripe event delivery');
+              dup.isDuplicateStripeEvent = true;
+              throw dup;
+            }
+            throw err;
+          }
 
           switch (event.type) {
             case 'customer.subscription.created':
@@ -147,7 +162,7 @@ router.post(
         });
       });
     } catch (err) {
-      if (err && err.code === 'P2002') {
+      if (err && err.isDuplicateStripeEvent) {
         // A concurrent delivery of the same event won the race to insert
         // the dedup marker first — genuinely handled (or being handled)
         // elsewhere; ack this one rather than erroring/retrying forever.

@@ -129,4 +129,42 @@ describe('POST /api/billing/webhook/stripe', () => {
       .set('Content-Type', 'application/json').send(JSON.stringify(event));
     expect(res.status).toBe(200);
   });
+
+  test('regression: a genuine constraint collision elsewhere in the mutation is NOT mistaken for a duplicate event', async () => {
+    // Only the dedup-marker insert's OWN P2002 means "genuinely a duplicate
+    // delivery" — any other constraint violation inside the same
+    // transaction (e.g. a real stripeSubId collision) must still 500 so
+    // Stripe retries, not be silently acked as if it were a dup.
+    const sharedStripeSubId = `sub_${uid('shared')}`;
+    const orgA = uid('org');
+    await request(app).post('/api/billing/webhook/stripe')
+      .set('Content-Type', 'application/json').send(JSON.stringify({
+        id: `evt_${uid('e')}`, type: 'customer.subscription.updated',
+        data: { object: {
+          id: sharedStripeSubId, customer: `cus_${uid('x')}`, status: 'active',
+          metadata: { orgId: orgA, tierId: 'pro' },
+          items: { data: [{ price: { lookup_key: 'pro' } }] },
+          current_period_start: Math.floor(Date.now() / 1000),
+          current_period_end: Math.floor(Date.now() / 1000) + 30 * 86400,
+        } },
+      }));
+
+    const orgB = uid('org');
+    const res = await request(app).post('/api/billing/webhook/stripe')
+      .set('Content-Type', 'application/json').send(JSON.stringify({
+        id: `evt_${uid('e')}`, type: 'customer.subscription.updated', // different event id — not a dedup case
+        data: { object: {
+          id: sharedStripeSubId, customer: `cus_${uid('x')}`, status: 'active', // same stripeSubId — real collision
+          metadata: { orgId: orgB, tierId: 'pro' },
+          items: { data: [{ price: { lookup_key: 'pro' } }] },
+          current_period_start: Math.floor(Date.now() / 1000),
+          current_period_end: Math.floor(Date.now() / 1000) + 30 * 86400,
+        } },
+      }));
+
+    expect(res.status).toBe(500); // NOT 200 duplicate — a real failure Stripe must retry
+    expect(res.body.duplicate).toBeUndefined();
+    const orgBSub = await prisma.subscription.findUnique({ where: { orgId: orgB } });
+    expect(orgBSub).toBeNull(); // rolled back, not partially applied
+  });
 });

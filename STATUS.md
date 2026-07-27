@@ -1425,6 +1425,23 @@ Re-ran the same real-Postgres+RLS regression after the fix: passes.
 4 new SQLite integration tests (`tests/integration/stripe-webhook.test.js`)
 plus 1 new permanent Postgres+RLS regression test.
 
+Pre-push `/security-review` on this diff found no cross-tenant exposure
+(`runWithSystemAccess`'s scope is correctly bounded — traced `orgId` back
+to `routes/billing.js`'s session-derived value, never request input; the
+reconciler's cross-org query results never leave the function un-rescoped)
+but did flag a real correctness gap worth fixing immediately: the outer
+catch treated *any* `P2002` inside the transaction as "duplicate event,
+ack it" — not just the dedup marker's own collision. A genuine constraint
+violation elsewhere in the same transaction (e.g. two different orgs'
+webhooks racing on the same real `Subscription.stripeSubId`) would have
+been silently swallowed as a false duplicate instead of 500ing for Stripe
+to retry, undermining the very fix above. Narrowed by tagging the dedup
+insert's own P2002 distinctly (`isDuplicateStripeEvent`) so only that
+specific collision is treated as a dup; any other error inside the
+transaction still 500s. New regression test simulates two different orgs'
+events colliding on the same `stripeSubId` and asserts a 500, not a false
+200 "duplicate."
+
 **Job creation.** `lib/evidence-jobs.js#enqueue*()` creates the
 `AgentRunRecord` row (status `queued`) then dispatches to Cloud Tasks/
 BullMQ/in-process `setImmediate` as a separate step — if the process
@@ -1458,7 +1475,7 @@ already a deliberately fire-and-forget, self-swallowing, append-only
 hash-chained log by design — lowest risk of the four, and integrating it
 into arbitrary callers' transactions is a bigger, separate concern).
 
-Full suite: 19/19 server test suites, 174 passing (14 new; 2 new permanent
+Full suite: 19/19 server test suites, 175 passing (15 new; 2 new permanent
 Postgres+RLS regression tests, both independently verified against a real
 non-superuser role).
 
