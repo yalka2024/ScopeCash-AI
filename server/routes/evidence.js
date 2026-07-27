@@ -88,13 +88,28 @@ async function validateStagedUpload(stagingKey, originalFilename) {
   }
 }
 
-/** Every staging key is minted as newKey(userId, ...), so the caller's own
- * id is always its first path segment — reject a confirm-upload call for a
- * key some OTHER user's upload-url request generated. */
+// storage.newKey()'s second segment only ever contains [stamp]-[hex]-[sanitized name].
+const STAGING_KEY_REST_RE = /^[a-zA-Z0-9._-]{1,255}$/;
+
+/** Every staging key is minted as newKey(userId, ...): exactly one '/', the
+ * caller's own id as the first segment, a restricted-charset second segment.
+ * A plain startsWith(`${userId}/`) check is NOT enough — the local storage
+ * driver joins this key onto a filesystem path (path.join(LOCAL_ROOT, key)),
+ * so a value like `${userId}/../../../../etc/passwd` would pass a prefix
+ * check yet still escape LOCAL_ROOT once joined, giving an authenticated
+ * user arbitrary file read (via confirm-upload persisting the file's bytes)
+ * and arbitrary file delete (via the validation-failure cleanup path).
+ * Requiring the second segment to be a single slash-free, dot-free-as-a-
+ * whole-segment token closes that off regardless of storage driver. */
 function assertStagingKeyOwnedByUser(stagingKey, userId) {
-  if (typeof stagingKey !== 'string' || !stagingKey.startsWith(`${userId}/`)) {
-    throw new HttpError(403, 'stagingKey does not belong to the calling user', 'staging_key_mismatch');
-  }
+  const reject = () => { throw new HttpError(403, 'stagingKey does not belong to the calling user', 'staging_key_mismatch'); };
+  if (typeof stagingKey !== 'string') return reject();
+  const slash = stagingKey.indexOf('/');
+  if (slash === -1 || stagingKey.indexOf('/', slash + 1) !== -1) return reject();
+  const owner = stagingKey.slice(0, slash);
+  const rest = stagingKey.slice(slash + 1);
+  if (owner !== userId) return reject();
+  if (rest === '.' || rest === '..' || !STAGING_KEY_REST_RE.test(rest)) return reject();
 }
 
 async function assertProjectInOrg(projectId, orgId) {

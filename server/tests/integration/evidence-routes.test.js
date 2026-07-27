@@ -340,6 +340,25 @@ describe('direct-to-storage signed upload URLs', () => {
     expect(res.body.code).toBe('staging_key_mismatch');
   });
 
+  test('confirm-upload rejects a stagingKey that path-traverses out of the caller\'s own prefix', async () => {
+    const { user, project } = await makeOwnerAndProject();
+    const traversalAttempts = [
+      `${user.id}/../../../../etc/passwd`,
+      `${user.id}/..%2f..%2fetc%2fpasswd`,
+      `${user.id}/sub/../../other-user/secret.txt`,
+      `${user.id}/`,
+      `${user.id}`,
+    ];
+    for (const stagingKey of traversalAttempts) {
+      const res = await request(app)
+        .post(`/api/projects/${project.id}/sourceDocuments/confirm-upload`)
+        .set('Authorization', bearer(user))
+        .send({ stagingKey, originalFilename: 'x.txt', document_type: 'invoice' });
+      expect(res.status).toBe(403);
+      expect(res.body.code).toBe('staging_key_mismatch');
+    }
+  });
+
   test('confirm-upload deletes the staged object and rejects content that fails magic-byte sniffing', async () => {
     const { user, project } = await makeOwnerAndProject();
     const stagingKey = storage.newKey(user.id, 'fake.pdf');

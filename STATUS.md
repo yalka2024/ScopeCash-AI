@@ -1221,11 +1221,25 @@ to avoid.
   shared validation into `validateBuffer()`/`validateStagedUpload()`, reused
   by both upload paths so there is exactly one place file-content trust
   decisions get made.
-- **Staging-key ownership check**: `storage.newKey()` already embeds the
-  calling user's id as the key's first path segment, so
-  `assertStagingKeyOwnedByUser()` cheaply rejects (403
-  `staging_key_mismatch`) one user confirming a key staged under another
-  user's prefix, without needing a new DB-backed reservation table.
+- **Staging-key ownership check, then a same-session self-caught path-
+  traversal fix**: `storage.newKey()` embeds the calling user's id as the
+  key's first path segment, so ownership was initially checked with a
+  plain `stagingKey.startsWith(\`${userId}/\`)`. That's not sufficient —
+  the local storage driver joins the key straight onto a filesystem path
+  (`path.join(LOCAL_ROOT, key)`), so `${userId}/../../../../etc/passwd`
+  passes a prefix check yet still escapes `LOCAL_ROOT` once joined,
+  handing an authenticated user arbitrary file read (the traversed file's
+  bytes get validated and persisted as a real `SourceDocument`/
+  `EvidenceItem`, retrievable later) and arbitrary file delete (via
+  confirm-upload's validation-failure cleanup path, which calls
+  `storage.deleteObject()` on whatever key was supplied). Fixed by
+  requiring the key to be exactly one `/`-delimited pair — the owner
+  segment matching the caller's id exactly, the remainder restricted to a
+  slash-free, non-`.`/`..` charset — closing the gap regardless of storage
+  driver. Caught and fixed in this same session before push, not by an
+  external review; added a dedicated regression test exercising five
+  traversal/malformed-key variants (`../../etc/passwd`, URL-encoded
+  `..%2f`, an embedded `sub/../..`, and bare/trailing-slash forms).
 - Duplicate handling mirrors the existing multipart routes exactly:
   sourceDocuments confirm-upload 409s on an exact SHA-256 match (and
   deletes the now-orphaned staged object); evidenceItems confirm-upload
@@ -1250,7 +1264,7 @@ to avoid.
   once something reads from it), and evidenceItems' non-rejecting
   duplicate-tracking behavior.
 
-Full suite: 16/16 server test suites, 154 passing (8 new).
+Full suite: 16/16 server test suites, 155 passing (9 new).
 
 ## Not yet started
 
