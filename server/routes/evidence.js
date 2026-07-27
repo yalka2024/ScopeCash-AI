@@ -149,6 +149,23 @@ function assertApiKeyCanTouchProject(req, projectId) {
   }
 }
 
+/** Scopes the sha256 duplicate-content lookups below to a project-scoped
+ * key's own allowlist. Without this, a key restricted to Project A could
+ * learn — via a 409's `sourceDocumentId` or a new row's `duplicateOfId` —
+ * that byte-identical content exists in some OTHER, ungranted project in
+ * the same org, plus that other record's real internal id. Scoping the
+ * PRE-check means a real duplicate in an ungranted project is simply
+ * invisible to it: for sourceDocuments (sha256_hash is a table-wide
+ * unique column) the create() below still hits that real DB constraint
+ * and is caught by createSourceDocumentOrDuplicate409's fallback — a
+ * clean 409 with no id, never a crash; for evidenceItems (deliberately
+ * NOT unique) it just creates a fresh, non-duplicate-flagged row, which
+ * is correct: a key that can't see the other project has no way to know
+ * a "duplicate" exists there at all, and shouldn't. */
+function apiKeyDedupScope(req) {
+  return req.apiKeyProjectIds ? { project_id: { in: req.apiKeyProjectIds } } : {};
+}
+
 async function assertProjectInOrg(req, projectId) {
   const project = await prisma.projectRecord.findFirst({ where: { id: projectId, orgId: req.tenant.orgId } });
   if (!project) throw new HttpError(404, 'project not found', 'not_found');
@@ -168,7 +185,7 @@ router.post('/projects/:projectId/sourceDocuments', requireAnyOrgRole(...UPLOAD_
     if (!DOCUMENT_EXTS.has(ext)) throw new HttpError(400, `Unsupported document type ".${ext}"`, 'unsupported_file_type');
 
     const sha256 = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
-    const existing = await prisma.sourceDocument.findFirst({ where: { orgId: req.tenant.orgId, sha256_hash: sha256 } });
+    const existing = await prisma.sourceDocument.findFirst({ where: { orgId: req.tenant.orgId, sha256_hash: sha256, ...apiKeyDedupScope(req) } });
     if (existing) throw new HttpError(409, 'A document with this exact content already exists', 'duplicate_document', { sourceDocumentId: existing.id });
 
     const persisted = await persistFile(req, req.file);
@@ -213,7 +230,7 @@ router.post('/projects/:projectId/sourceDocuments/confirm-upload', requireAnyOrg
   if (existing) throw new HttpError(409, 'This staged upload has already been confirmed', 'already_confirmed', { sourceDocumentId: existing.id });
 
   const { mime, sha256, fileSize } = await validateStagedUpload(req.body.stagingKey, req.body.originalFilename);
-  const dup = await prisma.sourceDocument.findFirst({ where: { orgId: req.tenant.orgId, sha256_hash: sha256 } });
+  const dup = await prisma.sourceDocument.findFirst({ where: { orgId: req.tenant.orgId, sha256_hash: sha256, ...apiKeyDedupScope(req) } });
   if (dup) {
     await storage.deleteObject(req.body.stagingKey).catch(() => {});
     throw new HttpError(409, 'A document with this exact content already exists', 'duplicate_document', { sourceDocumentId: dup.id });
@@ -245,7 +262,7 @@ router.post('/projects/:projectId/evidenceItems', requireAnyOrgRole(...UPLOAD_RO
     if (!evidenceType) throw new HttpError(400, `Unsupported evidence file type ".${ext}"`, 'unsupported_file_type');
 
     const persisted = await persistFile(req, req.file);
-    const existing = await prisma.evidenceItem.findFirst({ where: { orgId: req.tenant.orgId, sha256Hash: persisted.sha256 } });
+    const existing = await prisma.evidenceItem.findFirst({ where: { orgId: req.tenant.orgId, sha256Hash: persisted.sha256, ...apiKeyDedupScope(req) } });
     const row = await prisma.evidenceItem.create({
       data: {
         orgId: req.tenant.orgId, project_id: project.id, evidenceType, storageUri: persisted.key,
@@ -290,7 +307,7 @@ router.post('/projects/:projectId/evidenceItems/confirm-upload', requireAnyOrgRo
   // worker genuinely re-photographing the same thing twice must still be
   // able to upload both — see the identical comment on EvidenceItem.sha256Hash
   // in prisma/schema.prisma.
-  const existing = await prisma.evidenceItem.findFirst({ where: { orgId: req.tenant.orgId, sha256Hash: sha256 } });
+  const existing = await prisma.evidenceItem.findFirst({ where: { orgId: req.tenant.orgId, sha256Hash: sha256, ...apiKeyDedupScope(req) } });
 
   const row = await prisma.evidenceItem.create({
     data: {

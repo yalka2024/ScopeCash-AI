@@ -311,7 +311,7 @@ async function assertForeignKeys(e, data, orgId) {
 // create from targeting an ungranted project_id, or an update from moving
 // a row INTO one, since those are values in the request BODY, not the
 // WHERE clause.
-function assertApiKeyProjectWrite(req, e, data) {
+function assertApiKeyProjectWrite(req, e, data, { isCreate = false } = {}) {
   if (!req.apiKeyProjectIds) return;
   const field = projectIdFieldFor(e);
   if (!field || field === 'id') {
@@ -321,7 +321,18 @@ function assertApiKeyProjectWrite(req, e, data) {
     // validate against its allowlist.
     throw new HttpError(403, 'This API key is restricted to specific projects and cannot create/modify this resource type', 'project_scope_denied');
   }
-  if (field in data && (!data[field] || !req.apiKeyProjectIds.includes(data[field]))) {
+  // On create, a project-scoped key must always supply a granted
+  // project_id — even for entities where this field is otherwise optional
+  // (consentRecord, feedback both allow it). Skipping it would create a
+  // row with project_id: null: invisible to this SAME key's own reads
+  // (scope()'s WHERE `project_id: {in: [...]}` never matches NULL) but
+  // fully visible org-wide to every session user and report — a
+  // containment bypass the grant exists specifically to prevent. On
+  // update, only re-check when the client is actually trying to CHANGE
+  // project_id — the row being targeted is already constrained by
+  // scope()'s WHERE clause on the way in.
+  const mustCheck = isCreate || field in data;
+  if (mustCheck && (!data[field] || !req.apiKeyProjectIds.includes(data[field]))) {
     throw new HttpError(403, 'This API key is not granted access to that project', 'project_scope_denied');
   }
 }
@@ -389,7 +400,7 @@ for (const e of ENTITIES) {
     }
     const data = pick(req.body, e.fields);
     await assertForeignKeys(e, data, req.tenant.orgId);
-    assertApiKeyProjectWrite(req, e, data);
+    assertApiKeyProjectWrite(req, e, data, { isCreate: true });
     data.orgId = req.tenant.orgId;
     if (e.hasUserId) data.userId = req.user.id;
     const row = await prisma[model].create({ data });

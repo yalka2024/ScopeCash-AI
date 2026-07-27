@@ -161,6 +161,35 @@ describe('project-scoped key enforcement via routes/entities.js', () => {
     expect(res.body.code).toBe('project_scope_denied');
   });
 
+  test('regression: a project-scoped key cannot create a project-less consentRecord/feedback row by omitting project_id (containment bypass)', async () => {
+    // consentRecord and feedback both declare project_id as OPTIONAL —
+    // unlike every other project-scoped entity, where it's required and so
+    // this gap was unreachable. Omitting it would create a row with
+    // project_id: null: invisible to this SAME key's own reads (scope()'s
+    // WHERE never matches NULL against an IN-list) but fully visible
+    // org-wide to every session user and report — defeating the whole
+    // point of restricting this key to one project.
+    const { owner, projectA } = await makeOwnerWithTwoProjects();
+    const rawKey = await createKey(owner, { projectIds: [projectA.id] });
+
+    const consentRes = await request(app).post('/api/consentRecords').set('Authorization', apiKeyAuth(rawKey))
+      .send({ subjectType: 'customer', consentType: 'photo_release' }); // no project_id
+    expect(consentRes.status).toBe(403);
+    expect(consentRes.body.code).toBe('project_scope_denied');
+    expect(await prisma.consentRecord.count({ where: { orgId: owner.orgId } })).toBe(0);
+
+    const feedbackRes = await request(app).post('/api/feedback').set('Authorization', apiKeyAuth(rawKey))
+      .send({ rating: 5 }); // no project_id
+    expect(feedbackRes.status).toBe(403);
+    expect(feedbackRes.body.code).toBe('project_scope_denied');
+    expect(await prisma.feedback.count({ where: { orgId: owner.orgId } })).toBe(0);
+
+    // Supplying the GRANTED project explicitly still works normally.
+    const okRes = await request(app).post('/api/consentRecords').set('Authorization', apiKeyAuth(rawKey))
+      .send({ subjectType: 'customer', consentType: 'photo_release', project_id: projectA.id });
+    expect(okRes.status).toBe(201);
+  });
+
   test('a project-scoped key is denied entirely on entities with no project dimension', async () => {
     const { owner, projectA } = await makeOwnerWithTwoProjects();
     const rawKey = await createKey(owner, { projectIds: [projectA.id] });
@@ -222,6 +251,45 @@ describe('project-scoped key enforcement via routes/evidence.js (the real upload
     const res = await request(app).post(`/api/sourceDocuments/${uploaded.body.id}/analyze`).set('Authorization', apiKeyAuth(scopedKey));
     expect(res.status).toBe(403);
     expect(res.body.code).toBe('project_scope_denied');
+  });
+
+  test('regression: a project-scoped key uploading content that duplicates an ungranted project\'s document never learns that document\'s id', async () => {
+    // sha256_hash is a table-wide unique column, so a genuine duplicate
+    // still surfaces as a real DB constraint at create() time even once
+    // the pre-check is scoped to the key's own allowlist — must still come
+    // back as a clean 409 with no id, never a crash, and never the other
+    // project's real internal document id.
+    const { owner, projectA, projectB } = await makeOwnerWithTwoProjects();
+    const sharedContent = Buffer.from(`Shared invoice content ${uid('x')}`);
+    const adminKey = await createKey(owner);
+    const originalInB = await request(app).post(`/api/projects/${projectB.id}/sourceDocuments`).set('Authorization', apiKeyAuth(adminKey))
+      .field('document_type', 'invoice').attach('file', sharedContent, { filename: 'shared.txt', contentType: 'text/plain' });
+    expect(originalInB.status).toBe(201);
+
+    const scopedKey = await createKey(owner, { projectIds: [projectA.id] });
+    const res = await request(app).post(`/api/projects/${projectA.id}/sourceDocuments`).set('Authorization', apiKeyAuth(scopedKey))
+      .field('document_type', 'invoice').attach('file', sharedContent, { filename: 'shared-again.txt', contentType: 'text/plain' });
+
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('duplicate_document');
+    expect(res.body.sourceDocumentId).toBeUndefined(); // never leaks projectB's real document id
+    expect(res.body.sourceDocumentId).not.toBe(originalInB.body.id);
+  });
+
+  test('regression: a project-scoped key uploading duplicate evidence-item content from an ungranted project is not flagged as a duplicate at all', async () => {
+    const { owner, projectA, projectB } = await makeOwnerWithTwoProjects();
+    const sharedBytes = Buffer.from([0xff, 0xd8, 0xff, ...crypto.randomBytes(8)]);
+    const adminKey = await createKey(owner);
+    const originalInB = await request(app).post(`/api/projects/${projectB.id}/evidenceItems`).set('Authorization', apiKeyAuth(adminKey))
+      .attach('file', sharedBytes, { filename: 'first.jpg', contentType: 'image/jpeg' });
+    expect(originalInB.status).toBe(201);
+
+    const scopedKey = await createKey(owner, { projectIds: [projectA.id] });
+    const res = await request(app).post(`/api/projects/${projectA.id}/evidenceItems`).set('Authorization', apiKeyAuth(scopedKey))
+      .attach('file', sharedBytes, { filename: 'second.jpg', contentType: 'image/jpeg' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.duplicateOfId).toBeFalsy(); // never reveals that a "duplicate" exists in projectB
   });
 });
 

@@ -1759,6 +1759,47 @@ surface, not the one the TODO's wording assumed.
 
 Full suite: 21/21 server test suites, 217 passing (17 new).
 
+Pre-push `/security-review` found no cross-org authorization gap but did
+find two real, concrete gaps in the project-scoping's own guarantees:
+
+1. **Cross-project id/existence leak via the sha256 dedup checks.** All
+   four content-hash duplicate lookups in `evidence.js`
+   (`sourceDocuments` multipart + confirm-upload, `evidenceItems`
+   multipart + confirm-upload) queried by `orgId` alone, never by
+   `req.apiKeyProjectIds`. A key restricted to Project A that uploaded
+   content byte-identical to something already stored in Project B (same
+   org, ungranted) would learn that fact plus Project B's real internal
+   document id — either in a 409's `sourceDocumentId` or a new row's
+   `duplicateOfId` — directly undermining the feature on the exact routes
+   it exists to protect. Fixed by scoping the pre-check itself to the
+   key's allowlist when restricted: `sourceDocuments`' `sha256_hash`
+   remains table-wide unique, so a real duplicate in an ungranted project
+   still surfaces at `create()` time — caught by the existing
+   `createSourceDocumentOrDuplicate409` fallback (Phase 15) as a clean 409
+   with no id; `evidenceItems`' hash is deliberately non-unique, so it
+   simply creates a fresh, non-duplicate-flagged row — correct, since a
+   key that can't see the other project has no way to know a duplicate
+   exists there and shouldn't. 2 new regression tests.
+2. **Containment bypass via optional `project_id` fields.**
+   `assertApiKeyProjectWrite` only checked the allowlist when the client
+   included `project_id` in the request body. Every entity where that
+   field is *required* (`sourceDocument`, `evidenceItem`, etc.) made this
+   unreachable — but `consentRecord` and `feedback` both declare it
+   optional. A project-scoped key could `POST` either while omitting
+   `project_id` entirely, creating a row with `project_id: null`:
+   invisible to that SAME key's own reads (`scope()`'s `WHERE
+   project_id: {in:[...]}` never matches `NULL`) but fully visible
+   org-wide to every session user and report — exactly the containment
+   the grant exists to prevent. Fixed by treating `project_id` as
+   effectively required on *create* for a project-scoped key regardless
+   of the entity's own schema (`isCreate` flag threaded through from the
+   `POST` handler only — `PUT` still only re-checks when the client is
+   actually trying to change the field, since the target row is already
+   constrained by `scope()`'s `WHERE` clause on the way in). 1 new
+   regression test.
+
+Full suite: 21/21 server test suites, 220 passing.
+
 ## Not yet started
 
 See TODO.md.
