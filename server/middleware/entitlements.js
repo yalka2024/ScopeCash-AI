@@ -12,8 +12,13 @@
 const ent = require('../lib/entitlements');
 const meter = require('../lib/usage-meter');
 
+// req.tenant.orgId is the canonical resolved org (middleware/tenant.js
+// falls back to req.user.id when req.user.orgId is unset — a route that
+// ran attachTenant, which enforceMeter/requireFeature require to mean
+// anything, always has this set). Falls back to the raw req.user.orgId
+// for defensiveness only, e.g. a route that hasn't run attachTenant yet.
 function _orgIdFromReq(req) {
-  return req.user?.orgId || req.org?.id || null;
+  return req.tenant?.orgId || req.user?.orgId || null;
 }
 
 function requireFeature(feature) {
@@ -22,13 +27,15 @@ function requireFeature(feature) {
       const orgId = _orgIdFromReq(req);
       const allowed = await ent.can(orgId, feature);
       if (!allowed) {
+        const message = `The "${feature}" feature is not included in your current plan.`;
         return res.status(402).json({
-          error: 'feature_not_in_plan',
-          code: 'feature_not_in_plan',
-          feature,
-          message: `The "${feature}" feature is not included in your current plan.`,
-          upgrade_url: '/settings/billing',
-          requestId: req.requestId,
+          // `error` holds the human-readable message (not the code) to
+          // match this codebase's own convention (lib/validate.js's
+          // HttpError/errorMiddleware) — apiJson on the dashboard reads
+          // body.error first, so a code string here would show the user
+          // literally "feature_not_in_plan" instead of a real sentence.
+          error: message, code: 'feature_not_in_plan', message,
+          feature, upgrade_url: '/settings/billing', requestId: req.requestId,
         });
       }
       return next();
@@ -47,19 +54,16 @@ function enforceMeter(meterName, opts = {}) {
     try {
       const orgId = _orgIdFromReq(req);
       const qty = typeof quantity === 'function' ? Number(quantity(req)) || 1 : quantity;
-      const status = await ent.checkUsage(orgId, meterName, qty);
+      // req.tenant.plan is the tier attachTenant already resolved for this
+      // request — passing it avoids checkUsage() re-querying Subscription.
+      const status = await ent.checkUsage(orgId, meterName, qty, req.tenant?.plan);
 
       if (!status.allowed && !allowOverage) {
+        const message = `Monthly limit reached for ${meterName} (${status.used}/${status.limit}).`;
         return res.status(402).json({
-          error: 'usage_limit_exceeded',
-          code: 'usage_limit_exceeded',
-          meter: meterName,
-          used: status.used,
-          limit: status.limit,
-          remaining: status.remaining,
-          message: `Monthly limit reached for ${meterName} (${status.used}/${status.limit}).`,
-          upgrade_url: '/settings/billing',
-          requestId: req.requestId,
+          error: message, code: 'usage_limit_exceeded', message,
+          meter: meterName, used: status.used, limit: status.limit, remaining: status.remaining,
+          upgrade_url: '/settings/billing', requestId: req.requestId,
         });
       }
 
@@ -101,12 +105,10 @@ function blockIfSuspended() {
       if (!orgId) return next();
       const sub = await ent.getActiveSubscription(orgId);
       if (sub.status === 'suspended') {
+        const message = 'Your subscription is suspended for non-payment. Reads are still allowed; please update billing to restore writes.';
         return res.status(402).json({
-          error: 'subscription_suspended',
-          code: 'subscription_suspended',
-          message: 'Your subscription is suspended for non-payment. Reads are still allowed; please update billing to restore writes.',
-          upgrade_url: '/settings/billing',
-          requestId: req.requestId,
+          error: message, code: 'subscription_suspended', message,
+          upgrade_url: '/settings/billing', requestId: req.requestId,
         });
       }
       return next();

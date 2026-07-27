@@ -26,6 +26,7 @@ const { z, validate, asyncHandler, HttpError } = require('../lib/validate');
 const { audit } = require('../lib/audit');
 const mailer = require('../lib/email');
 const orgDeletion = require('../lib/org-deletion');
+const ent = require('../lib/entitlements');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -271,6 +272,24 @@ router.post('/invitations', attachTenant, requireAnyOrgRole(...MANAGE_ROLES), va
         throw new HttpError(409, 'This person is already a member of your organization', 'already_member');
       }
     }
+    // Early feedback for the inviter — the real backstop (an accepted
+    // invite is what actually consumes the seat) is the matching check in
+    // POST /invitations/accept below, which also guards against multiple
+    // pending invites all being accepted past the cap.
+    // req.tenant.plan is the tier attachTenant already resolved for this
+    // request — passing it avoids checkSeats() re-querying Subscription.
+    const seats = await ent.checkSeats(req.tenant.orgId, 1, req.tenant.plan);
+    if (!seats.allowed) {
+      const message = `Seat limit reached (${seats.used}/${seats.limit}). Remove a member or upgrade your plan to invite more.`;
+      return res.status(402).json({
+        // error holds the human message, not the code — matches HttpError's
+        // convention (lib/validate.js) and how apiJson (dashboard/src/
+        // api.js) picks an error to surface: body.error first.
+        error: message, code: 'usage_limit_exceeded', message, meter: 'seats',
+        used: seats.used, limit: seats.limit, remaining: seats.remaining,
+        upgrade_url: '/settings/billing', requestId: req.requestId,
+      });
+    }
     const raw = crypto.randomBytes(32).toString('base64url');
     const invitation = await prisma.invitation.create({
       data: {
@@ -311,6 +330,20 @@ router.post('/invitations/accept', validate(AcceptSchema), asyncHandler(async (r
   if (invitation.email !== req.user.email.toLowerCase()) {
     throw new HttpError(403, 'This invitation was sent to a different email address', 'invitation_email_mismatch');
   }
+  // The real enforcement point — this is where the seat is actually
+  // consumed (a new active OrgMembership row), so it's checked here even
+  // though the invite-send route above already checked it once, to catch
+  // the case where several pending invites were sent while under the cap
+  // and would all be accepted past it.
+  const seats = await ent.checkSeats(invitation.orgId);
+  if (!seats.allowed) {
+    const message = `This organization has reached its seat limit (${seats.used}/${seats.limit}) and cannot accept new members right now.`;
+    return res.status(402).json({
+      error: message, code: 'usage_limit_exceeded', message, meter: 'seats',
+      used: seats.used, limit: seats.limit, remaining: seats.remaining,
+      upgrade_url: '/settings/billing', requestId: req.requestId,
+    });
+  }
   const { runWithOrg } = require('../lib/tenant-context');
   await runWithOrg(invitation.orgId, () => prisma.tenantTransaction(async (tx) => {
     await tx.orgMembership.upsert({
@@ -318,6 +351,22 @@ router.post('/invitations/accept', validate(AcceptSchema), asyncHandler(async (r
       update: { role: invitation.role, status: 'active', removedAt: null },
       create: { orgId: invitation.orgId, userId: req.user.id, role: invitation.role, invitedBy: invitation.invitedBy },
     });
+    // Re-verify the seat cap AFTER the write, inside the same transaction —
+    // the checkSeats() call above is a plain read with no lock, so two
+    // concurrent accepts (e.g. several pending invites accepted around the
+    // same time) could both pass it before either commits. This doesn't
+    // close the window completely under every possible interleaving
+    // without a Postgres-specific advisory lock, but it does mean at least
+    // one of two truly-concurrent accepts sees any write the other has
+    // already committed and rolls back rather than silently overrunning —
+    // a real narrowing of what was previously a fully unguarded race across
+    // the whole request, not just a cosmetic check.
+    if (seats.limit !== -1) {
+      const activeCount = await tx.orgMembership.count({ where: { orgId: invitation.orgId, status: 'active' } });
+      if (activeCount > seats.limit) {
+        throw new HttpError(402, `This organization has reached its seat limit (${seats.limit}) and cannot accept new members right now.`, 'usage_limit_exceeded', { meter: 'seats', limit: seats.limit });
+      }
+    }
     await tx.invitation.update({ where: { id: invitation.id }, data: { status: 'accepted', acceptedAt: new Date() } });
     // Keep the cached "current org" pointer in step with the accepted invite —
     // it does not overwrite any *other* org the user still belongs to via

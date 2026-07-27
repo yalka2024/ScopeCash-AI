@@ -29,6 +29,7 @@ const imageConvert = require('../lib/image-convert');
 const pipeline = require('../lib/evidence-pipeline');
 const evidenceJobs = require('../lib/evidence-jobs');
 const { attachApiKeyProjectScope } = require('../lib/api-key-scope');
+const { enforceMeter } = require('../middleware/entitlements');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -366,7 +367,7 @@ const ANALYZE_ROLES = ['owner', 'admin', 'project_manager'];
 // agentRunId the client polls via GET /api/agentRunRecords/:id (already a
 // generic, tenant-scoped, read-only entity route — see routes/entities.js).
 
-router.post('/sourceDocuments/:id/analyze', requireAnyOrgRole(...ANALYZE_ROLES), asyncHandler(async (req, res) => {
+router.post('/sourceDocuments/:id/analyze', requireAnyOrgRole(...ANALYZE_ROLES), enforceMeter('records_per_month'), asyncHandler(async (req, res) => {
   const sourceDocument = await prisma.sourceDocument.findFirst({ where: { id: req.params.id, orgId: req.tenant.orgId } });
   if (!sourceDocument) return res.status(404).json({ error: 'not_found' });
   assertApiKeyCanTouchProject(req, sourceDocument.project_id);
@@ -383,7 +384,7 @@ router.post('/sourceDocuments/:id/analyze', requireAnyOrgRole(...ANALYZE_ROLES),
   res.status(202).json({ agentRunId: runId, status: 'queued', poll: `/api/agentRunRecords/${runId}` });
 }));
 
-router.post('/evidenceItems/:id/analyze', requireAnyOrgRole(...ANALYZE_ROLES), asyncHandler(async (req, res) => {
+router.post('/evidenceItems/:id/analyze', requireAnyOrgRole(...ANALYZE_ROLES), enforceMeter('records_per_month'), asyncHandler(async (req, res) => {
   const evidenceItem = await prisma.evidenceItem.findFirst({ where: { id: req.params.id, orgId: req.tenant.orgId } });
   if (!evidenceItem) return res.status(404).json({ error: 'not_found' });
   assertApiKeyCanTouchProject(req, evidenceItem.project_id);
@@ -404,7 +405,7 @@ router.post('/evidenceItems/:id/analyze', requireAnyOrgRole(...ANALYZE_ROLES), a
 }));
 
 const FindingRunSchema = z.object({ changeEventId: z.string().optional() });
-router.post('/projects/:id/findings/generate', requireAnyOrgRole(...ANALYZE_ROLES), validate(FindingRunSchema),
+router.post('/projects/:id/findings/generate', requireAnyOrgRole(...ANALYZE_ROLES), enforceMeter('records_per_month'), validate(FindingRunSchema),
   asyncHandler(async (req, res) => {
     const project = await assertProjectInOrg(req, req.params.id);
     const [scopeItemCount, contractProvisionCount] = await Promise.all([

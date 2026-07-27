@@ -464,7 +464,18 @@ is in STATUS.md. Everything below is either in progress or not started.
       producer (`packet.approved` on packet approval), GET/PUT preference
       routes + a Settings UI table, and `NotificationBell.js` — the first
       real UI surfacing a notification at all. See STATUS.md Phase 33.
-- [ ] Usage quotas matching stated prices
+- [x] Usage quotas matching stated prices — the pricing page advertises 7
+      hard per-tier limits with real prices attached; the quota-checking
+      middleware to enforce them (`middleware/entitlements.js`) was fully
+      built but had zero call sites anywhere. Wired the two cleanest,
+      most-testable gaps: seats (new gauge-style `checkSeats()` — a live
+      headcount, not a monthly-resetting counter) on the invite routes, and
+      records_per_month ("AI use cases/month") on the 3 AI-analysis routes.
+      Found and fixed a real seat-limit race condition along the way (a
+      post-write recheck inside the same transaction). storage_gb/
+      api_calls_per_month/ai_tokens_per_month/webhooks/data_retention_days
+      remain genuinely unenforced — documented, not silently implied fixed.
+      See STATUS.md Phase 34.
 - [ ] Success-fee/earned-revenue accounting
 - [ ] GCP billing cost-attribution reconciliation
 - [ ] Perf/load/soak testing

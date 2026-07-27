@@ -489,6 +489,64 @@ d('Postgres RLS', () => {
     expect(notification.message).toContain(createRes.body.packet_number);
   });
 
+  test('regression: seat and records_per_month quota enforcement work correctly against real Postgres+RLS', async () => {
+    // Two genuinely new query shapes for this suite: checkSeats()'s
+    // prisma.orgMembership.count() (every prior regression test here used
+    // findFirst/findMany/updateMany/create) and enforceMeter()'s atomic
+    // prisma.usageCounter.upsert({ update: { value: { increment: qty } } }).
+    // Both run inside attachTenant's already-proven runWithOrg() context,
+    // so this isn't a context-loss test — it's confirming COUNT and
+    // increment-upsert specifically work under RLS, not just simple reads.
+    const organizationRoutes = require('../../routes/organization');
+    const evidenceRoutes = require('../../routes/evidence');
+    const ent = require('../../lib/entitlements');
+    const express = require('express');
+    const request = require('supertest');
+    const cookieParser = require('cookie-parser');
+    const { errorMiddleware } = require('../../lib/validate');
+    const { signAccessToken } = require('../../lib/security');
+    const app = express();
+    app.use(cookieParser());
+    app.use(express.json());
+    app.use('/api/orgs', organizationRoutes);
+    app.use('/api', evidenceRoutes);
+    app.use(errorMiddleware);
+
+    const { org, owner, proj, doc } = await runWithSystemAccess(async () => {
+      const org = await prisma.organization.create({ data: { name: uid('Org') } });
+      const owner = await prisma.user.create({ data: { email: `${uid('u')}@test.local`, passwordHash: 'x', role: 'user', orgId: org.id, emailVerified: true } });
+      await prisma.orgMembership.create({ data: { orgId: org.id, userId: owner.id, role: 'owner', status: 'active' } });
+      const customer = await prisma.customer.create({ data: { orgId: org.id, name: uid('Customer') } });
+      const proj = await prisma.projectRecord.create({ data: { orgId: org.id, customer_id: customer.id, name: 'RLS quota regression', userId: owner.id } });
+      const doc = await prisma.sourceDocument.create({
+        data: {
+          orgId: org.id, project_id: proj.id, document_type: 'contract', original_filename: 'a.pdf',
+          storage_uri: 'local://a.pdf', sha256_hash: uid('sha'), uploaded_at: new Date(), userId: owner.id,
+        },
+      });
+      return { org, owner, proj, doc };
+    });
+    const bearer = `Bearer ${signAccessToken({ id: owner.id, email: owner.email, role: owner.role, orgId: owner.orgId })}`;
+
+    // Free tier = 1 seat, owner already fills it — checkSeats()'s count()
+    // must correctly see that under real RLS, not silently return 0.
+    const inviteRes = await request(app).post('/api/orgs/invitations').set('Authorization', bearer)
+      .send({ email: `${uid('invitee')}@test.local`, role: 'estimator' });
+    expect(inviteRes.status).toBe(402);
+    expect(inviteRes.body.meter).toBe('seats');
+
+    // records_per_month: first analyze call succeeds and must actually
+    // persist the incremented counter under RLS.
+    const analyzeRes = await request(app).post(`/api/sourceDocuments/${doc.id}/analyze`).set('Authorization', bearer);
+    expect(analyzeRes.status).toBe(202);
+    const period = ent.currentPeriodKey();
+    const counter = await runWithSystemAccess(async () => prisma.usageCounter.findUnique({
+      where: { orgId_meter_period: { orgId: org.id, meter: 'records_per_month', period } },
+    }));
+    expect(counter).toBeTruthy();
+    expect(Number(counter.value)).toBe(1);
+  });
+
   test('regression: evidence-jobs.js#reconcileStuckJobs() sweeps across every org with zero ambient context (the "job creation" outbox hazard)', async () => {
     // reconcileStuckJobs() legitimately needs to see stuck runs across
     // EVERY org (a stuck job's own org isn't known ahead of time) — it's

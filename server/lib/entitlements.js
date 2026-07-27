@@ -69,12 +69,18 @@ async function can(orgId, feature) {
   return Boolean(effectiveTier.entitlements && effectiveTier.entitlements[feature]);
 }
 
-/** Numeric limit lookup (-1 = unlimited). Returns 0 for unknown meters. */
-async function getLimit(orgId, meter) {
-  const sub = await getActiveSubscription(orgId);
-  const tier = sub.status === 'suspended' || sub.status === 'canceled'
-    ? getTier(FREE_TIER_ID)
-    : sub.tier;
+/**
+ * Numeric limit lookup (-1 = unlimited). Returns 0 for unknown meters.
+ * Pass `knownTier` (e.g. req.tenant.plan, already resolved by
+ * middleware/tenant.js#attachTenant for any route that ran it) to skip a
+ * redundant getActiveSubscription() query — the same resolution
+ * attachTenant already just did for this request.
+ */
+async function getLimit(orgId, meter, knownTier) {
+  const tier = knownTier || await (async () => {
+    const sub = await getActiveSubscription(orgId);
+    return sub.status === 'suspended' || sub.status === 'canceled' ? getTier(FREE_TIER_ID) : sub.tier;
+  })();
   if (!tier.limits || !(meter in tier.limits)) return 0;
   return Number(tier.limits[meter]);
 }
@@ -83,8 +89,8 @@ async function getLimit(orgId, meter) {
  * Period-aware usage check. Returns:
  *   { allowed, used, limit, remaining, overage_cents_per_unit }
  */
-async function checkUsage(orgId, meter, requested = 1) {
-  const limit = await getLimit(orgId, meter);
+async function checkUsage(orgId, meter, requested = 1, knownTier) {
+  const limit = await getLimit(orgId, meter, knownTier);
   if (limit === -1) {
     return { allowed: true, used: 0, limit: -1, remaining: Infinity, overage_cents_per_unit: 0 };
   }
@@ -100,6 +106,23 @@ async function checkUsage(orgId, meter, requested = 1) {
   const overage = (PLANS.metering && PLANS.metering.overage_cents
                    && PLANS.metering.overage_cents[meter]) || 0;
   return { allowed, used, limit, remaining, overage_cents_per_unit: overage };
+}
+
+/**
+ * Gauge-style seat check — unlike checkUsage()'s monthly-resetting flow
+ * meters (records_per_month, api_calls_per_month, ai_tokens_per_month),
+ * seat count is a live headcount, not something that should reset on the
+ * 1st of the month. Counts *active* OrgMembership rows directly rather
+ * than going through UsageCounter, which would incorrectly let a
+ * full-seats org invite unlimited new members every time the monthly
+ * period rolled over.
+ */
+async function checkSeats(orgId, additional = 1, knownTier) {
+  const limit = await getLimit(orgId, 'seats', knownTier);
+  if (limit === -1) return { allowed: true, used: 0, limit: -1, remaining: Infinity };
+  const used = await prisma.orgMembership.count({ where: { orgId, status: 'active' } });
+  const remaining = Math.max(0, limit - used);
+  return { allowed: (used + Number(additional)) <= limit, used, limit, remaining };
 }
 
 /** Current monthly period key in UTC, e.g. "2026-04". */
@@ -119,6 +142,7 @@ module.exports = {
   can,
   getLimit,
   checkUsage,
+  checkSeats,
   currentPeriodKey,
 };
 
