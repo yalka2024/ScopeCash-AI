@@ -2,10 +2,10 @@ name: iac-scan
 
 on:
   push:
-    branches: [main]
+    branches: [master]
     paths: ['deploy/**']
   pull_request:
-    branches: [main]
+    branches: [master]
     paths: ['deploy/**']
   schedule:
     - cron: '41 6 * * *'   # daily 06:41 UTC
@@ -43,11 +43,24 @@ jobs:
           output: trivy-iac.sarif
           severity: HIGH,CRITICAL
           exit-code: '0'
-      - name: Upload results to code scanning
+      # continue-on-error: this repo is PRIVATE without GitHub Advanced
+      # Security, so this upload 403s and was failing the whole scheduled run
+      # — the scan itself had succeeded every time. Kept (rather than
+      # deleted) so it starts working the moment GHAS is enabled; the
+      # artifact below is the readable copy until then.
+      - name: Upload results to code scanning (403s without GHAS — see above)
         if: always()
+        continue-on-error: true
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-iac.sarif
+      - name: Upload results as artifact (no GHAS — readable copy)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-iac-sarif
+          path: trivy-iac.sarif
+          retention-days: 30
 
   # Syntax/schema validation, separate from the security scan above. This is
   # BLOCKING: until 2026-07-27 the GCP module had never been run through the

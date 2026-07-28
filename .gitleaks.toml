@@ -1,0 +1,48 @@
+# Gitleaks config — default ruleset plus a narrow allowlist for verified
+# false positives.
+#
+# Every entry below was opened and read before being added. Do NOT allowlist
+# a finding to make CI green without inspecting the flagged content first: a
+# real leaked credential silenced this way is strictly worse than a red build.
+#
+# What was failing every scheduled run, and why each is genuinely not a secret:
+#
+#   attestation.json — a build-provenance manifest emitted by platformgen. It
+#     contains an Ed25519 PUBLIC key (public by definition — verification
+#     material, not signing material; the private half is not in this repo),
+#     a detached signature, and 309 SHA-256 content hashes. Gitleaks'
+#     entropy-based `generic-api-key` and `sentry-access-token` rules match
+#     the hex hashes and the base64 signature. 13 of 13 findings came from
+#     this one file.
+#
+#   .github/workflows/ci.yml — a deliberately fake CI-only JWT_SECRET whose
+#     own value says so. It exists because index.js refuses to boot with a
+#     secret under 32 characters.
+#
+#   server/routes/help.js — API documentation strings containing example
+#     curl commands with literal `pk_live_...` placeholders (three dots, not
+#     a key).
+
+[extend]
+useDefault = true
+
+[[rules]]
+# Placeholder rule required by the schema when using [extend] with only
+# allowlists; matches nothing on its own.
+id = "scopecash-noop"
+description = "No-op (config requires at least one rule alongside allowlists)"
+regex = '''\$\^scopecash-never-matches\$'''
+
+[allowlist]
+description = "Verified false positives — see header comment"
+paths = [
+  # Provenance manifest: public key + signature + content hashes.
+  '''attestation\.json''',
+  # Help-centre articles: illustrative `pk_live_...` placeholders.
+  '''server/routes/help\.js''',
+]
+regexes = [
+  # Fake CI-only JWT secret, self-describing.
+  '''ci-jwt-secret-must-be-at-least-32-characters-long-ok''',
+  '''pk_live_\.\.\.''',
+]

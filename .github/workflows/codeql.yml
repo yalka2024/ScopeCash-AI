@@ -2,9 +2,9 @@ name: codeql
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
-    branches: [main]
+    branches: [master]
   schedule:
     - cron: '17 4 * * 1'   # Monday 04:17 UTC
 
@@ -26,7 +26,23 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           queries: security-extended,security-and-quality
+      # upload: never — this repo is PRIVATE and does not have GitHub
+      # Advanced Security, so uploading SARIF to code scanning 403s
+      # ("Code scanning is not enabled for this repository"), which fails the
+      # whole job even though the analysis itself succeeded. The scan still
+      # runs the full security-extended query pack; results land in the
+      # artifact below instead of the Security tab. When GHAS is enabled (or
+      # the repo goes public), flip this back to the default upload and drop
+      # the artifact step.
       - uses: github/codeql-action/analyze@v3
         with:
           category: "/language:${{ matrix.language }}"
+          upload: never
+          output: codeql-results
+      - name: Upload CodeQL SARIF as artifact (no GHAS — see comment above)
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeql-sarif-${{ matrix.language }}
+          path: codeql-results
+          retention-days: 30
 
