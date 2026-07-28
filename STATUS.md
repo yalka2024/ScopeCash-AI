@@ -2685,6 +2685,20 @@ And the multi-instance scheduling risk, which the sweep raised and the previous 
 
 One honesty note: during this work a single Postgres+RLS run reported one failure that did not reproduce on an immediate re-run, and the failing test could not be captured. It has passed on every run since, including in CI. Recorded rather than omitted — CI now executes that suite on every push, which is the thing that will catch it if it is real.
 
+## Phase 44 — Closing the partials: real `terraform plan`, runtime residency (DONE, 2026-07-28)
+
+**Terraform is no longer only validated — it is planned, against a real GCP project.** A dedicated project (`scopecash-ai-29347`) was created for the purpose, authenticating the provider with an OAuth access token because Application Default Credentials require an interactive browser login this environment cannot perform. Results: **40 resources with defaults, 50 with monitoring + Cloud Run + Cloud SQL IAM auth enabled, zero errors.** This is the first time the module has been run past `validate`, and it exercises every resource added across this session — both Cloud Tasks queues, both log-based metrics, all three alert policies, the notification channel, and the availability SLO. `apply` was deliberately not run; no infrastructure was created and nothing is billable.
+
+The plan also proves the env-var fixes materialize, which `validate` cannot show. Terraform redacts the Cloud Run `env` contents because `DATABASE_URL` embeds the password, so the proof is differential: 30 env blocks with `public_base_url` + `cloud_sql_iam_auth`, 26 with only the latter, 22 with neither — deltas of exactly 4 and 4, matching `JOBS_BACKEND`/`CLOUD_TASKS_PUSH_URL`/`PUBLIC_DASHBOARD_URL`/`APP_URL` and the four `CLOUD_SQL_*` variables.
+
+**Data residency is enforced at runtime, not merely declared.** `lib/trust-pack.js` publishes `DATA_RESIDENCY_REGION` on an *unauthenticated* trust endpoint, and Terraform pins every regional resource to `var.region` — but nothing ever compared the two. A deployment could publish `europe-west1` while `GCP_LOCATION` and the Cloud SQL instance sat in `us-central1`, putting a false compliance claim in writing with no signal that anything was wrong. New `lib/data-residency.js` compares the declared region against the regions actually configured and fails closed in production, because refusing to boot is strictly better than serving under a claim the infrastructure contradicts; outside production it warns, so local dev and tests are unaffected. Vertex's genuinely non-regional endpoint is a named exemption rather than a false positive. 13 tests.
+
+Its scope is stated in the module header rather than left to be discovered: this is **deployment-level** residency, one region per install. Selling per-tenant residency needs a per-org region column and region-scoped buckets — a product decision and a migration, not a boot check.
+
+45 suites, 464 passing; all workflows green.
+
+**A blocker worth surfacing:** all three billing accounts on this GCP org report `OPEN: False`. A project can be created and planned without billing, but `apply` cannot enable the required APIs or provision Cloud SQL until an open billing account is linked. That is the first thing to resolve before any deploy attempt — it is not a code problem and no amount of engineering will route around it.
+
 **Still open after this phase**, and none of it achievable from an engineering session: an operational job dashboard in the UI and progress reporting on the two shorter job kinds (small, real, just not done); and everything requiring a live GCP project (`terraform plan`/`apply`, the real-Vertex evaluation gate, Cloud SQL PITR, regional failover — no alert defined here has ever actually fired), a human (manual assistive-technology testing, attorney/vendor/penetration-test sign-off), or real customers (arms-length revenue, invoices, testimonials).
 
 ## Not yet started

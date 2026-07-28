@@ -94,17 +94,19 @@ is blocked by definition — those live in the last section and can never be
         account, and the Cloud Run service itself — env vars wired
         directly to the real `server/lib/{vertex-ai,storage,cloud-tasks,
         secret-manager}.js` integration code, not generic placeholders.
-        **Not run against a live GCP project** (none has been available in
-        any authoring session). Terraform CLI verification WAS done in
-        Phase 41: both this module and the AWS one now pass `fmt`, `init`
-        and `validate` against the real provider schemas, with a blocking
-        CI job. That first run showed neither module *parsed* — 26
-        single-line blocks with two arguments each (HCL allows one) and a
-        `depends_on = concat(...)` where a static list is required — so
-        neither could ever have been applied. `plan`/`apply` are still
-        unverified: they need real credentials. validate does not check
-        quotas, IAM, API enablement, or name collisions. Run
-        `terraform plan` and read it before ever running `apply`.
+        `fmt`, `init` and `validate` pass for this module and the AWS one,
+        with a blocking CI job (Phase 41). That first CLI run showed neither
+        module *parsed* — 26 single-line blocks with two arguments each (HCL
+        allows one) and a `depends_on = concat(...)` where a static list is
+        required — so neither could ever have been applied.
+        **`plan` now runs clean against a real GCP project** (Phase 44,
+        `scopecash-ai-29347`): 40 resources with defaults, 50 with monitoring
+        + Cloud Run + Cloud SQL IAM auth, zero errors — the first time this
+        module went past `validate`. **`apply` is still not done**, by
+        instruction, and is separately blocked: every billing account on this
+        org reports `OPEN: False`, and without billing `apply` cannot enable
+        the required APIs or create Cloud SQL. Note that plan does not prove
+        quotas, IAM sufficiency, or name-collision freedom either.
   - [x] Cloud Logging structured fields / Cloud Monitoring alert policies —
         done in Phase 41. `lib/gcp-logging.js` adds the fields Cloud Logging
         actually special-cases (`severity`, `httpRequest`, trace/span
@@ -765,6 +767,14 @@ These showed up in the audit as P0/P1 items but are not things code can do:
   - Which `INTEGRATION_*_MODE` adapters go `live`. All ten default to mock and
     return `{_mock: true}` — including to agents, which will otherwise present
     fabricated tool results as real.
+  - **An OPEN billing account.** All three on this GCP org report `OPEN: False`
+    (checked 2026-07-28). `terraform plan` runs fine without one — and now has,
+    cleanly, against project `scopecash-ai-29347` — but `apply` cannot enable
+    the required APIs or create Cloud SQL until billing is linked. This is the
+    first blocker on any deploy attempt and no engineering routes around it.
+  - ADC for Terraform: `gcloud auth application-default login` (interactive,
+    needs a browser). The plan above used a short-lived OAuth access token
+    instead, which works but expires in an hour.
 - A contracted third-party penetration test and threat model review.
 - Signed data-processing agreements with Stripe, Google, email providers, and
   other subprocessors (contracts, not code).
