@@ -373,6 +373,30 @@ is blocked by definition — those live in the last section and can never be
       before `npm ci`, omitting vite so that image had never built (exit 127).
       All five workflows now pass: ci, codeql, secret-scan,
       container-build-sign, iac-scan (including `terraform-validate`).
+      **Dependency findings — resolved or formally accepted (2026-07-28).**
+      Enabling Dependabot surfaced 9 alerts (5 high, 4 moderate). Current
+      state after triage, `npm audit --omit=dev`: **0 critical, 16 high, 45
+      moderate**, every one transitive. Resolved: `find-my-way` (9.6.0 →
+      9.7.0, HTTP/2 DDoS) via `npm audit fix`. Accepted, with reasons:
+      - **6 advisories fixed only by `archiver` 8** (brace-expansion, glob,
+        minimatch, readdir-glob, zip-stream, archiver-utils). Attempted the
+        bump; archiver 8 is ESM-only and Jest cannot parse it — 3 suites
+        fail to load. The advisories are unbounded-glob-expansion DoS,
+        reachable only by controlling a glob pattern; the two call sites
+        (`lib/trust-pack.js`, `lib/vendor-kits.js`) build zips from
+        server-constructed file lists, never user input. Revisit when the
+        test runner supports ESM or archiver ships a CJS build.
+      - **10 advisories in the OpenTelemetry / google-auth transitive trees**
+        (`sdk-node`, `auto-instrumentations-node`, `propagator-jaeger`,
+        `gaxios`, `gcp-metadata`, `google-gax`, …). The non-major ones are
+        pinned beneath `@opentelemetry/sdk-node`, so they cannot move
+        without a semver-major bump of the parent, which conflicts on peers.
+        Highest-severity item is a Prometheus-exporter crash — an exporter
+        this deployment does not enable.
+      None is in first-party code; all are upstream-release-blocked. Re-run
+      `npm audit --omit=dev --audit-level=high` after any
+      `@opentelemetry/sdk-node` or `archiver` release to re-test whether the
+      server job's `continue-on-error: true` can finally be removed.
       Composition (unchanged, and now actually executing):
       `.github/workflows/secret-scan.yml` (gitleaks, daily + every push/PR),
       `codeql.yml` (SAST, weekly + every push/PR),
