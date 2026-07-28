@@ -9,6 +9,10 @@ on:
     paths: ['deploy/**']
   schedule:
     - cron: '41 6 * * *'   # daily 06:41 UTC
+  # Manually runnable: this workflow is otherwise only reachable by a change
+  # under deploy/ or by waiting for the cron, which makes verifying a fix to
+  # the workflow itself needlessly slow.
+  workflow_dispatch:
 
 jobs:
   trivy-config:
