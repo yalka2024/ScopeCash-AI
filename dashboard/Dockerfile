@@ -3,7 +3,15 @@
 
 FROM node:20-bookworm-slim AS builder
 WORKDIR /app
-ENV NODE_ENV=production NPM_CONFIG_FUND=false NPM_CONFIG_AUDIT=false
+# NODE_ENV is deliberately NOT set to production in this stage: npm skips
+# devDependencies under it, and vite — the thing `npm run build` invokes — is
+# a devDependency. Setting it here made every build of this image fail with
+# exit 127 (command not found), which went unnoticed because the workflow
+# that builds it only triggered on a branch that does not exist in this repo.
+# The root Dockerfile's dashboard stage never set it, which is why that one
+# has always worked. Only the runtime stage below needs production semantics,
+# and nginx does not read NODE_ENV at all.
+ENV NPM_CONFIG_FUND=false NPM_CONFIG_AUDIT=false
 COPY package*.json ./
 # Use the lockfile when present (reproducible); fall back to install when the
 # dashboard ships only package.json (no lockfile).
