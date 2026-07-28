@@ -21,7 +21,7 @@ ARG REACT_APP_API_URL=/api
 ENV REACT_APP_API_URL=$REACT_APP_API_URL
 RUN npm run build
 
-FROM nginx:1.27-alpine AS runtime
+FROM nginx:1.31-alpine AS runtime
 RUN addgroup -g 1001 -S app && adduser -S -G app -u 1001 app \
     && chown -R app:app /var/cache/nginx /var/log/nginx /etc/nginx /usr/share/nginx/html \
     && touch /var/run/nginx.pid && chown app:app /var/run/nginx.pid
