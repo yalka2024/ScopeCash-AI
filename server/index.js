@@ -298,6 +298,11 @@ app.use(errorMiddleware);
 // the default deployment path keeps the previous behaviour.
 let server;
 async function start() {
+  // Before anything serves: the residency region published on the public
+  // trust endpoint must match the regions actually configured. A mismatch
+  // means the platform is making a compliance claim its own infrastructure
+  // contradicts, so this fails closed in production. See lib/data-residency.js.
+  require('./lib/data-residency').assertResidencyAtBoot();
   await require('./lib/prisma').initCloudSqlIamAuth();
   server = app.listen(PORT, () => {
     console.log(`ScopeCash AI API running on http://localhost:${PORT}`);
