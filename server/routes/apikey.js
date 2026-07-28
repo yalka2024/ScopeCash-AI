@@ -2,10 +2,15 @@ const express = require('express');
 const crypto = require('crypto');
 const prisma = require('../lib/prisma');
 const { authMiddleware } = require('../middleware/auth');
+const attachTenant = require('../middleware/tenant');
 const { z, validate, asyncHandler, HttpError } = require('../lib/validate');
 const { audit } = require('../lib/audit');
 const router = express.Router();
 router.use(authMiddleware);
+// attachTenant resolves the org + plan and establishes runWithOrg (RLS
+// context on Postgres). It is also where api_calls_per_month is counted, so a
+// router that skips it is invisible to that quota — see middleware/tenant.js.
+router.use(attachTenant);
 
 const VALID_SCOPES = ['read', 'write', 'upload', 'delete', 'admin', '*'];
 const MAX_PROJECT_GRANTS = 50;

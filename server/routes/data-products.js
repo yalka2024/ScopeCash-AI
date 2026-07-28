@@ -11,6 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const express = require('express');
 const { authMiddleware } = require('../middleware/auth');
+const attachTenant = require('../middleware/tenant');
 const warehouse = require('../lib/warehouse');
 const exporter = require('../jobs/warehouse-export');
 const prisma = require('../lib/prisma');
@@ -18,6 +19,10 @@ const { z, validate, asyncHandler } = require('../lib/validate');
 
 const router = express.Router();
 router.use(authMiddleware);
+// attachTenant resolves the org + plan and establishes runWithOrg (RLS
+// context on Postgres). It is also where api_calls_per_month is counted, so
+// a router that skips it is invisible to that quota — see middleware/tenant.js.
+router.use(attachTenant);
 router.use((req, res, next) => {
   if (!req.user || req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Admin access required', code: 'admin_required' });

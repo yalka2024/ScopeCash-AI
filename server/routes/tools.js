@@ -7,11 +7,16 @@
  */
 const express = require('express');
 const { authMiddleware } = require('../middleware/auth');
+const attachTenant = require('../middleware/tenant');
 const { asyncHandler } = require('../lib/validate');
 const registry = require('../lib/tool-registry');
 
 const router = express.Router();
 router.use(authMiddleware);
+// attachTenant resolves the org + plan and establishes runWithOrg (RLS
+// context on Postgres). It is also where api_calls_per_month is counted, so a
+// router that skips it is invisible to that quota — see middleware/tenant.js.
+router.use(attachTenant);
 
 // Most tools operate only on the caller's own ctx (userId/orgId) and are
 // safe for any authenticated user. A few reach platform-wide infrastructure
