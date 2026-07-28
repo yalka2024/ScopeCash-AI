@@ -290,6 +290,36 @@ resource "google_cloud_tasks_queue" "jobs" {
   depends_on = [google_project_service.apis]
 }
 
+# Evidence analysis has its own queue because lib/evidence-jobs.js asks for one
+# — it reads CLOUD_TASKS_EVIDENCE_QUEUE and defaults to this name. Only
+# "scopecash-jobs" existed, so with the Cloud Tasks path now enabled the
+# evidence enqueue would target a queue that does not exist, throw, and fall
+# back to in-process — silently giving up the durability that enabling Cloud
+# Tasks was meant to buy, while logging an error per job.
+#
+# Separate rather than shared on purpose: these dispatch long Gemini calls
+# (whole-document extraction, audio transcription), so they need a much lower
+# concurrency and a longer backoff than the generic queue above. Sharing one
+# queue would let a burst of evidence jobs starve everything else.
+resource "google_cloud_tasks_queue" "evidence_jobs" {
+  name     = "scopecash-evidence-jobs"
+  location = var.region
+
+  rate_limits {
+    max_concurrent_dispatches = 5
+    max_dispatches_per_second = 2
+  }
+  retry_config {
+    max_attempts = 5 # matches EVIDENCE_JOB_MAX_ATTEMPTS's default in lib/evidence-jobs.js
+    min_backoff  = "30s"
+    max_backoff  = "3600s"
+    # Long enough to outlast a cold Vertex call plus the app's own retries.
+    max_retry_duration = "86400s"
+    max_doublings      = 4
+  }
+  depends_on = [google_project_service.apis]
+}
+
 # --- Artifact Registry (container images) ---------------------------------
 resource "google_artifact_registry_repository" "containers" {
   repository_id = var.name
@@ -453,6 +483,12 @@ resource "google_cloud_run_v2_service" "app" {
       env {
         name  = "CLOUD_TASKS_QUEUE"
         value = google_cloud_tasks_queue.jobs.name
+      }
+      # Read by lib/evidence-jobs.js. Set explicitly rather than relying on its
+      # default so the queue name can never drift from the resource above.
+      env {
+        name  = "CLOUD_TASKS_EVIDENCE_QUEUE"
+        value = google_cloud_tasks_queue.evidence_jobs.name
       }
       env {
         name  = "CLOUD_TASKS_INVOKER_SA"

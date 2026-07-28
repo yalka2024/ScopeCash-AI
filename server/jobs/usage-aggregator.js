@@ -176,6 +176,8 @@ async function runOnce() {
   out.stripeUsage = await reportMeteredUsageToStripe();
   out.aiSpendReconciliation = await checkAiSpendReconciliation();
   out.dataRetention = await runWithSystemAccess(() => enforceDataRetention());
+  // One row per job per period; slow-growing but unbounded without this.
+  out.leasesPruned = (await require('../lib/scheduler-lease').pruneOldLeases()).count;
   out.completedAt = new Date().toISOString();
   console.log(JSON.stringify({ type: 'usage_aggregator_run', ...out }));
   return out;

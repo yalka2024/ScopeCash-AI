@@ -17,6 +17,7 @@
 const prisma = require('./prisma');
 const events = require('./growth-events');
 const { notifyUser } = require('./notifications');
+const lease = require('./scheduler-lease');
 
 const KINDS = Object.freeze({
   DAY1_NUDGE:       'lifecycle.day1_nudge',
@@ -115,9 +116,15 @@ function startScheduler({ intervalMs = 60 * 60 * 1000 } = {}) {
   if (timer) return timer;
   const tick = async () => {
     try {
-      const now = new Date();
-      await _processDay1(now);
-      await _processTrialEnding(now);
+      // Leased: this is the one scheduled job that SENDS EMAIL, and Cloud Run
+      // gives every instance its own copy of this timer with no leader
+      // election — so without the lease an N-instance deployment mails each
+      // customer N times per period. See lib/scheduler-lease.js.
+      await lease.withLease('lifecycle-triggers', async () => {
+        const now = new Date();
+        await _processDay1(now);
+        await _processTrialEnding(now);
+      });
     } catch (err) {
       if (process.env.NODE_ENV !== 'test') {
         console.error(JSON.stringify({ type: 'lifecycle_scheduler_error', error: err.message }));

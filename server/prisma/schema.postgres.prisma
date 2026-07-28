@@ -1557,3 +1557,27 @@ model OwnershipTransferRequest {
 }
 
 
+
+// Single-winner lease for scheduled jobs.
+//
+// Cloud Run runs 1..N instances (main.tf: min 1, max 10) and each one
+// independently schedules every hourly/daily job — there is no leader
+// election. Most sweeps are idempotent by construction (dunning transitions
+// on `where: status = ...`; retention deletes by explicit id), but
+// lib/lifecycle-triggers.js EMITS NOTIFICATIONS, so a second instance running
+// the same period means a second email to the same customer.
+//
+// The unique constraint IS the lock: every instance tries to insert the same
+// (jobName, period) row, exactly one wins, the rest get P2002 and skip. No
+// new infrastructure, no advisory-lock syntax, identical behaviour on SQLite
+// and Postgres.
+model SchedulerLease {
+  id        String   @id @default(uuid())
+  jobName   String
+  period    String   // granularity is the job's own — e.g. "2026-07-28T14" hourly
+  claimedBy String?  // instance hint for debugging; never used for correctness
+  claimedAt DateTime @default(now())
+
+  @@unique([jobName, period])
+  @@index([claimedAt])
+}
