@@ -34,8 +34,31 @@ describe('initCloudSqlIamAuth', () => {
   test('fails closed when enabled but misconfigured, rather than silently using password auth', async () => {
     process.env.CLOUD_SQL_IAM_AUTH = '1';
     delete process.env.CLOUD_SQL_INSTANCE;
+    delete process.env.CLOUD_SQL_CONNECTION_NAME;
     const prisma = require('../../lib/prisma');
     await expect(prisma.initCloudSqlIamAuth()).rejects.toThrow(/CLOUD_SQL_INSTANCE/);
+  });
+
+  test('accepts CLOUD_SQL_CONNECTION_NAME, the name Terraform actually exports', async () => {
+    // Regression guard: this function was written against CLOUD_SQL_INSTANCE
+    // while deploy/terraform-gcp/main.tf has always set
+    // CLOUD_SQL_CONNECTION_NAME. Because it fails closed, enabling
+    // `cloud_sql_iam_auth = true` would have crash-looped the Cloud Run
+    // service on boot. Both names must work.
+    process.env.CLOUD_SQL_IAM_AUTH = '1';
+    delete process.env.CLOUD_SQL_INSTANCE;
+    process.env.CLOUD_SQL_CONNECTION_NAME = 'proj:us-central1:inst';
+    process.env.CLOUD_SQL_IAM_USER = 'svc@proj.iam';
+    delete process.env.CLOUD_SQL_DATABASE;   // must fall back, not throw
+
+    const prisma = require('../../lib/prisma');
+    prisma.createPrismaClientWithIamAuth = jest.fn().mockResolvedValue({
+      client: { tenantTransaction: jest.fn() }, connector: { close: jest.fn() }, pool: { end: jest.fn() },
+    });
+
+    await expect(prisma.initCloudSqlIamAuth()).resolves.toEqual({ enabled: true });
+    expect(prisma.createPrismaClientWithIamAuth).toHaveBeenCalledWith(
+      expect.objectContaining({ instanceConnectionName: 'proj:us-central1:inst' }));
   });
 
   test('swaps the live client, and a consumer that required prisma BEFORE init sees the new one', async () => {

@@ -200,11 +200,20 @@ let iamHandles = null;
  */
 async function initCloudSqlIamAuth() {
   if (process.env.CLOUD_SQL_IAM_AUTH !== '1') return { enabled: false };
-  const instanceConnectionName = process.env.CLOUD_SQL_INSTANCE;
+  // CLOUD_SQL_CONNECTION_NAME is accepted as an alias: that is the name the
+  // Terraform module has always exported (and the conventional GCP one),
+  // while this code was written against CLOUD_SQL_INSTANCE. Reading only the
+  // latter meant `cloud_sql_iam_auth = true` set CLOUD_SQL_IAM_AUTH=1 without
+  // the variable this function requires — and since it fails closed, the
+  // Cloud Run service would have crash-looped on startup the first time
+  // anyone enabled the feature.
+  const instanceConnectionName = process.env.CLOUD_SQL_INSTANCE || process.env.CLOUD_SQL_CONNECTION_NAME;
   const iamUser = process.env.CLOUD_SQL_IAM_USER;
-  const database = process.env.CLOUD_SQL_DATABASE;
-  if (!instanceConnectionName || !iamUser || !database) {
-    throw new Error('CLOUD_SQL_IAM_AUTH=1 requires CLOUD_SQL_INSTANCE, CLOUD_SQL_IAM_USER and CLOUD_SQL_DATABASE.');
+  // Defaults to the database Terraform actually creates (the project name with
+  // hyphens replaced), so a deployment need not restate it.
+  const database = process.env.CLOUD_SQL_DATABASE || 'scopecash_ai';
+  if (!instanceConnectionName || !iamUser) {
+    throw new Error('CLOUD_SQL_IAM_AUTH=1 requires CLOUD_SQL_INSTANCE (or CLOUD_SQL_CONNECTION_NAME) and CLOUD_SQL_IAM_USER.');
   }
   // Called through the export (not the local binding) so it is substitutable
   // in tests, the same seam lib/storage.js uses for __signedUrlFn — the real

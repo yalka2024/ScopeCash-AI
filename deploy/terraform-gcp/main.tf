@@ -63,6 +63,32 @@ variable "container_image" {
   description = "Full image ref (Artifact Registry path) to deploy to Cloud Run. Push one before first apply — Cloud Run needs an existing image to create the service against."
   default     = null
 }
+variable "public_base_url" {
+  type        = string
+  description = <<-EOT
+    Externally reachable base URL of the deployed service, e.g.
+    "https://api.example.com" or the Cloud Run URL after the first apply.
+
+    This exists to enable Cloud Tasks. lib/evidence-jobs.js only uses the
+    queue when JOBS_BACKEND=cloud-tasks AND CLOUD_TASKS_PUSH_URL is set;
+    otherwise it silently falls back to in-process setImmediate, where a job
+    in flight is lost on any instance restart — which on Cloud Run happens
+    routinely at scale-to-zero. The module provisioned the queue and set
+    CLOUD_TASKS_QUEUE but never set those two, so the queue was billed and
+    idle while every job ran in-process.
+
+    It cannot be derived automatically: the push URL is the service's own
+    URL, and referencing google_cloud_run_v2_service.app.uri from inside that
+    same resource is a dependency cycle. So this is a two-step: apply once
+    with this null, read the `cloud_run_url` output, then set it and apply
+    again (or set it to a custom domain up front).
+
+    Left null, behaviour is exactly as before — in-process jobs — so this is
+    additive and safe to ignore for a dev deployment.
+  EOT
+  default     = null
+}
+
 variable "cloud_sql_iam_auth" {
   type        = bool
   description = <<-EOT
@@ -434,6 +460,37 @@ resource "google_cloud_run_v2_service" "app" {
         content {
           name  = "CLOUD_SQL_IAM_USER"
           value = google_sql_user.app_iam[0].name
+        }
+      }
+      # Cloud Tasks is only actually used when BOTH of these are present —
+      # see var.public_base_url for why the queue was otherwise provisioned
+      # but never reached. Gated on the variable so leaving it null preserves
+      # the previous in-process behaviour rather than half-enabling the queue.
+      dynamic "env" {
+        for_each = var.public_base_url == null ? [] : [1]
+        content {
+          name  = "JOBS_BACKEND"
+          value = "cloud-tasks"
+        }
+      }
+      dynamic "env" {
+        for_each = var.public_base_url == null ? [] : [1]
+        content {
+          name = "CLOUD_TASKS_PUSH_URL"
+          # routes/jobs.js's push receiver; verified against the route mount
+          # in index.js, not guessed.
+          value = "${var.public_base_url}/api/jobs/process-task"
+        }
+      }
+      # Required by lib/prisma.js#initCloudSqlIamAuth, which fails closed.
+      # Without it the app would set CLOUD_SQL_IAM_AUTH=1 and then have no
+      # database name to connect to, crash-looping the service on boot the
+      # first time this feature was enabled. Must match google_sql_database.app.
+      dynamic "env" {
+        for_each = var.cloud_sql_iam_auth ? [1] : []
+        content {
+          name  = "CLOUD_SQL_DATABASE"
+          value = google_sql_database.app.name
         }
       }
       # VERTEX_GEMINI_MODEL / VERTEX_GEMINI_PRO_MODEL are deliberately NOT
