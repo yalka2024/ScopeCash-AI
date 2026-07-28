@@ -2640,6 +2640,23 @@ Net: 42 suites, 435 passing (up from 374 at the start of this phase), the 19-tes
 
 TODO.md now stands at **63 `[x]` / 3 `[~]` / 1 `[ ]`**, and the four non-`[x]` entries are three distinct items (backup/restore RPO/RTO is listed twice by design, as a pointer), every one of which is blocked on something outside engineering.
 
+## Phase 42 — CI had never run (DONE, 2026-07-28)
+
+The single most consequential finding of the whole audit sequence, and it invalidated a claim made repeatedly in this file: **continuous integration had never executed, on any commit, in the project's history.**
+
+All five workflows declared `on: push: branches: [main]`. This repository's default branch is `master`. `gh run list --workflow=ci` returned nothing — zero runs, ever. So every statement of the form "CI enforces X" was true of the YAML and false of reality: the Postgres+RLS suite, the full test run, both a11y scans, the e2e nav smoke, the eval gate, CodeQL, and the container build+sign+SBOM pipeline had all been dead configuration. Only the two cron-scheduled scans fired at all, and both were red — gitleaks on 13 findings, all in `attestation.json` (a provenance manifest whose Ed25519 *public* key and 309 SHA-256 content hashes trip entropy rules), and Trivy/CodeQL on SARIF-upload 403s, because this is a private repo without Advanced Security.
+
+Fixing the triggers immediately produced two real bugs that had been invisible precisely because nothing ever ran:
+
+1. **CI pinned Node 20.11; Prisma 7 requires 20.19+.** Both jobs died at `npm ci`. `server/package.json`'s `engines.node` said `>=20.11.0`, understating the true floor — local dev happened to be on 20.19.3, which is exactly why it never surfaced. Bumped both.
+2. **`dashboard/Dockerfile` had never built.** It set `ENV NODE_ENV=production` before `npm ci`, so npm omitted devDependencies, so `vite` was absent, so `npm run build` exited 127. The root `Dockerfile`'s dashboard stage never set it, which is why the actual production single-container image (`SERVE_DASHBOARD=1`, what Cloud Run deploys and what the drain drill exercises) always worked — only this separate nginx image was broken. Verified the fix locally end-to-end: builds, runs, serves HTTP 200 with the real `<title>`.
+
+Also added `.gitleaks.toml` (allowlisting only inspected false positives, verified locally with the same gitleaks 8.24.3 the action installs: "leaks found: 13" → "no leaks found", exit 0), artifact fallbacks for both SARIF uploads so they degrade instead of failing, `workflow_dispatch` on iac-scan, and enabled Dependabot vulnerability alerts + automated security fixes, which were off.
+
+**All five workflows now pass on `master`**: `ci` (Postgres migrations, RLS regression suite as a non-superuser, full test suite, eval gate, dashboard build, both axe-core scans, e2e nav smoke), `codeql`, `secret-scan`, `container-build-sign`, and `iac-scan` — the last including the `terraform-validate` job over both modules, which had itself never run despite being added earlier in this session and described as "blocking".
+
+The lesson generalises beyond this repo: a green local run and a committed workflow file are not evidence that a gate exists. The gate has to be observed executing. This is the same class of error as the dormant-code pattern found repeatedly in the application itself — a fully-built mechanism with nothing invoking it — relocated into CI configuration.
+
 **Still open after this phase**, and none of it achievable from an engineering session: an operational job dashboard in the UI and progress reporting on the two shorter job kinds (small, real, just not done); and everything requiring a live GCP project (`terraform plan`/`apply`, the real-Vertex evaluation gate, Cloud SQL PITR, regional failover — no alert defined here has ever actually fired), a human (manual assistive-technology testing, attorney/vendor/penetration-test sign-off), or real customers (arms-length revenue, invoices, testimonials).
 
 ## Not yet started

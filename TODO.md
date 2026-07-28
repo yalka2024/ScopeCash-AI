@@ -355,8 +355,25 @@ is blocked by definition — those live in the last section and can never be
       no alert has ever actually fired, and on-call rotation, escalation
       policy, error-budget review and incident-response drills are
       organizational rather than code.
-- [x] Dependency/container/secret scanning in CI — mostly already existed
-      before this pass and was more complete than the audit assumed:
+- [x] Dependency/container/secret scanning in CI.
+      **CRITICAL CORRECTION (2026-07-28): none of this had ever run.** All
+      five workflows declared `branches: [main]`; this repo's default branch
+      is `master`, so `ci.yml`, `codeql.yml` and `container-build-sign.yml`
+      had never executed on any commit — `gh run list --workflow=ci` returned
+      empty. Only the two cron-scheduled scans fired, and both were failing
+      (gitleaks on 13 false positives in `attestation.json`'s provenance
+      hashes; Trivy/CodeQL on SARIF upload 403s, since this is a private repo
+      without Advanced Security). Every earlier claim in this file that a CI
+      gate "exists" was true of the YAML and false of reality.
+      Fixed and **verified green in real CI**: triggers corrected,
+      `.gitleaks.toml` allowlists the verified false positives, SARIF uploads
+      fall back to artifacts, Dependabot alerts enabled. Two genuine bugs
+      surfaced on the first real run — CI pinned Node 20.11 while Prisma 7
+      needs 20.19+, and `dashboard/Dockerfile` set `NODE_ENV=production`
+      before `npm ci`, omitting vite so that image had never built (exit 127).
+      All five workflows now pass: ci, codeql, secret-scan,
+      container-build-sign, iac-scan (including `terraform-validate`).
+      Composition (unchanged, and now actually executing):
       `.github/workflows/secret-scan.yml` (gitleaks, daily + every push/PR),
       `codeql.yml` (SAST, weekly + every push/PR),
       `container-build-sign.yml` (SBOM via syft, vulnerability scan via
@@ -394,6 +411,17 @@ is blocked by definition — those live in the last section and can never be
       region-controlled evidence pipeline. New gap found, not fixed:
       the Terraform module sets `AI_PROVIDER=gemini` but never
       provisions a `GEMINI_API_KEY` secret. See STATUS.md Phase 23.
+      **Scope clarification (2026-07-28):** what exists is *declaration* and
+      *placement* — `DATA_RESIDENCY_REGION` is truthfully reported in the
+      trust pack, and every regional GCP resource (Cloud SQL, GCS, Secret
+      Manager replicas) is pinned to one region by Terraform. There is no
+      runtime *enforcement*: nothing rejects a write whose data would land
+      outside the configured region, and no per-tenant residency exists —
+      `DATA_RESIDENCY_REGION` appears only in `lib/trust-pack.js`. That is
+      the correct design for a single-region deployment (placement IS the
+      enforcement, done by infrastructure), but if residency is ever sold
+      per-customer — "your data stays in the EU" — that needs a real
+      per-tenant control plane, and this item would reopen.
 - [x] WCAG 2.2 AA — automated scanning (Playwright + axe-core, wired into
       CI) done in Phase 9; found and fixed 4 real contrast bugs, see
       STATUS.md. Only public pages are covered — the authenticated
