@@ -1,7 +1,7 @@
 # Multi-stage Dockerfile for ScopeCash AI dashboard (Vite build)
 # Build → static assets served by nginx, dropping privileges.
 
-FROM node:20-bookworm-slim AS builder
+FROM node:26-bookworm-slim AS builder
 WORKDIR /app
 # NODE_ENV is deliberately NOT set to production in this stage: npm skips
 # devDependencies under it, and vite — the thing `npm run build` invokes — is
