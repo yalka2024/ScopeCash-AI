@@ -152,3 +152,74 @@ describe('replayJob', () => {
     expect(await jobs.replayJob(run.id)).toMatchObject({ ok: false, reason: 'not_replayable' });
   });
 });
+
+/**
+ * Regression guard for a bug introduced alongside the `running` sweep: only
+ * the document path heartbeated, so a still-working evidence-item or
+ * findings job went stale after the threshold, was judged crashed, and was
+ * redispatched WHILE RUNNING. Nothing deduplicated it — the evidence-item
+ * idempotency guard only skips terminal states, and findings-generation has
+ * no target-row guard at all — so the work really ran concurrently, up to
+ * MAX_ATTEMPTS times, then dead-lettered while succeeding.
+ */
+describe('withHeartbeat keeps a long-running job out of the stuck sweep', () => {
+  test('refreshes heartbeat_at DURING a slow operation, not just at its boundaries', async () => {
+    const run = await makeRun({ status: 'running', heartbeat_at: ancient() });
+    const before = (await prisma.agentRunRecord.findUnique({ where: { id: run.id } })).heartbeat_at;
+
+    process.env.EVIDENCE_JOB_HEARTBEAT_MS = '20';
+    jest.resetModules();
+    const freshJobs = require('../../lib/evidence-jobs');
+
+    // A single await longer than the keepalive interval — the exact shape
+    // that a stage-boundary-only heartbeat cannot cover.
+    await freshJobs.withHeartbeat(run.id, { stage: 'slow', pct: 50 },
+      () => new Promise((r) => setTimeout(r, 120)));
+
+    const after = await prisma.agentRunRecord.findUnique({ where: { id: run.id } });
+    expect(after.heartbeat_at.getTime()).toBeGreaterThan(before.getTime());
+    expect(JSON.parse(after.progress)).toEqual({ stage: 'slow', pct: 50 });
+    delete process.env.EVIDENCE_JOB_HEARTBEAT_MS;
+  });
+
+  test('stops pinging once the wrapped work finishes, so a completed run cannot look alive forever', async () => {
+    const run = await makeRun({ status: 'running' });
+    process.env.EVIDENCE_JOB_HEARTBEAT_MS = '20';
+    jest.resetModules();
+    const freshJobs = require('../../lib/evidence-jobs');
+
+    await freshJobs.withHeartbeat(run.id, { stage: 'x' }, async () => 'done');
+    const hb = async () => {
+      const r = await prisma.agentRunRecord.findUnique({ where: { id: run.id } });
+      return r.heartbeat_at ? r.heartbeat_at.getTime() : null;
+    };
+    const settled = await hb();
+    await new Promise((r) => setTimeout(r, 90));
+    // Unchanged after several keepalive intervals' worth of time — the
+    // interval really was cleared, so a finished run can't look alive.
+    expect(await hb()).toBe(settled);
+    delete process.env.EVIDENCE_JOB_HEARTBEAT_MS;
+  });
+
+  test('clears its interval even when the wrapped work throws', async () => {
+    const run = await makeRun({ status: 'running' });
+    process.env.EVIDENCE_JOB_HEARTBEAT_MS = '20';
+    jest.resetModules();
+    const freshJobs = require('../../lib/evidence-jobs');
+
+    await expect(freshJobs.withHeartbeat(run.id, { stage: 'x' }, async () => {
+      throw new Error('boom');
+    })).rejects.toThrow('boom');
+
+    const hb = async () => {
+      const r = await prisma.agentRunRecord.findUnique({ where: { id: run.id } });
+      return r.heartbeat_at ? r.heartbeat_at.getTime() : null;
+    };
+    const settled = await hb();
+    await new Promise((r) => setTimeout(r, 90));
+    // Unchanged after several keepalive intervals' worth of time — the
+    // interval really was cleared, so a finished run can't look alive.
+    expect(await hb()).toBe(settled);
+    delete process.env.EVIDENCE_JOB_HEARTBEAT_MS;
+  });
+});

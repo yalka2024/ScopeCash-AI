@@ -146,14 +146,16 @@ prisma.tenantTransaction = makeTenantTransaction(base, isPg);
  * Builds a SEPARATE PrismaClient authenticated via Cloud SQL automatic IAM
  * DB auth (lib/cloud-sql-connector.js) instead of the static DATABASE_URL
  * password above — no DB password generated, stored, or passed anywhere.
- * Not invoked automatically: the connector's pool-building is unavoidably
- * async, while the module-level `prisma` export above is constructed
- * synchronously so every existing consumer (`require('../lib/prisma')`
- * across ~20 route files) keeps working unchanged regardless of whether
- * this feature is used. Wiring this in for real means awaiting this factory
- * in index.js/worker.js BEFORE requiring any route module, and using its
- * result in place of the default export — deliberately not done yet (see
- * lib/cloud-sql-connector.js's header comment and TODO.md for why).
+ * Invoked by initCloudSqlIamAuth() below, which index.js and worker.js both
+ * await before doing any work. Callers should use that rather than this
+ * factory directly — it installs the resulting client as the module's
+ * active one, so the ~20 route files that captured the export at require()
+ * time follow automatically.
+ *
+ * (This comment previously said the factory was "deliberately not invoked
+ * yet". That stopped being true when the boot wiring landed; it is recorded
+ * here because a stale comment asserting a feature is unwired is exactly
+ * how a working mechanism gets treated as dead code.)
  *
  * @param {object} opts
  * @param {string} opts.instanceConnectionName - "project:region:instance"

@@ -524,10 +524,17 @@ resource "google_logging_metric" "server_errors" {
 # Requests rejected for exceeding a plan quota. Not an outage — a product
 # signal (customers hitting limits) that is easy to miss without a metric.
 resource "google_logging_metric" "quota_rejections" {
-  name   = "${var.name}-${var.environment}-quota-rejections"
+  name = "${var.name}-${var.environment}-quota-rejections"
+  # Matches the ACCESS log (type="http"), not the error log. The 402s this is
+  # meant to count never produce a type="error" line: lib/validate.js returns
+  # HttpError responses before its logging call, and the api-call/ai-token
+  # quota 402s are returned directly from middleware/tenant.js and
+  # lib/ai-budget.js without logging at all. Filtering on type="error" — as
+  # this did when first written — would have read zero forever while looking
+  # like working instrumentation.
   filter = <<-EOT
     resource.type="cloud_run_revision"
-    jsonPayload.type="error"
+    jsonPayload.type="http"
     jsonPayload.status=402
   EOT
   metric_descriptor {

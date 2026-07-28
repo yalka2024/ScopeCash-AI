@@ -446,8 +446,20 @@ the audit was right every time, and three gaps were worse than reported.
       `postinstall` run (`npm ci --ignore-scripts`, cached `node_modules`,
       cleaned `.prisma`) because globalSetup migrated but never generated
       the client. Verified by deleting `node_modules/.prisma` and running cold.
-- [x] All five unenforced plan quotas (`storage_gb`, `api_calls_per_month`,
+- [~] All five unenforced plan quotas (`storage_gb`, `api_calls_per_month`,
       `ai_tokens_per_month`, `webhooks`, `data_retention_days`) now enforced.
+      Marked partial, not done, after verification: `api_calls_per_month`
+      is counted in `attachTenant`, which is mounted PER-ROUTER — roughly 11
+      authenticated routers (`/api/tools`, `/api/analytics`,
+      `/api/notifications`, `/api/competition`, `/api/operations`,
+      `/api/api-keys`, `/api/governance`, `/api/trust`, `/api/data-products`,
+      `/api/status`, `/api/docs`) never run it, so that one meter
+      under-counts and is bypassable via those paths. Under-counting is the
+      safe direction (never over-bills, never wrongly blocks) but it is not
+      full coverage. Closing it means mounting auth + attachTenant uniformly
+      across every router — a bigger change than the quota work itself.
+      `data_retention_days` is also deliberately report-only unless
+      `DATA_RETENTION_ENFORCE=1`. The other three are fully enforced.
       Also fixed: `getActiveSubscription` could never report
       `suspended`/`canceled`, making every downgrade branch that checks for
       them dead code, so suspended orgs kept full access. Retention deletion
@@ -470,8 +482,18 @@ the audit was right every time, and three gaps were worse than reported.
       stage boundaries) so a job is never killed between a storage write and
       its database row. New `POST /api/agentRunRecords/:id/{cancel,replay}`.
       Still open: an operational job dashboard (dashboard UI — the API is
-      there, nothing renders it), and per-stage progress on the two shorter
-      job kinds (only the document-analysis path reports stages today).
+      there, nothing renders it).
+      **Follow-up fix (same day):** an independent verification pass caught
+      that only the document path heartbeated, so a still-working
+      evidence-item or findings job went stale past the threshold, was judged
+      crashed, and was redispatched *while running* — with no dedup (the
+      evidence-item guard only skips terminal states; findings-generation has
+      no target-row guard at all), so the work really ran concurrently up to
+      MAX_ATTEMPTS and then dead-lettered while succeeding. A bug the new
+      `running` sweep introduced. Fixed with `withHeartbeat()`, which keeps
+      the row fresh for the duration of a single long await rather than only
+      at stage boundaries, applied to all three Gemini calls. 3 regression
+      tests.
 
 ## P2 — maturity (lower priority)
 

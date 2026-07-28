@@ -146,9 +146,21 @@ async function attachTenantRest(req, res, next, orgId, planId) {
     }
 
     // api_calls_per_month is an advertised per-tier limit that had no
-    // enforcement anywhere. Counted here, at the one place every
-    // authenticated API request already passes through, so "API call" means
-    // the same thing for every route.
+    // enforcement anywhere. Counted here because this is where the plan is
+    // already resolved.
+    //
+    // COVERAGE CAVEAT: attachTenant is mounted per-router, NOT globally —
+    // index.js has no app.use(attachTenant), and it cannot have one, because
+    // this middleware requires req.user and auth is applied per-router too.
+    // Routers that don't mount it (/api/tools, /api/analytics,
+    // /api/notifications, /api/competition, /api/operations, /api/api-keys,
+    // /api/governance, /api/trust, /api/data-products, /api/status,
+    // /api/docs) are therefore neither counted nor blocked, so this meter
+    // under-counts real API usage. That is the conservative direction — it
+    // never over-bills and never wrongly blocks — but it is not full
+    // coverage, and closing it means mounting authMiddleware + attachTenant
+    // uniformly, which is a larger change than this quota work. Tracked in
+    // TODO.md.
     const quota = await apiCalls.checkAndRecord(orgId, req.tenant.plan);
     if (quota.limit !== -1) {
       res.setHeader('x-quota-meter', 'api_calls_per_month');

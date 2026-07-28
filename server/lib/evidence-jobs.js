@@ -169,6 +169,26 @@ async function heartbeat(runId, progress) {
   return !(run && run.cancel_requested_at);
 }
 
+// A stage-boundary heartbeat cannot cover a SINGLE long await: a Gemini call
+// on a large document or audio file can itself exceed the reconciler's
+// staleness threshold, after which the run looks crashed and gets
+// redispatched while it is still working. This keeps the row fresh for the
+// duration of whatever it wraps.
+const HEARTBEAT_KEEPALIVE_MS = Number(process.env.EVIDENCE_JOB_HEARTBEAT_MS || 30_000);
+
+async function withHeartbeat(runId, progress, fn) {
+  const timer = setInterval(() => {
+    heartbeat(runId, progress).catch(() => {});
+  }, HEARTBEAT_KEEPALIVE_MS);
+  // Never hold the process open just for a keepalive tick.
+  if (typeof timer.unref === 'function') timer.unref();
+  try {
+    return await fn();
+  } finally {
+    clearInterval(timer);
+  }
+}
+
 /** Mark a run cancelled at a safe point. Distinct from `failed`: nothing went
  * wrong, a human asked it to stop. */
 async function _markCancelled(runId) {
@@ -236,10 +256,11 @@ async function _processSourceDocumentAnalyze({ runId, sourceDocumentId, orgId, p
         return _finishJobRun(runId, { status: 'failed', errorMessage: `This document ${reason}, and Gemini (the native-document fallback) is not configured.` });
       }
       const gcsUri = storage.gcsUri(sourceDocument.storage_uri);
-      const viaGemini = await pipeline.extractDocumentTextViaGemini({
-        orgId, projectId: project.id, sourceDocumentId: sourceDocument.id,
-        mimeType: sourceDocument.mime_type, buffer: gcsUri ? undefined : buffer, gcsUri,
-      });
+      const viaGemini = await withHeartbeat(runId, { stage: 'gemini_fallback', pct: 45 },
+        () => pipeline.extractDocumentTextViaGemini({
+          orgId, projectId: project.id, sourceDocumentId: sourceDocument.id,
+          mimeType: sourceDocument.mime_type, buffer: gcsUri ? undefined : buffer, gcsUri,
+        }));
       geminiFallbackRunId = viaGemini.agentRunId;
       if (viaGemini.unreadable || viaGemini.text.trim().length === 0) {
         await prisma.sourceDocument.update({ where: { id: sourceDocument.id }, data: { extraction_status: 'failed', extraction_quality: 'unreadable' } });
@@ -310,11 +331,20 @@ async function _processEvidenceItemAnalyze({ runId, evidenceItemId, orgId }) {
       base64 = Buffer.concat(chunks).toString('base64');
     }
 
+    // Heartbeat before the Gemini call — the slow part, and the reason this
+    // job kind can outlive the reconciler's staleness threshold. Without it
+    // the sweep judges a still-running job crashed and redispatches it, and
+    // the idempotency guard above only skips TERMINAL states (mid-run is
+    // 'processing'), so the duplicate would really run.
+    if (!await heartbeat(runId, { stage: 'gemini_analysis', pct: 40 })) return _markCancelled(runId);
+
     let result;
     if (evidenceItem.evidenceType === 'audio') {
-      result = await pipeline.transcribeAudio({ orgId, evidenceItem, gcsUri, base64, mimeType });
+      result = await withHeartbeat(runId, { stage: 'gemini_analysis', pct: 40 },
+        () => pipeline.transcribeAudio({ orgId, evidenceItem, gcsUri, base64, mimeType }));
     } else if (evidenceItem.evidenceType === 'photo') {
-      result = await pipeline.interpretImage({ orgId, evidenceItem, gcsUri, base64, mimeType });
+      result = await withHeartbeat(runId, { stage: 'gemini_analysis', pct: 40 },
+        () => pipeline.interpretImage({ orgId, evidenceItem, gcsUri, base64, mimeType }));
     } else {
       await prisma.evidenceItem.update({ where: { id: evidenceItemId }, data: { analysisStatus: 'failed' } });
       return _finishJobRun(runId, { status: 'failed', errorMessage: `No Gemini analysis path for evidenceType "${evidenceItem.evidenceType}" yet` });
@@ -359,7 +389,14 @@ async function _processFindingsGenerate({ runId, projectId, orgId, changeEventId
     if (scopeItems.length === 0 && contractProvisions.length === 0) {
       return _finishJobRun(runId, { status: 'failed', errorMessage: 'No contract baseline extracted for this project yet — analyze a contract/estimate source document first' });
     }
-    const result = await pipeline.compareScopeToEvidence({ orgId, project, scopeItems, contractProvisions, evidenceItems, changeEventId });
+    // Same reason as the evidence-item path: this is the slow Gemini step and
+    // this job kind has NO target-row idempotency guard at all (its only
+    // guard is on the enqueue path), so a reconciler redispatch of a
+    // still-running job would duplicate the work outright.
+    if (!await heartbeat(runId, { stage: 'scope_comparison', pct: 50 })) return _markCancelled(runId);
+
+    const result = await withHeartbeat(runId, { stage: 'scope_comparison', pct: 50 },
+      () => pipeline.compareScopeToEvidence({ orgId, project, scopeItems, contractProvisions, evidenceItems, changeEventId }));
     return _finishJobRun(runId, {
       status: 'completed',
       outputRefs: { findingCount: result.findings.length, discardedCount: result.discardedCount, agentRunId: result.agentRunId, findings: result.findings },
@@ -564,4 +601,5 @@ module.exports = {
   requestCancel,
   replayJob,
   MAX_ATTEMPTS,
+  withHeartbeat,
 };
