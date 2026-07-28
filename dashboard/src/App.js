@@ -34,6 +34,7 @@ const GrowthPage = lazy(() => import('./GrowthPage'));
 const DataProductsPage = lazy(() => import('./DataProductsPage'));
 const MarketplacePage = lazy(() => import('./MarketplacePage'));
 const OperationsPage = lazy(() => import('./OperationsPage'));
+const JobsPage = lazy(() => import('./JobsPage'));
 const StatusPage = lazy(() => import('./StatusPage'));
 const TrustPortalPage = lazy(() => import('./TrustPortalPage'));
 const GovernancePage = lazy(() => import('./GovernancePage'));
@@ -225,6 +226,7 @@ export default function App() {
             <li className={authedPage === 'evaluations' ? 'active' : ''}><button type="button" aria-current={authedPage === 'evaluations' ? 'page' : undefined} onClick={() => setPage('evaluations')}>AI evaluations</button></li>
             <li className={authedPage === 'growth' ? 'active' : ''}><button type="button" aria-current={authedPage === 'growth' ? 'page' : undefined} onClick={() => setPage('growth')}>Growth</button></li>
             <li className={authedPage === 'data-products' ? 'active' : ''}><button type="button" aria-current={authedPage === 'data-products' ? 'page' : undefined} onClick={() => setPage('data-products')}>Data products</button></li>
+            <li className={authedPage === 'jobs' ? 'active' : ''}><button type="button" aria-current={authedPage === 'jobs' ? 'page' : undefined} onClick={() => setPage('jobs')}>Background jobs</button></li>
             <li className={authedPage === 'operations' ? 'active' : ''}><button type="button" aria-current={authedPage === 'operations' ? 'page' : undefined} onClick={() => setPage('operations')}>Operations</button></li>
             <li className={authedPage === 'tenants' ? 'active' : ''}><button type="button" aria-current={authedPage === 'tenants' ? 'page' : undefined} onClick={() => setPage('tenants')}>Tenants</button></li>
             <li className={authedPage === 'trust-portal' ? 'active' : ''}><button type="button" aria-current={authedPage === 'trust-portal' ? 'page' : undefined} onClick={() => setPage('trust-portal')}>Trust portal</button></li>
@@ -267,6 +269,10 @@ export default function App() {
           {authedPage === 'evaluations' && isAdmin && <EvaluationsPage />}
           {authedPage === 'growth' && isAdmin && <GrowthPage />}
           {authedPage === 'data-products' && isAdmin && <DataProductsPage />}
+          {/* Not admin-gated: background jobs belong to the caller's own org
+              (the routes are org-scoped), so a contractor should be able to
+              see and retry their own stuck analysis without an operator. */}
+          {authedPage === 'jobs' && <JobsPage />}
           {authedPage === 'operations' && isAdmin && <OperationsPage />}
           {authedPage === 'tenants' && isAdmin && <TenantsPage />}
           {authedPage === 'trust-portal' && isAdmin && <TrustPortalPage />}

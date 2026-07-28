@@ -23,7 +23,7 @@ const ADMIN_PASSWORD = 'Correct-Horse-Battery-9!';
 const NAV_LABELS = [
   'Projects', 'Evidence', 'Findings', 'Packets', 'Outcomes', 'Customers',
   'Agent Activity', 'AI Assistant', 'Organization', 'Competition evidence',
-  'AI economics', 'AI evaluations', 'Growth', 'Data products', 'Operations',
+  'AI economics', 'AI evaluations', 'Growth', 'Data products', 'Background jobs', 'Operations',
   'Tenants', 'Trust portal', 'Governance', 'Agent console', 'Tools',
   'All records (raw)', 'Marketplace', 'Security', 'Status', 'Settings',
   'Pricing', 'Help centre',
