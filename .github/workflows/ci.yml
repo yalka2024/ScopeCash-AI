@@ -25,7 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: '20.11', cache: 'npm', cache-dependency-path: server/package-lock.json }
+        with: { node-version: '20.19', cache: 'npm', cache-dependency-path: server/package-lock.json }
       - name: Install
         working-directory: server
         run: npm ci --no-audit --no-fund
@@ -126,7 +126,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: '20.11', cache: 'npm', cache-dependency-path: dashboard/package-lock.json }
+        with: { node-version: '20.19', cache: 'npm', cache-dependency-path: dashboard/package-lock.json }
       - name: Install
         working-directory: dashboard
         run: npm ci --no-audit --no-fund
@@ -154,7 +154,7 @@ jobs:
       # a real backend (SERVE_DASHBOARD=1), not the static preview server,
       # so it boots the actual Express app against a disposable SQLite DB.
       - uses: actions/setup-node@v4
-        with: { node-version: '20.11', cache: 'npm', cache-dependency-path: server/package-lock.json }
+        with: { node-version: '20.19', cache: 'npm', cache-dependency-path: server/package-lock.json }
       - name: Install server deps
         working-directory: server
         run: npm ci --no-audit --no-fund
