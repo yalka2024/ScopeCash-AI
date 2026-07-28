@@ -51,7 +51,7 @@
     "@google-cloud/tasks": "^6.2.3",
     "@google/genai": "^2.13.0",
     "@node-rs/bcrypt": "^1.10.7",
-    "@opentelemetry/auto-instrumentations-node": "^0.52.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.75.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.55.0",
     "@opentelemetry/resources": "^1.28.0",
     "@opentelemetry/sdk-node": "^0.55.0",
