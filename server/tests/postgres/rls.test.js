@@ -540,9 +540,20 @@ d('Postgres RLS', () => {
     const analyzeRes = await request(app).post(`/api/sourceDocuments/${doc.id}/analyze`).set('Authorization', bearer);
     expect(analyzeRes.status).toBe(202);
     const period = ent.currentPeriodKey();
-    const counter = await runWithSystemAccess(async () => prisma.usageCounter.findUnique({
-      where: { orgId_meter_period: { orgId: org.id, meter: 'records_per_month', period } },
-    }));
+
+    // Poll rather than read once. middleware/entitlements.js#enforceMeter
+    // records usage from `res.on('finish')` as fire-and-forget
+    // (`.catch(() => {})`), so the write is NOT ordered against the response
+    // the client already received — asserting immediately is a race this
+    // test lost on CI while passing locally. Polling asserts the real
+    // contract ("the counter lands"), not an accidental local timing.
+    let counter = null;
+    for (let i = 0; i < 50 && !counter; i++) {
+      counter = await runWithSystemAccess(async () => prisma.usageCounter.findUnique({
+        where: { orgId_meter_period: { orgId: org.id, meter: 'records_per_month', period } },
+      }));
+      if (!counter) await new Promise((r) => setTimeout(r, 100));
+    }
     expect(counter).toBeTruthy();
     expect(Number(counter.value)).toBe(1);
   });
