@@ -228,6 +228,13 @@ is blocked by definition — those live in the last section and can never be
       Phase 41 — see the re-audit section below for what each closed and the
       three real bugs found along the way, including one this work itself
       introduced (a still-running job being redispatched as crashed).
+      Phase 43 then made the queue reachable at all (the module set neither
+      `JOBS_BACKEND` nor `CLOUD_TASKS_PUSH_URL`, so every job silently ran
+      in-process) and created the evidence queue the code targets but
+      Terraform never defined. Multi-instance duplicate scheduling is also
+      closed: `lib/scheduler-lease.js` gives each period a single winner via a
+      unique constraint, applied to lifecycle-triggers — the one scheduled job
+      that sends email, and so the one whose duplicate run reaches a customer.
 - [x] Transactional outbox for billing/notifications/job creation/audit —
       done in Phase 17 for billing + job creation (the two real, concrete
       dual-write hazards found); notifications and audit deliberately
@@ -744,6 +751,20 @@ These showed up in the audit as P0/P1 items but are not things code can do:
   produces drafts with placeholders, not a substitute for counsel).
 - Establishing a US business entity and governing jurisdiction for the ToS
   (Phase 6's drafts need a real legal name/state filled in).
+- **Deploy-time values no default can safely invent** (found 2026-07-28, see
+  STATUS.md Phase 43 — the code and IaC side is fixed, these are inputs):
+  - `var.vertex_gemini_model` — a pinned, dated Vertex model id. **Without it
+    every AI feature throws.** No default is baked in on purpose: a model id
+    in infrastructure code goes stale silently, and lib/vertex-ai.js rejects
+    `-latest` aliases for the same reason.
+  - `var.public_base_url` — the real customer-facing URL. Drives Stripe
+    Checkout return, the customer portal, every transactional email link, the
+    ownership-transfer link, and whether Cloud Tasks is used at all rather
+    than losing in-flight jobs on restart. Needs two applies (the push URL is
+    the service's own URL), or a custom domain known up front.
+  - Which `INTEGRATION_*_MODE` adapters go `live`. All ten default to mock and
+    return `{_mock: true}` — including to agents, which will otherwise present
+    fabricated tool results as real.
 - A contracted third-party penetration test and threat model review.
 - Signed data-processing agreements with Stripe, Google, email providers, and
   other subprocessors (contracts, not code).
