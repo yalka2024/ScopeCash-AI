@@ -6,7 +6,7 @@ must be set or the server refuses to boot. **Recommended** vars
 should be set for any non-trivial production deployment. **Optional**
 vars enable specific features.
 
-For local dev, copy `server/env.example` → `server/.env` and fill
+For local dev, copy `server/.env.example` → `server/.env` and fill
 the **Required** block.
 
 ---

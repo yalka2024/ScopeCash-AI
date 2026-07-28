@@ -63,6 +63,33 @@ variable "container_image" {
   description = "Full image ref (Artifact Registry path) to deploy to Cloud Run. Push one before first apply — Cloud Run needs an existing image to create the service against."
   default     = null
 }
+variable "vertex_gemini_model" {
+  type        = string
+  description = <<-EOT
+    Pinned, dated Vertex Gemini model id, e.g. "gemini-2.5-flash-002".
+    REQUIRED for any AI feature to work: lib/vertex-ai.js#requireModel throws
+    `vertex_model_unpinned` when this is absent, and every evidence-pipeline
+    call relies on the default. No default is provided on purpose — a model
+    id baked into infrastructure code goes stale silently, and that file
+    explicitly rejects "-latest" aliases for the same reason.
+  EOT
+  default     = null
+  validation {
+    condition     = var.vertex_gemini_model == null || !can(regex("latest", var.vertex_gemini_model))
+    error_message = "vertex_gemini_model must be a pinned, dated id — lib/vertex-ai.js rejects '-latest' aliases."
+  }
+}
+
+variable "vertex_gemini_pro_model" {
+  type        = string
+  description = "Pinned Vertex Gemini Pro model id for the higher-capability path (lib/vertex-ai.js). Same pinning rules as vertex_gemini_model."
+  default     = null
+  validation {
+    condition     = var.vertex_gemini_pro_model == null || !can(regex("latest", var.vertex_gemini_pro_model))
+    error_message = "vertex_gemini_pro_model must be a pinned, dated id — lib/vertex-ai.js rejects '-latest' aliases."
+  }
+}
+
 variable "public_base_url" {
   type        = string
   description = <<-EOT
@@ -493,11 +520,51 @@ resource "google_cloud_run_v2_service" "app" {
           value = google_sql_database.app.name
         }
       }
-      # VERTEX_GEMINI_MODEL / VERTEX_GEMINI_PRO_MODEL are deliberately NOT
-      # set here — lib/vertex-ai.js refuses to start with an unpinned or
-      # "-latest" model id by design (see that file's header comment). Set
-      # a real, dated model id explicitly per deployment, not via a default
-      # baked into this module.
+      # VERTEX_GEMINI_MODEL / VERTEX_GEMINI_PRO_MODEL: no DEFAULT is baked in
+      # (lib/vertex-ai.js rejects unpinned/"-latest" ids by design), but the
+      # module now exposes variables to set them. Previously it set neither
+      # and offered no way to — so a stock `terraform apply` produced a
+      # deployment where defaultModel() -> requireModel(null, ...) threw
+      # `vertex_model_unpinned` on EVERY Gemini call: document extraction,
+      # contract baselines, audio transcription, image interpretation and
+      # scope comparison all failed. The instruction to "set it per
+      # deployment" had no mechanism behind it.
+      dynamic "env" {
+        for_each = var.vertex_gemini_model == null ? [] : [1]
+        content {
+          name  = "VERTEX_GEMINI_MODEL"
+          value = var.vertex_gemini_model
+        }
+      }
+      dynamic "env" {
+        for_each = var.vertex_gemini_pro_model == null ? [] : [1]
+        content {
+          name  = "VERTEX_GEMINI_PRO_MODEL"
+          value = var.vertex_gemini_pro_model
+        }
+      }
+      # Public base URL for customer-facing links. Without it
+      # routes/billing.js falls back to the literal 'http://localhost:3000'
+      # for Stripe Checkout success/cancel and the customer-portal return,
+      # and lib/email.js builds every transactional link against it — so a
+      # real paying customer would be redirected to localhost after paying.
+      dynamic "env" {
+        for_each = var.public_base_url == null ? [] : [1]
+        content {
+          name  = "PUBLIC_DASHBOARD_URL"
+          value = var.public_base_url
+        }
+      }
+      # routes/organization.js builds the ownership-transfer acceptance link
+      # from this; unset, it emits a bare relative path that is not clickable
+      # from any mail client.
+      dynamic "env" {
+        for_each = var.public_base_url == null ? [] : [1]
+        content {
+          name  = "APP_URL"
+          value = var.public_base_url
+        }
+      }
       dynamic "env" {
         for_each = local.secret_ids
         content {

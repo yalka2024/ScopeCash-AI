@@ -340,6 +340,7 @@ async function gracefulShutdown(signal) {
   // 2. Stop background workers
   stopWebhookWorker();
   stopEvidenceJobReconciler();
+  try { usageAggregator.stopScheduler(); } catch {}
   try { lifecycleTriggers.stopScheduler(); } catch {}
   try { warehouseExport.stopScheduler(); } catch {}
   try { orgDeletionSweep.stopScheduler(); } catch {}

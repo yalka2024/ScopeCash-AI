@@ -188,8 +188,24 @@ function startScheduler({ intervalMs = 60 * 60 * 1000 } = {}) {
   // First run after 60s so boot isn't blocked.
   const kick = setTimeout(tick, 60_000);
   const handle = setInterval(tick, intervalMs);
-  return () => { clearTimeout(kick); clearInterval(handle); };
+  // unref'd like every other scheduler here (warehouse-export,
+  // org-deletion-sweep): this was the only one that could hold the process
+  // open, and index.js discarded the returned stop handle, so its timers
+  // survived graceful shutdown and kept billing aggregation ticking through
+  // drain. Module-level handle so stopScheduler() below can clear it without
+  // the caller having to keep the closure.
+  if (typeof kick.unref === 'function') kick.unref();
+  if (typeof handle.unref === 'function') handle.unref();
+  _stop = () => { clearTimeout(kick); clearInterval(handle); _stop = null; };
+  return _stop;
 }
 
-module.exports = { runOnce, reconcileCounters, reportMeteredUsageToStripe, checkAiSpendReconciliation, enforceDataRetention, startScheduler };
+let _stop = null;
+/** Symmetric with the other schedulers, so index.js's shutdown path can stop
+ * this one the same way it stops the rest. */
+function stopScheduler() {
+  if (_stop) _stop();
+}
+
+module.exports = { runOnce, reconcileCounters, reportMeteredUsageToStripe, checkAiSpendReconciliation, enforceDataRetention, startScheduler, stopScheduler };
 

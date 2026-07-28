@@ -15,6 +15,12 @@ env:
   REGISTRY: ghcr.io
   SERVER_IMAGE: ghcr.io/${{ github.repository_owner }}/scopecash-ai-server
   DASH_IMAGE:   ghcr.io/${{ github.repository_owner }}/scopecash-ai-dashboard
+  # The single-container image built from the ROOT Dockerfile (SERVE_DASHBOARD=1).
+  # This is what fly.toml, railway.json and terraform-gcp var.container_image
+  # actually deploy — and until 2026-07-28 no workflow built, scanned, signed or
+  # SBOM-attested it, so every supply-chain guarantee here covered two images no
+  # documented deployment path uses.
+  APP_IMAGE:    ghcr.io/${{ github.repository_owner }}/scopecash-ai
 
 jobs:
   build:
@@ -25,6 +31,7 @@ jobs:
         include:
           - { name: server,    context: ./server,    image: SERVER_IMAGE }
           - { name: dashboard, context: ./dashboard, image: DASH_IMAGE }
+          - { name: app,       context: .,           image: APP_IMAGE }
     steps:
       - uses: actions/checkout@v4
 
