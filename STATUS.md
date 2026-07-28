@@ -2657,6 +2657,28 @@ Also added `.gitleaks.toml` (allowlisting only inspected false positives, verifi
 
 The lesson generalises beyond this repo: a green local run and a committed workflow file are not evidence that a gate exists. The gate has to be observed executing. This is the same class of error as the dormant-code pattern found repeatedly in the application itself — a fully-built mechanism with nothing invoking it — relocated into CI configuration.
 
+## Phase 43 — Sweeping for the rest of the never-executed class (DONE, 2026-07-28)
+
+Phase 42's lesson — configured is not running — generalised, so it was applied deliberately rather than left as an observation. A systematic sweep of schedulers, npm scripts, env-var drift, route mounts, Terraform↔code name matching, and path/name mismatches found 18 items. Two categories came back genuinely clean (every route file is mounted; every npm script target exists), which is itself worth recording. The rest, highest severity first:
+
+**A stock `terraform apply` could not make a single Gemini call.** The module set neither `VERTEX_GEMINI_MODEL` nor `VERTEX_GEMINI_PRO_MODEL`, and exposed no variable for them — while its own comment told operators to "set a real, dated model id explicitly per deployment". There was no mechanism behind that instruction. `lib/vertex-ai.js#requireModel` throws `vertex_model_unpinned` without them and all five evidence-pipeline call sites rely on the default, so document extraction, contract baselines, transcription, image interpretation and scope comparison would each have failed on first use. Added both variables, with validation rejecting `-latest`, preserving the deliberate no-default policy.
+
+**Paying customers would have been redirected to localhost.** `PUBLIC_DASHBOARD_URL` was set in no deploy artifact, so `routes/billing.js` fell back to the literal `http://localhost:3000` for Stripe Checkout success/cancel and the customer-portal return, and `lib/email.js` built every transactional link from the same value. `APP_URL` was likewise unset, leaving the ownership-transfer email with a bare relative path no mail client can open.
+
+**Cloud Tasks was provisioned, billed, and unreachable.** Terraform created the queue and set `CLOUD_TASKS_QUEUE`, but `lib/evidence-jobs.js` only uses it when `JOBS_BACKEND=cloud-tasks` and `CLOUD_TASKS_PUSH_URL` are both present — and the module set neither. Every evidence job fell back to in-process `setImmediate`, where work in flight is lost on any instance restart; on Cloud Run that happens routinely at scale-to-zero. This is exactly the durability Phase 13 existed to provide.
+
+**Enabling `cloud_sql_iam_auth` would have crash-looped the service** — a bug introduced earlier in this same session. Terraform hardcodes `CLOUD_SQL_IAM_AUTH=1` and exports `CLOUD_SQL_CONNECTION_NAME`, but `initCloudSqlIamAuth` was written against `CLOUD_SQL_INSTANCE`/`CLOUD_SQL_DATABASE` and fails closed by design. Wiring an app to env-var names the infrastructure does not emit is the same defect class as the branch mismatch, committed by me two commits after diagnosing it.
+
+**`.env.example` documented S3 credentials under names no code reads** (`STORAGE_ACCESS_KEY_ID` vs the real `STORAGE_ACCESS_KEY`), so credentials set by following the documentation were silently ignored and the driver fell through to ADC. Two further documented variables (`FALLBACK_AI_PROVIDER`, `BEHAVIOR_NOTIFY_EMAIL`) are read by nothing — the documented AI-failover behaviour does not exist.
+
+**Every flag gating real behaviour was undocumented**: all ten `INTEGRATION_*_MODE` adapters default to mock and hand agents `{_mock: true}` responses, and `ORG_DELETION_SWEEP_ENABLED`, `DATA_RETENTION_ENFORCE` and `JOBS_BACKEND` appeared in no deploy artifact. An operator following the docs would conclude those features were broken rather than deliberately off.
+
+**CI signed two images nobody deploys.** `container-build-sign` built `./server` and `./dashboard`; `fly.toml`, `railway.json` and `var.container_image` all deploy the root `Dockerfile`. Every cosign signature, SBOM attestation and grype scan covered images no documented deployment path uses. The root image is now in the matrix and verified building green.
+
+Smaller drift, all real: `usage-aggregator`'s timers survived graceful shutdown (its stop handle was discarded and, alone among the schedulers, its intervals were not `unref`'d); nginx long-cached `/static/`, a CRA path Vite never emits, so hashed bundles were served with no immutable header (fixed and verified against a running container); a stale `react-scripts` Dependabot ignore; and `ops/ENV-VARS.md` — self-described as the single source of truth for environment variables — instructing readers to copy a filename that does not exist.
+
+All five workflows green on `master` after the changes, including the new app-image build. 43 suites, 443 passing; `terraform fmt`/`validate` clean.
+
 **Still open after this phase**, and none of it achievable from an engineering session: an operational job dashboard in the UI and progress reporting on the two shorter job kinds (small, real, just not done); and everything requiring a live GCP project (`terraform plan`/`apply`, the real-Vertex evaluation gate, Cloud SQL PITR, regional failover — no alert defined here has ever actually fired), a human (manual assistive-technology testing, attorney/vendor/penetration-test sign-off), or real customers (arms-length revenue, invoices, testimonials).
 
 ## Not yet started
