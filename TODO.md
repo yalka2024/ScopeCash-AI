@@ -221,13 +221,13 @@ is blocked by definition — those live in the last section and can never be
       sums across outcomes with the six stages kept separate — see
       STATUS.md. Any future dashboard/CSV/PDF work should build on this,
       not re-derive its own totals.
-- [~] Durable GCP jobs: idempotency, retries, heartbeat, cancellation,
+- [x] Durable GCP jobs: idempotency, retries, heartbeat, cancellation,
       progress, dead-lettering, replay. Idempotency + retries landed in
-      Phase 13/17; heartbeat, cancellation, progress, dead-lettering and
-      replay in Phase 41 (see the re-audit section below for what each
-      closed and the two real bugs found). Remaining: an operational job
-      dashboard in the UI, and progress reporting on the two shorter job
-      kinds.
+      Phase 13/17; heartbeat, cancellation, progress, dead-lettering, replay
+      and the operational job dashboard (`dashboard/src/JobsPage.js`) in
+      Phase 41 — see the re-audit section below for what each closed and the
+      three real bugs found along the way, including one this work itself
+      introduced (a still-running job being redispatched as crashed).
 - [x] Transactional outbox for billing/notifications/job creation/audit —
       done in Phase 17 for billing + job creation (the two real, concrete
       dual-write hazards found); notifications and audit deliberately
@@ -446,20 +446,24 @@ the audit was right every time, and three gaps were worse than reported.
       `postinstall` run (`npm ci --ignore-scripts`, cached `node_modules`,
       cleaned `.prisma`) because globalSetup migrated but never generated
       the client. Verified by deleting `node_modules/.prisma` and running cold.
-- [~] All five unenforced plan quotas (`storage_gb`, `api_calls_per_month`,
+- [x] All five unenforced plan quotas (`storage_gb`, `api_calls_per_month`,
       `ai_tokens_per_month`, `webhooks`, `data_retention_days`) now enforced.
-      Marked partial, not done, after verification: `api_calls_per_month`
-      is counted in `attachTenant`, which is mounted PER-ROUTER — roughly 11
-      authenticated routers (`/api/tools`, `/api/analytics`,
-      `/api/notifications`, `/api/competition`, `/api/operations`,
-      `/api/api-keys`, `/api/governance`, `/api/trust`, `/api/data-products`,
-      `/api/status`, `/api/docs`) never run it, so that one meter
-      under-counts and is bypassable via those paths. Under-counting is the
-      safe direction (never over-bills, never wrongly blocks) but it is not
-      full coverage. Closing it means mounting auth + attachTenant uniformly
-      across every router — a bigger change than the quota work itself.
-      `data_retention_days` is also deliberately report-only unless
-      `DATA_RETENTION_ENFORCE=1`. The other three are fully enforced.
+      A verification pass found `api_calls_per_month` had a coverage hole —
+      it is counted in `attachTenant`, which is mounted per-router, and eight
+      authenticated routers (analytics, api-keys, competition, data-products,
+      governance, notifications, operations, tools) skipped it, so those
+      routes never counted and ran with no RLS context. All eight now mount
+      it, and `tests/unit/tenant-coverage.test.js` fails if a new
+      user-authenticating router appears without it — the failure mode is
+      silent (routes work fine, they just don't count), so it needs a test
+      rather than review discipline. Remaining exemptions are deliberate and
+      documented in that test: auth/oauth (pre-auth), jobs (Cloud Tasks
+      machine-to-machine), `/api/me` (a GDPR request must not be blocked by
+      billing state), billing (a limit must not lock a customer out of the
+      page where they'd fix it), health, stripe-webhook, tenants.
+      `data_retention_days` deletes only under `DATA_RETENTION_ENFORCE=1` —
+      a deliberate default, not a gap: enforcement irreversibly destroys the
+      evidence a contractor needs in a payment dispute.
       Also fixed: `getActiveSubscription` could never report
       `suspended`/`canceled`, making every downgrade branch that checks for
       them dead code, so suspended orgs kept full access. Retention deletion
@@ -473,7 +477,7 @@ the audit was right every time, and three gaps were worse than reported.
       and called by nothing).
 - [x] Both Terraform modules parse and validate; blocking CI job added.
 - [x] Cloud Logging structured fields + Monitoring alerts/metrics/SLO.
-- [~] Durable GCP jobs — heartbeats, cancellation, progress events,
+- [x] Durable GCP jobs — heartbeats, cancellation, progress events,
       dead-lettering and replay are DONE (Phase 41). Two real bugs closed:
       `reconcileStuckJobs` only ever swept `queued`, so a run whose worker
       died mid-execution stayed `running` forever and was never recovered;
@@ -481,8 +485,11 @@ the audit was right every time, and three gaps were worse than reported.
       on every tick indefinitely. Cancellation is cooperative (checked at
       stage boundaries) so a job is never killed between a storage write and
       its database row. New `POST /api/agentRunRecords/:id/{cancel,replay}`.
-      Still open: an operational job dashboard (dashboard UI — the API is
-      there, nothing renders it).
+      The operational job dashboard now exists too: `dashboard/src/JobsPage.js`
+      ("Background jobs" in the nav) shows status, live progress, attempt
+      count and heartbeat age, with Cancel/Replay and a "Needs attention"
+      filter that surfaces stale-heartbeat runs before the reconciler reaches
+      them. Covered by the authenticated axe-core a11y suite.
       **Follow-up fix (same day):** an independent verification pass caught
       that only the document path heartbeated, so a still-working
       evidence-item or findings job went stale past the threshold, was judged

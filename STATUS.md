@@ -2632,6 +2632,14 @@ Net: 42 suites, 435 passing (up from 374 at the start of this phase), the 19-tes
 
 42 suites, 438 passing after the fixes; `terraform validate` still clean.
 
+**Closing the last two achievable partials.** After the verification pass, two items remained that code could actually finish, and both are now done.
+
+*API-call quota coverage.* `attachTenant` cannot be mounted globally — it requires `req.user`, and auth is per-router — so coverage depends on every authenticating router mounting it. Eight did not: analytics, api-keys, competition, data-products, governance, notifications, operations, tools. Those routes were invisible to `api_calls_per_month` and, on Postgres, ran their queries with no RLS context at all. Checked first that none is admin-gated or uses `runWithSystemAccess`, so scoping them to their own org is a correctness gain rather than a break. The failure mode is silent — the routes work perfectly and simply never count — so `tests/unit/tenant-coverage.test.js` now fails if a user-authenticating router appears without it, and requires any exemption to name a real file and a real reason. Verified with the Postgres+RLS suite, which is the only run that exercises the scoping change; SQLite structurally cannot.
+
+*Operational job dashboard.* The durable-job work shipped heartbeats, dead-lettering, cancellation and replay plus routes to drive them, and then rendered none of it — a dead-lettered job was invisible without a manual database query, which is most of the point of having built it. `dashboard/src/JobsPage.js` shows status, live progress, attempt count and heartbeat age, with Cancel/Replay and a "Needs attention" filter that surfaces stale-heartbeat runs before the reconciler reaches them. Not admin-gated, since the routes are org-scoped and a contractor should be able to retry their own stuck analysis. Polling stops when nothing is live — an idle tab should not keep spending a quota this same phase just started enforcing. Added to the authenticated a11y suite's explicit nav list, which would otherwise have skipped it; 31/31 pass including axe-core WCAG 2.2 AA on the new page.
+
+TODO.md now stands at **63 `[x]` / 3 `[~]` / 1 `[ ]`**, and the four non-`[x]` entries are three distinct items (backup/restore RPO/RTO is listed twice by design, as a pointer), every one of which is blocked on something outside engineering.
+
 **Still open after this phase**, and none of it achievable from an engineering session: an operational job dashboard in the UI and progress reporting on the two shorter job kinds (small, real, just not done); and everything requiring a live GCP project (`terraform plan`/`apply`, the real-Vertex evaluation gate, Cloud SQL PITR, regional failover — no alert defined here has ever actually fired), a human (manual assistive-technology testing, attorney/vendor/penetration-test sign-off), or real customers (arms-length revenue, invoices, testimonials).
 
 ## Not yet started
