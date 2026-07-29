@@ -29,9 +29,15 @@ const PLATFORM_ID = 'scopecash-ai';
 const SUPPORT_EMAIL = `support@${PLATFORM_ID}.app`;
 const PRIVACY_EMAIL = `privacy@${PLATFORM_ID}.app`;
 const SECURITY_EMAIL = `security@${PLATFORM_ID}.app`;
-const LEGAL_ENTITY = '[LEGAL ENTITY NAME — e.g. "Summit Software LLC"]';
-const INCORPORATION_STATE = '[STATE OF INCORPORATION]';
-const GOVERNING_STATE = '[GOVERNING STATE — usually your state of incorporation or principal place of business]';
+// ScopeCash AI operates under an existing entity rather than its own. If the
+// product is ever sold or spun out separately, this is the first thing that
+// has to change — along with the Stripe account and the subprocessor DPAs.
+const LEGAL_ENTITY = 'Neurohires LLC';
+// STILL REQUIRED. These drive the governing-law and venue clauses, so a wrong
+// value is worse than a visible placeholder: it would name a jurisdiction you
+// have no presence in and could not enforce in. Set both before publishing.
+const INCORPORATION_STATE = '[STATE OF INCORPORATION — Neurohires LLC]';
+const GOVERNING_STATE = '[GOVERNING STATE — usually the state above, or principal place of business]';
 
 const wrap = { maxWidth: 880, margin: '0 auto', padding: '0 1.25rem' };
 const lastUpdated = 'July 2026 (DRAFT — pending counsel review, see note below)';
