@@ -186,7 +186,17 @@ async function runOnce() {
 /** Called from worker.js if BullMQ is available; otherwise plain setInterval. */
 function startScheduler({ intervalMs = 60 * 60 * 1000 } = {}) {
   if (process.env.BILLING_AGGREGATOR_DISABLED === '1') return null;
-  const tick = async () => { try { await runOnce(); } catch (e) { console.error(e); } };
+  // Leased: this tick escalates billing lifecycles (past_due -> grace ->
+  // suspend), reports metered usage to Stripe, and runs the data-retention
+  // sweep — which deletes evidence outright once DATA_RETENTION_ENFORCE=1.
+  // Each instance schedules its own copy with no leader election, so without
+  // a lease an N-instance deployment does all of that N times per hour.
+  // See lib/scheduler-lease.js.
+  const tick = async () => {
+    try {
+      await require('../lib/scheduler-lease').withLease('usage-aggregator', runOnce);
+    } catch (e) { console.error(e); }
+  };
   // First run after 60s so boot isn't blocked.
   const kick = setTimeout(tick, 60_000);
   const handle = setInterval(tick, intervalMs);

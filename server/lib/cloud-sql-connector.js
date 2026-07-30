@@ -7,17 +7,23 @@
  * production) and transparently rotates both for the life of the process.
  * No DB password is ever generated, stored, or passed anywhere.
  *
- * Opt-in, not yet wired into lib/prisma.js's default boot path: building
- * this pool is unavoidably async (the connector fetches instance metadata
- * and an initial cert on first use), while lib/prisma.js constructs its
- * exported client synchronously at require() time so every existing
- * consumer (`const prisma = require('../lib/prisma')`, used across ~20
- * route files) keeps working unchanged. Wiring this in for real means
- * restructuring index.js's startup to await this pool BEFORE requiring any
- * route module — a real, higher-blast-radius change deliberately deferred
- * until there's a live GCP project to validate the new boot sequence
- * against (see TODO.md). `createPrismaClientWithIamAuth()` in
- * lib/prisma.js is the ready-to-call factory for that follow-up.
+ * WIRED AND LIVE. index.js and worker.js both await
+ * lib/prisma.js#initCloudSqlIamAuth() before accepting any work; it fails
+ * closed if enabled-but-misconfigured. Enable with CLOUD_SQL_IAM_AUTH=1 plus
+ * CLOUD_SQL_INSTANCE (or CLOUD_SQL_CONNECTION_NAME) and CLOUD_SQL_IAM_USER —
+ * see server/.env.example.
+ *
+ * The original obstacle, for context: building this pool is unavoidably
+ * async (the connector fetches instance metadata and an initial cert on
+ * first use), while lib/prisma.js constructs its exported client
+ * synchronously at require() time, and ~20 route files capture that object
+ * at module scope. Resolved without restructuring boot order by making the
+ * module export a Proxy over a mutable client, so startup can swap the
+ * underlying client after those requires have already happened.
+ *
+ * (This comment said "not yet wired ... deliberately deferred" until
+ * 2026-07-30, two phases after it landed. A stale comment asserting a live
+ * feature is dead is how working mechanisms get treated as dead code.)
  *
  * Required Terraform-provisioned state (deploy/terraform-gcp/main.tf, gated
  * behind var.cloud_sql_iam_auth): the Cloud SQL instance has

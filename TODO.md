@@ -83,10 +83,17 @@ is blocked by definition — those live in the last section and can never be
         trusting the client — the signed URL proves nothing about content.
         Staging-key ownership enforced via the existing per-user key prefix.
         8 new tests. See STATUS.md.
-  - [x] Cloud SQL IAM database authentication — done in Phase 16, partially:
-        real, tested application code plus real Terraform provisioning, but
-        NOT yet wired into index.js's default boot path (see STATUS.md for
-        exactly why, and what the remaining follow-up is).
+  - [x] Cloud SQL IAM database authentication — application code and
+        Terraform provisioning in Phase 16; **wired into the real boot path
+        in Phase 41** (`index.js` and `worker.js` both await
+        `initCloudSqlIamAuth()` before accepting work, and it fails closed if
+        enabled-but-misconfigured). Phase 43 then fixed an env-var name
+        mismatch that would have crash-looped the service when the flag was
+        first turned on. Env vars documented in `server/.env.example`.
+        (This entry read "NOT yet wired into index.js's default boot path"
+        until 2026-07-30 — stale for two phases, and contradicted by the
+        re-audit section below. Exactly the doc rot that made these audits
+        necessary.)
   - [x] GCP Terraform — `deploy/terraform-gcp/main.tf` (new, alongside the
         existing AWS module, not replacing it). Provisions VPC + private-IP
         Cloud SQL Postgres, Cloud Storage, Cloud Tasks, Artifact Registry,
@@ -496,6 +503,11 @@ is blocked by definition — those live in the last section and can never be
       to an arbitrary recipient is still possible for a caller who
       genuinely can approve packets — the 5 templates the tool's own
       description names don't actually exist yet. See STATUS.md Phase 24.
+      **Superseded 2026-07-27 (Phase 41):** all five templates now exist in
+      `lib/email-templates.js`, `template_id` is required and allowlisted,
+      `template_vars` is filtered so subject/html/text cannot be smuggled
+      through, and the recipient must be the packet's own recorded recipient
+      or an active org member. The free-form path is gone.
 
 ## Re-audit remediation (2026-07-27) — see STATUS.md Phase 41
 
@@ -630,6 +642,10 @@ the audit was right every time, and three gaps were worse than reported.
       used, though nothing yet auto-applies it at export time (the export
       route doesn't generate a PDF server-side at all today — documented,
       not silently implied). See STATUS.md Phase 31.
+      **Superseded 2026-07-27 (Phase 41):** the export route now resolves the
+      pinned-or-active `PacketTemplate`, renders real PDF bytes through
+      `lib/tools/pdfpacketrenderer.js`, stores them, records a sha256, and
+      pins the template used so a re-export is reproducible.
 - [x] PDF visual regression tests — pdfpacketrenderer.js hand-crafts a raw
       PDF byte stream (no library); a refactor could corrupt the actual
       layout while keeping every substring the existing text-presence tests

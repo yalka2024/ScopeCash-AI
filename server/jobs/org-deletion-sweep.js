@@ -8,6 +8,7 @@
  * intended to use it.
  */
 const orgDeletion = require('../lib/org-deletion');
+const lease = require('../lib/scheduler-lease');
 
 let timer = null;
 
@@ -24,7 +25,17 @@ function startScheduler({ intervalMs = parseInt(process.env.ORG_DELETION_SWEEP_I
   if (timer) return timer;
   const dryRun = process.env.ORG_DELETION_SWEEP_DRY_RUN === '1';
   const tick = async () => {
-    try { await runOnce({ dryRun }); } catch (err) {
+    try {
+      // Leased. This sweep PERMANENTLY DELETES an organization's data across
+      // 44 models — the single most irreversible scheduled action in the
+      // system — and Cloud Run gives every instance its own copy of this
+      // timer with no leader election. The underlying delete is idempotent
+      // (a second pass finds nothing left to remove), so the risk is not
+      // double-deletion but N concurrent destructive transactions racing over
+      // the same rows. One winner per period removes that entirely.
+      // See lib/scheduler-lease.js.
+      await lease.withLease('org-deletion-sweep', () => runOnce({ dryRun }));
+    } catch (err) {
       console.error(JSON.stringify({ type: 'org_deletion_sweep_error', error: err.message }));
     }
   };

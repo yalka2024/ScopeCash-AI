@@ -499,11 +499,13 @@ resource "google_cloud_run_v2_service" "app" {
         name  = "DATABASE_URL"
         value = "postgresql://${google_sql_user.app.name}:${var.db_password}@localhost/${google_sql_database.app.name}?host=/cloudsql/${google_sql_database_instance.postgres.connection_name}"
       }
-      # run_sa_cloudsql_instance_user above) — DATABASE_URL still uses the
-      # password-based user regardless of this flag until
-      # lib/prisma.js#createPrismaClientWithIamAuth is actually wired into
-      # index.js's boot sequence (see that function's header comment and
-      # TODO.md). These env vars are what that follow-up will read.
+      # run_sa_cloudsql_instance_user above). DATABASE_URL below still carries
+      # the password-based user as a fallback, but when these are set the app
+      # actually uses IAM auth: index.js and worker.js await
+      # lib/prisma.js#initCloudSqlIamAuth() before accepting work, and it
+      # fails closed rather than silently reverting to password auth.
+      # (This comment claimed the wiring did not exist until 2026-07-30 — two
+      # phases after it landed.)
       dynamic "env" {
         for_each = var.cloud_sql_iam_auth ? [1] : []
         content {
