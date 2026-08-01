@@ -82,16 +82,32 @@ async function get(id, { orgId } = {}) {
 }
 
 /** List recent runs of a kind, optionally scoped to an org. */
+/**
+ * List runs, scoped to an org.
+ *
+ * Same failure mode as get() had, in bulk: `...(orgId ? { orgId } : {})`
+ * DROPPED the filter whenever orgId was falsy, so a user whose orgId is null
+ * (User.orgId is nullable) listed every tenant's runs. The in-memory fallback
+ * below did the same. On Postgres RLS backstopped it, but SQLite and
+ * docker-compose deployments have no such net.
+ *
+ * orgId is now required and null means "explicitly unscoped, trusted caller"
+ * — the same contract as get(), so neither can be bypassed by omission.
+ */
 async function list({ kind, orgId, take = 50 } = {}) {
+  if (orgId === undefined) {
+    throw new Error('run-store.list({ orgId }) requires an explicit orgId (use null for trusted internal callers)');
+  }
+  const orgWhere = orgId === null ? {} : { orgId };
   try {
     const rows = await prisma.agentRun.findMany({
-      where: { ...(kind ? { kind } : {}), ...(orgId ? { orgId } : {}) },
+      where: { ...(kind ? { kind } : {}), ...orgWhere },
       orderBy: { createdAt: 'desc' }, take,
     });
     return rows.map(_inflate);
   } catch {
     return Array.from(_cache.values())
-      .filter(r => (!kind || r.kind === kind) && (!orgId || r.orgId === orgId))
+      .filter(r => (!kind || r.kind === kind) && (orgId === null || r.orgId === orgId))
       .slice(0, take);
   }
 }

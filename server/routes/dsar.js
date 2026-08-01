@@ -83,9 +83,21 @@ router.post('/erase', requireScope('write'), express.json(), async (req, res, ne
 
     try { await audit(req, 'dsar.erase', { resource: 'user', resourceId: userId, anonId }); } catch (e) {}
 
-    // Invalidate the auth cookie immediately.
-    res.clearCookie('auth', { path: '/' });
-    res.clearCookie('refresh', { path: '/' });
+    // Invalidate the session for real.
+    //
+    // These previously cleared 'auth' and 'refresh' — cookies that do not
+    // exist. The real names are 'access_token' (middleware/auth.js) and
+    // 'refresh_token' (lib/session.js), so a GDPR Art. 17 erasure left the
+    // caller holding a valid 15-minute access token AND a working refresh
+    // token: the erased account stayed usable, and could mint new sessions
+    // indefinitely. Clearing cookies alone is also not enough — the refresh
+    // tokens are server-side rows, so they are revoked here too.
+    res.clearCookie('access_token', { path: '/' });
+    res.clearCookie('refresh_token', { path: '/' });
+    await prisma.refreshToken.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    }).catch(() => {});
     res.json({ ok: true, anonId, message: 'Account anonymised. Backups will roll off within 30 days.' });
   } catch (err) { next(err); }
 });

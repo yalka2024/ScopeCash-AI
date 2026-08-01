@@ -7,6 +7,9 @@ const stripe = require('../lib/billing/stripe');
 const packetCredits = require('../lib/billing/packet-credits');
 const dunning = require('../lib/billing/dunning');
 const { audit } = require('../lib/audit');
+// Money-moving actions are owner/admin only. Without this any member — down to
+// a `viewer` — could cancel the org's subscription or start a $149 charge.
+const { requireAnyOrgRole } = require('../lib/roles');
 
 const router = express.Router();
 
@@ -58,7 +61,7 @@ router.get('/usage', async (req, res, next) => {
 });
 
 /* ── Stripe Checkout — start a subscription ───────────────────── */
-router.post('/checkout', async (req, res, next) => {
+router.post('/checkout', requireAnyOrgRole('owner', 'admin'), async (req, res, next) => {
   try {
     if (!stripe.isConfigured()) {
       return res.status(503).json({ error: 'billing_not_configured', code: 'billing_not_configured' });
@@ -89,7 +92,7 @@ router.post('/checkout', async (req, res, next) => {
  * credit it grants is creditable toward a plan for 60 days, so the one-off
  * is an on-ramp rather than a dead end.
  */
-router.post('/checkout/packet', async (req, res, next) => {
+router.post('/checkout/packet', requireAnyOrgRole('owner', 'admin'), async (req, res, next) => {
   try {
     if (!stripe.isConfigured()) {
       return res.status(503).json({ error: 'billing_not_configured', code: 'billing_not_configured' });
@@ -129,7 +132,7 @@ router.get('/packet-credits', async (req, res, next) => {
 });
 
 /* ── Stripe Customer Portal — self-service ────────────────────── */
-router.post('/portal', async (req, res, next) => {
+router.post('/portal', requireAnyOrgRole('owner', 'admin'), async (req, res, next) => {
   try {
     if (!stripe.isConfigured()) {
       return res.status(503).json({ error: 'billing_not_configured', code: 'billing_not_configured' });
@@ -145,7 +148,7 @@ router.post('/portal', async (req, res, next) => {
 });
 
 /* ── Cancel at period end (no portal) ─────────────────────────── */
-router.post('/cancel', async (req, res, next) => {
+router.post('/cancel', requireAnyOrgRole('owner', 'admin'), async (req, res, next) => {
   try {
     const sub = await dunning.cancel({ orgId: req.user.orgId, atPeriodEnd: true });
     await audit(req, 'billing.subscription.cancel_requested', { resource: 'subscription', resourceId: req.user.orgId, details: { status: sub?.status, cancelAt: sub?.cancelAt } });

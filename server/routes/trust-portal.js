@@ -17,6 +17,7 @@
  *   DELETE /api/trust-portal/admin/overrides/:questionId
  */
 const express = require('express');
+const limiters = require('../lib/ratelimit');
 const { authMiddleware } = require('../middleware/auth');
 const attachTenant = require('../middleware/tenant');
 const bank = require('../lib/questionnaire-bank');
@@ -72,7 +73,12 @@ const RequestSchema = z.object({
   prospectEmail: z.string().email().max(200),
   message: z.string().max(2000).optional(),
 });
-router.post('/kits/request', validate(RequestSchema), asyncHandler(async (req, res) => {
+// Rate limited for real. This is UNAUTHENTICATED and writes a database row
+// plus captures an email; with AUTO_APPROVE_TRUST_KITS=1 it also mints a
+// download token in that same anonymous call. The docblock claimed
+// "(rate limited)" while no limiter was mounted — on a public repo that is
+// the cheapest abuse target in the app.
+router.post('/kits/request', limiters.expensive, validate(RequestSchema), asyncHandler(async (req, res) => {
   const kit = await kits.requestKit({
     prospectName: req.body.prospectName || null,
     prospectCompany: req.body.prospectCompany || null,

@@ -53,11 +53,37 @@ function traceFields(req) {
   return out;
 }
 
+/**
+ * Strip credential-bearing query parameters before a URL is logged.
+ *
+ * The trust-portal kit download takes its bearer credential in the query
+ * string (`/kits/download?token=...`), so the raw URL put a working download
+ * token into Cloud Logging verbatim — readable by anyone with log access, and
+ * retained for the log bucket's lifetime. Applied to every logged URL rather
+ * than that one route, so a future endpoint that does the same is covered
+ * without anyone remembering to.
+ */
+const SENSITIVE_QUERY_PARAMS = new Set(['token', 'access_token', 'api_key', 'apikey', 'key', 'secret', 'password', 'sig', 'signature']);
+
+function redactUrl(url) {
+  const raw = String(url == null ? '' : url);
+  const q = raw.indexOf('?');
+  if (q === -1) return raw;
+  const path = raw.slice(0, q);
+  const params = raw.slice(q + 1).split('&').map((pair) => {
+    const eq = pair.indexOf('=');
+    if (eq === -1) return pair;
+    const name = pair.slice(0, eq);
+    return SENSITIVE_QUERY_PARAMS.has(name.toLowerCase()) ? `${name}=REDACTED` : pair;
+  });
+  return `${path}?${params.join('&')}`;
+}
+
 /** The Cloud Logging `httpRequest` object for a finished request. */
 function httpRequestField(req, res, ms) {
   return {
     requestMethod: req.method,
-    requestUrl: req.originalUrl,
+    requestUrl: redactUrl(req.originalUrl),
     status: res.statusCode,
     latency: `${(ms / 1000).toFixed(3)}s`,
     userAgent: req.headers['user-agent'],
@@ -74,7 +100,7 @@ function accessLogEntry(req, res, ms) {
     type: 'http',
     requestId: req.requestId,
     method: req.method,
-    path: req.originalUrl,
+    path: redactUrl(req.originalUrl),
     status: res.statusCode,
     ms,
     httpRequest: httpRequestField(req, res, ms),
@@ -82,4 +108,4 @@ function accessLogEntry(req, res, ms) {
   };
 }
 
-module.exports = { accessLogEntry, severityForStatus, traceFields, httpRequestField };
+module.exports = { accessLogEntry, severityForStatus, traceFields, httpRequestField, redactUrl };

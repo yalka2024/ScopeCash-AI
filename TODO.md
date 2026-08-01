@@ -855,3 +855,50 @@ These showed up in the audit as P0/P1 items but are not things code can do:
       customers, a real Stripe live-mode subscription, and a real
       conversation asking a real customer for a quote and their consent to
       use it.
+
+## Security remediation queue (2026-08-01)
+
+From an adversarial audit whose findings were re-verified against current code
+(the audit document itself is deliberately NOT in this repository — it is a
+working exploitation guide, and this repo is public). Items are described by
+effect, not by exploit path.
+
+**Fixed 2026-08-01:**
+- [x] Cross-tenant IDOR on agent/workflow/goal runs — an in-process cache
+      returned another tenant's run without the query reaching the database,
+      so RLS never evaluated. `get()` now requires an explicit org and throws
+      if omitted. 6 regression tests incl. the cache path.
+- [x] The same class in `list()` — a falsy org silently dropped the filter,
+      enumerating every tenant's runs. Now fails closed; `routes/goals.js`
+      switched from the nullable `req.user.orgId` to `req.tenant.orgId`.
+- [x] Billing actions had no role gate — any member, down to `viewer`, could
+      cancel the org's subscription or start a charge. All four money-moving
+      endpoints now require owner/admin.
+- [x] GDPR erasure did not end the session: it cleared cookie names that do
+      not exist, leaving a valid access token and a working refresh token.
+      Correct names + server-side refresh-token revocation.
+- [x] No `unhandledRejection`/`uncaughtException` handlers anywhere — one
+      unawaited rejection killed the process, bypassing in-flight drain and
+      the buffered-meter flush. Both now route into graceful shutdown.
+- [x] Unauthenticated trust-kit request was unrate-limited despite its own
+      docblock claiming otherwise; its download token was written verbatim
+      into access logs. Limiter mounted; credential query params redacted in
+      `lib/gcp-logging.js` for every logged URL, not just that route.
+
+**Still open, ranked:**
+- [ ] Outcome billing calls a Stripe SDK method removed in v22 — it reports
+      `billed: true` while every call fails, and the failure is swallowed.
+      Revenue-critical now that the $149 SKU is live. (The new SKU itself is
+      unaffected — it uses `checkout.sessions.create`.)
+- [ ] `requireScope()` is not an authorization control: sessions get `'*'`,
+      so scope checks are pass-through on destructive routes, and any member
+      can mint a full-scope API key.
+- [ ] AI spend ceiling measures almost nothing — only one route records
+      spend, so the budget guard blocks on a near-zero number while agents,
+      workflows and the evidence pipeline spend uncounted.
+- [ ] No boot-time assertion that RLS policies exist. `docker-compose.yml`
+      genuinely deploys without them and nothing detects it.
+- [ ] Operator-console cross-tenant reads (platform-admin gated, so low
+      exploitability, high blast radius if an operator account is phished).
+- [ ] Money is IEEE-754 float with no rounding and no unit test — highest
+      correctness stakes, lowest exploitability. Write the drift test first.

@@ -385,3 +385,32 @@ async function gracefulShutdown(signal) {
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT',  () => gracefulShutdown('SIGINT'));
 
+/**
+ * Crash handlers. There were none: a single unhandled rejection anywhere —
+ * including in the five unguarded schedulers started above — terminated the
+ * process with Node's default behaviour, bypassing the entire graceful path
+ * (in-flight request drain, buffered API-call meter flush, growth-event
+ * drain, Cloud SQL connector release). Requests in flight were dropped and
+ * buffered counters lost.
+ *
+ * These log with ERROR severity (so the Cloud Monitoring 5xx/error policies
+ * actually see them) and then route into the SAME graceful shutdown, rather
+ * than attempting to continue: after an uncaught exception the process state
+ * is undefined, and serving from it is worse than a clean restart that Cloud
+ * Run will replace in seconds.
+ */
+function fatal(kind, err) {
+  try {
+    console.error(JSON.stringify({
+      severity: 'ERROR', type: kind,
+      message: err && err.message, stack: err && err.stack,
+    }));
+  } catch { /* logging must never mask the original fault */ }
+  try { sentry.captureException(err); } catch {}
+  gracefulShutdown(kind);
+}
+process.on('unhandledRejection', (reason) => {
+  fatal('unhandledRejection', reason instanceof Error ? reason : new Error(String(reason)));
+});
+process.on('uncaughtException', (err) => fatal('uncaughtException', err));
+

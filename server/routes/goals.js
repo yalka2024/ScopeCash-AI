@@ -22,7 +22,9 @@ router.use(limiters.ai);
 
 // GET /api/goals — list this tenant's goals (durable across restarts).
 router.get('/', requireScope('read'), asyncHandler(async (req, res) => {
-  res.json({ goals: await orchestrator.listGoals(req.user.orgId) });
+  // req.tenant.orgId, not req.user.orgId — User.orgId is nullable, and a null
+  // there used to drop the filter entirely and list every tenant's goals.
+  res.json({ goals: await orchestrator.listGoals(req.tenant.orgId) });
 }));
 
 // GET /api/goals/:id — inspect a goal, its plan, and its trace.

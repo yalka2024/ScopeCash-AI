@@ -76,3 +76,40 @@ describe('trace correlation', () => {
     expect(f['logging.googleapis.com/spanId']).toBeUndefined();
   });
 });
+
+/**
+ * Credential redaction. The trust-portal kit download carries its bearer
+ * credential in the query string, so an unredacted URL wrote a WORKING
+ * download token into Cloud Logging verbatim — readable by anyone with log
+ * access, for the retention life of the bucket.
+ */
+describe('redactUrl', () => {
+  test('redacts a download token but keeps the rest of the URL usable', () => {
+    expect(gcp.redactUrl('/api/trust-portal/kits/download?token=SECRET&x=1'))
+      .toBe('/api/trust-portal/kits/download?token=REDACTED&x=1');
+  });
+
+  test('redacts every credential-ish parameter name, case-insensitively', () => {
+    for (const p of ['token', 'API_KEY', 'Secret', 'password', 'sig', 'signature', 'access_token']) {
+      expect(gcp.redactUrl(`/x?${p}=abc123`)).toBe(`/x?${p}=REDACTED`);
+    }
+  });
+
+  test('leaves ordinary query parameters intact — this must not blind the logs', () => {
+    expect(gcp.redactUrl('/api/projects?page=2&limit=50')).toBe('/api/projects?page=2&limit=50');
+  });
+
+  test('passes through URLs with no query string', () => {
+    expect(gcp.redactUrl('/api/health/live')).toBe('/api/health/live');
+  });
+
+  test('is applied to BOTH logged URL fields, not just one', () => {
+    const req = {
+      method: 'GET', originalUrl: '/kits/download?token=LEAKME', requestId: 'r1',
+      ip: '203.0.113.9', protocol: 'https', headers: {},
+    };
+    const entry = gcp.accessLogEntry(req, { statusCode: 200 }, 5);
+    expect(entry.path).not.toContain('LEAKME');
+    expect(entry.httpRequest.requestUrl).not.toContain('LEAKME');
+  });
+});
