@@ -241,8 +241,17 @@ describe('evidence packet export renders a real PDF through the active template'
     return Buffer.concat(chunks);
   }
 
+  // The packet is the billable artifact (the $149 SKU), so export now requires
+  // a paid plan or a purchased credit. These tests are about RENDERING, not
+  // billing — give each org a live plan so the paywall isn't what's under test.
+  // Billing behaviour has its own suite: tests/integration/packet-credits.test.js.
+  async function withPaidPlan(orgId) {
+    await prisma.subscription.create({ data: { orgId, planId: 'starter', status: 'active' } });
+  }
+
   test('produces real PDF bytes in storage and records their hash', async () => {
     const { owner, packet } = await seedProjectAndPacket();
+    await withPaidPlan(packet.body.orgId);
     const res = await request(app).post(`/api/evidencePackets/${packet.body.id}/export`).set('Authorization', bearer(owner));
     expect(res.status).toBe(200);
     expect(res.body.exported_at).toBeTruthy();
@@ -256,6 +265,7 @@ describe('evidence packet export renders a real PDF through the active template'
 
   test('applies the org\'s ACTIVE template: a body-only template yields a smaller PDF than the four-block default, and pins the template used', async () => {
     const { owner, proj, packet } = await seedProjectAndPacket();
+    await withPaidPlan(packet.body.orgId);
     const full = await request(app).post(`/api/evidencePackets/${packet.body.id}/export`).set('Authorization', bearer(owner));
     const fullBytes = await readStored(full.body.pdf_storage_uri);
     expect(full.body.packetTemplateId).toBeNull();  // no template yet -> renderer default
@@ -281,6 +291,7 @@ describe('evidence packet export renders a real PDF through the active template'
 
   test('a caller-supplied pdf_storage_uri is ignored, not stored', async () => {
     const { owner, packet } = await seedProjectAndPacket();
+    await withPaidPlan(packet.body.orgId);
     const res = await request(app).post(`/api/evidencePackets/${packet.body.id}/export`).set('Authorization', bearer(owner))
       .send({ pdf_storage_uri: 'someone-elses/object.pdf' });
     expect(res.status).toBe(200);

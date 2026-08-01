@@ -27,6 +27,7 @@ const Papa = require('papaparse');
 const prisma = require('../lib/prisma');
 const storage = require('../lib/storage');
 const pdfPacketRenderer = require('../lib/tools/pdfpacketrenderer');
+const packetCredits = require('../lib/billing/packet-credits');
 const { authMiddleware } = require('../middleware/auth');
 const attachTenant = require('../middleware/tenant');
 const { requireAnyOrgRole, PACKET_APPROVE_ROLES } = require('../lib/roles');
@@ -547,6 +548,20 @@ router.post('/evidencePackets/:id/export', requireAnyOrgRole(...PACKET_APPROVE_R
   const packet = await prisma.evidencePacket.findFirst({ where: scope(req, EVIDENCE_PACKET_ENTITY, { id: req.params.id }) });
   if (!packet) return res.status(404).json({ error: 'not_found' });
 
+  // The packet is the billable artifact — it is what actually recovers the
+  // contractor's money, so it is what the product charges for. A live paid
+  // plan covers unlimited exports; otherwise this consumes one $149 credit.
+  // Checked BEFORE rendering so a caller who cannot pay never spends a
+  // Gemini call, and the credit is consumed only AFTER a successful render
+  // (below) so a failed export doesn't silently burn what they bought.
+  const authz = await packetCredits.authorizeExport(req.tenant.orgId);
+  if (!authz.allowed) {
+    throw new HttpError(402,
+      'An evidence packet costs $149, or is included on any paid plan. Purchase one to export this packet.',
+      'packet_payment_required',
+      { priceCents: authz.priceCents, checkoutPath: '/api/billing/checkout/packet' });
+  }
+
   const template = packet.packetTemplateId
     ? await prisma.packetTemplate.findFirst({ where: { id: packet.packetTemplateId, orgId: req.tenant.orgId } })
     : await prisma.packetTemplate.findFirst({
@@ -603,11 +618,23 @@ router.post('/evidencePackets/:id/export', requireAnyOrgRole(...PACKET_APPROVE_R
       content_hash: crypto.createHash('sha256').update(pdfBuf).digest('hex'),
     },
   });
+  // Spend the credit only now that real bytes exist and are stored — a
+  // render or upload failure above must not consume what the contractor
+  // paid for. Subscribers skip this entirely (authz.via === 'subscription').
+  if (authz.via === 'credit') {
+    await packetCredits.consumeCredit(authz.creditId, packet.id);
+  }
+
   await audit(req, 'evidencePackets.export', {
     resource: 'evidencePacket', resourceId: packet.id,
-    details: { packetTemplateId: template ? template.id : null, sections: sections || 'renderer_default', bytes: pdfBuf.length },
+    details: {
+      packetTemplateId: template ? template.id : null,
+      sections: sections || 'renderer_default',
+      bytes: pdfBuf.length,
+      billedVia: authz.via,
+    },
   });
-  res.json(row);
+  res.json({ ...row, billedVia: authz.via });
 }));
 
 // ── Rate sheet CSV import + versioning ────────────────────────────────────

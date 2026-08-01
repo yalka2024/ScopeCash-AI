@@ -11,6 +11,7 @@ const router = express.Router();
 const prisma = require('../lib/prisma');
 const stripe = require('../lib/billing/stripe');
 const dunning = require('../lib/billing/dunning');
+const packetCredits = require('../lib/billing/packet-credits');
 const { runWithSystemAccess } = require('../lib/tenant-context');
 const { audit } = require('../lib/audit');
 
@@ -86,6 +87,34 @@ router.post(
           }
 
           switch (event.type) {
+            // One-time evidence-packet purchase (the $149 SKU). Subscription
+            // checkouts also emit this event, so mode is checked explicitly —
+            // granting a packet credit for a plan signup would hand a
+            // subscriber a free extra they didn't buy.
+            case 'checkout.session.completed': {
+              const s = event.data.object;
+              if (s.mode !== 'payment') break;
+              const orgId = s.metadata?.orgId;
+              if (!orgId) {
+                console.error(JSON.stringify({
+                  severity: 'ERROR', type: 'packet_purchase_unattributable',
+                  sessionId: s.id, note: 'paid session has no orgId metadata',
+                }));
+                break;
+              }
+              // grantCredit is idempotent on the session id; Stripe redelivers.
+              const res = await packetCredits.grantCredit({
+                orgId,
+                stripeSessionId: s.id,
+                amountCents: s.amount_total || 0,
+              });
+              console.log(JSON.stringify({
+                severity: 'INFO', type: 'packet_credit_granted',
+                orgId, sessionId: s.id, amountCents: s.amount_total,
+                deduped: Boolean(res.deduped),
+              }));
+              break;
+            }
             case 'customer.subscription.created':
             case 'customer.subscription.updated': {
               const s = event.data.object;

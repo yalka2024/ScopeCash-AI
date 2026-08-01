@@ -4,6 +4,7 @@ const attachTenant = require('../middleware/tenant');
 const ent = require('../lib/entitlements');
 const meter = require('../lib/usage-meter');
 const stripe = require('../lib/billing/stripe');
+const packetCredits = require('../lib/billing/packet-credits');
 const dunning = require('../lib/billing/dunning');
 const { audit } = require('../lib/audit');
 
@@ -77,6 +78,53 @@ router.post('/checkout', async (req, res, next) => {
     });
     await audit(req, 'billing.checkout.started', { resource: 'subscription', resourceId: req.user.orgId, details: { tierId, cadence } });
     res.json({ url: session.url, id: session.id });
+  } catch (err) { next(err); }
+});
+
+/**
+ * Buy a single evidence packet ($149) — no subscription.
+ *
+ * This is the conversion path for a contractor with one stuck dispute who
+ * won't take on a second monthly bill on top of Jobber/Housecall Pro. The
+ * credit it grants is creditable toward a plan for 60 days, so the one-off
+ * is an on-ramp rather than a dead end.
+ */
+router.post('/checkout/packet', async (req, res, next) => {
+  try {
+    if (!stripe.isConfigured()) {
+      return res.status(503).json({ error: 'billing_not_configured', code: 'billing_not_configured' });
+    }
+    const base = process.env.PUBLIC_DASHBOARD_URL || 'http://localhost:3000';
+    const session = await stripe.createPacketCheckoutSession({
+      orgId: req.user.orgId,
+      email: req.user.email,
+      name: req.user.name,
+      successUrl: `${base}/packets?status=purchased&session_id={CHECKOUT_SESSION_ID}`,
+      cancelUrl: `${base}/packets?status=cancelled`,
+    });
+    await audit(req, 'billing.packet_checkout.started', {
+      resource: 'packetCredit', resourceId: req.user.orgId,
+      details: { amountCents: packetCredits.PACKET_PRICE_CENTS },
+    });
+    res.json({ url: session.url, id: session.id, amountCents: packetCredits.PACKET_PRICE_CENTS });
+  } catch (err) { next(err); }
+});
+
+/** What the org can spend right now: plan coverage, unspent packet credits. */
+router.get('/packet-credits', async (req, res, next) => {
+  try {
+    const orgId = req.tenant?.orgId || req.user.orgId;
+    const [auth, creditable] = await Promise.all([
+      packetCredits.authorizeExport(orgId),
+      packetCredits.creditableTowardPlan(orgId),
+    ]);
+    res.json({
+      canExport: auth.allowed,
+      via: auth.via || null,
+      priceCents: packetCredits.PACKET_PRICE_CENTS,
+      unspentCredits: creditable.count,
+      creditableTowardPlanCents: creditable.amountCents,
+    });
   } catch (err) { next(err); }
 });
 

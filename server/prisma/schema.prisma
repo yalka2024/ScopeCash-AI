@@ -1580,3 +1580,30 @@ model SchedulerLease {
   @@unique([jobName, period])
   @@index([claimedAt])
 }
+
+// One-time "pay per evidence packet" purchase ($149 SKU).
+//
+// The research behind this: contractors resist a second monthly subscription
+// on top of Jobber/Housecall Pro, but demonstrably DO pay per-transaction for
+// payment problems (~$449/lien filing, $300-1,000 attorney demand letters).
+// So the packet — the thing that actually recovers the money — is sellable on
+// its own, and converts to the $299 plan later via `creditedToSubscription`.
+//
+// stripeSessionId is unique: Stripe can redeliver checkout.session.completed,
+// and a redelivery must not mint a second credit.
+model PacketCredit {
+  id                    String    @id @default(uuid())
+  orgId                 String
+  source                String    @default("purchase") // purchase|promo|concierge
+  amountCents           Int       @default(0)
+  stripeSessionId       String?   @unique
+  // Set when spent on an export; a credit is single-use.
+  consumedAt            DateTime?
+  consumedByPacketId    String?
+  // Unspent credits count toward a plan upgrade for this long.
+  expiresAt             DateTime?
+  creditedToSubscription Boolean  @default(false)
+  createdAt             DateTime  @default(now())
+
+  @@index([orgId, consumedAt])
+}

@@ -80,6 +80,54 @@ async function createCheckoutSession({ orgId, email, name, tierId, cadence = 'mo
   });
 }
 
+/**
+ * One-time Checkout session for a single evidence packet (the $149 SKU).
+ *
+ * mode:'payment', not 'subscription' — this is deliberately not a plan. Two
+ * details matter:
+ *
+ *  - `invoice_creation: { enabled: true }` makes Stripe issue a real invoice
+ *    for the one-off, so it arrives through the SAME
+ *    `invoice.payment_succeeded` webhook that subscription revenue uses and
+ *    lands in the Invoice table. That keeps one revenue ledger rather than
+ *    two, and the Competition Evidence Center's arms-length revenue reporting
+ *    picks it up with no extra wiring.
+ *  - price_data inline rather than a pre-provisioned Price: the amount is a
+ *    single env-tunable number, and requiring `npm run stripe:setup` to have
+ *    run first would make this fail closed in exactly the moment it matters
+ *    (a contractor with a live dispute, ready to pay).
+ */
+async function createPacketCheckoutSession({ orgId, email, name, successUrl, cancelUrl, amountCents }) {
+  const s = getStripe();
+  if (!s) throw billingNotConfigured();
+  const credits = require('./packet-credits');
+  const unitAmount = amountCents || credits.PACKET_PRICE_CENTS;
+  const customerId = await ensureCustomer({ orgId, email, name });
+
+  return s.checkout.sessions.create({
+    mode: 'payment',
+    customer: customerId,
+    line_items: [{
+      quantity: 1,
+      price_data: {
+        currency: 'usd',
+        unit_amount: unitAmount,
+        product_data: {
+          name: 'ScopeCash AI — Evidence Packet',
+          description: 'One defensible, citation-backed evidence packet for a single change order or payment dispute. Credited toward a plan if you upgrade within 60 days.',
+        },
+      },
+    }],
+    invoice_creation: { enabled: true },
+    allow_promotion_codes: true,
+    success_url: successUrl,
+    cancel_url: cancelUrl,
+    // orgId is what the webhook uses to attribute the credit — without it a
+    // completed payment cannot be tied back to a tenant.
+    metadata: { orgId, sku: 'evidence_packet' },
+  });
+}
+
 /** Customer Portal session for self-service plan changes / payment methods. */
 async function createPortalSession({ orgId, returnUrl }) {
   const s = getStripe();
@@ -135,6 +183,7 @@ module.exports = {
   isConfigured,
   ensureCustomer,
   createCheckoutSession,
+  createPacketCheckoutSession,
   createPortalSession,
   verifyWebhook,
   reportMeteredUsage,
