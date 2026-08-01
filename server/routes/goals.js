@@ -27,7 +27,7 @@ router.get('/', requireScope('read'), asyncHandler(async (req, res) => {
 
 // GET /api/goals/:id — inspect a goal, its plan, and its trace.
 router.get('/:id', requireScope('read'), asyncHandler(async (req, res) => {
-  const g = await orchestrator.getGoal(req.params.id);
+  const g = await orchestrator.getGoal(req.params.id, { orgId: req.tenant.orgId });
   if (!g) throw new HttpError(404, 'Goal not found', 'goal_not_found');
   res.json(g);
 }));
@@ -61,7 +61,7 @@ router.post('/', requireScope('read', 'ai'), validate(SubmitSchema),
 router.post('/:id/approve', requireScope('read', 'ai'),
   asyncHandler(async (req, res) => {
     const ctx = { userId: req.user.id, orgId: req.user.orgId, modelId: req.body.model };
-    const goal = await orchestrator.approveGoal(req.params.id, ctx);
+    const goal = await orchestrator.approveGoal(req.params.id, ctx, { orgId: req.tenant.orgId });
     if (!goal) throw new HttpError(404, 'Goal not found', 'goal_not_found');
     await audit(req, 'goal.approve', { details: { goalId: goal.id, status: goal.status } });
     res.json(goal);

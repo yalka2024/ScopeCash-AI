@@ -125,7 +125,7 @@ async function runWorkflow(wfDef, input, ctx = {}, runId = null) {
   return run;
 }
 
-async function getRun(id) { return store.get(id); }
+async function getRun(id, { orgId } = {}) { return store.get(id, { orgId }); }
 async function listRuns(orgId) { return store.list({ kind: 'workflow', orgId }); }
 
 module.exports = { runWorkflow, getRun, listRuns };

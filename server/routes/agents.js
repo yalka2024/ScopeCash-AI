@@ -95,7 +95,7 @@ router.post('/:name/run', requireScope('read', 'ai'), validate(RunSchema),
 
 // POST /api/agents/runs/:id/cancel — request cooperative cancellation.
 router.post('/runs/:id/cancel', requireScope('write'), asyncHandler(async (req, res) => {
-  const run = await runStore.get(req.params.id);
+  const run = await runStore.get(req.params.id, { orgId: req.tenant.orgId });
   if (!run) throw new HttpError(404, 'Run not found', 'run_not_found');
   // Ownership: only the run's own tenant/user may cancel it (prevents cross-tenant IDOR).
   const ownsRun = (run.orgId && run.orgId === req.user.orgId) || (run.userId && run.userId === req.user.id);
@@ -173,7 +173,7 @@ router.post('/:name/run/async', requireScope('read', 'ai'), validate(RunSchema),
 
 // GET /api/agents/runs/:id — poll a background agent run.
 router.get('/runs/:id', requireScope('read'), asyncHandler(async (req, res) => {
-  const run = await asyncRunner.getRun(req.params.id);
+  const run = await asyncRunner.getRun(req.params.id, { orgId: req.tenant.orgId });
   if (!run) throw new HttpError(404, 'Run not found', 'run_not_found');
   res.json(run);
 }));

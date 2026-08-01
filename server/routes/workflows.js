@@ -32,14 +32,14 @@ router.get('/', requireScope('read'), asyncHandler(async (req, res) => {
 
 // GET /api/workflows/runs/:id — inspect a run.
 router.get('/runs/:id', requireScope('read'), asyncHandler(async (req, res) => {
-  const run = await getRun(req.params.id);
+  const run = await getRun(req.params.id, { orgId: req.tenant.orgId });
   if (!run) throw new HttpError(404, 'Run not found', 'run_not_found');
   res.json(run);
 }));
 
 // POST /api/workflows/runs/:id/cancel — request cooperative cancellation.
 router.post('/runs/:id/cancel', requireScope('write'), asyncHandler(async (req, res) => {
-  const run = await getRun(req.params.id);
+  const run = await getRun(req.params.id, { orgId: req.tenant.orgId });
   if (!run) throw new HttpError(404, 'Run not found', 'run_not_found');
   runStore.requestCancel(req.params.id);
   await audit(req, 'workflow.run.cancel', { details: { runId: req.params.id } });

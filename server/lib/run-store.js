@@ -42,15 +42,42 @@ async function save(run) {
   return run;
 }
 
-/** Read a run by id (cache first, then DB). */
-async function get(id) {
-  if (_cache.has(id)) return _cache.get(id);
+/**
+ * Read a run by id, scoped to an org.
+ *
+ * `orgId` is REQUIRED for any caller serving a request. This used to be a
+ * bare id lookup with no org filter, which was a cross-tenant IDOR reachable
+ * by any authenticated user of any org: read another tenant's run input and
+ * output, cancel their running workflow, or approve and execute their plan.
+ *
+ * The in-process cache made it exploitable even on Postgres with RLS enabled
+ * — a run cached by org A's request was returned to org B without the query
+ * ever reaching the database, so the RLS policy never evaluated. It was the
+ * one place where the documented database-level backstop did not apply.
+ * Hence the check here is on the returned object, not delegated to RLS: an
+ * in-memory Map cannot be protected by a database policy.
+ *
+ * Passing `orgId: null` explicitly means "trusted internal caller, no
+ * scoping" (the runtime resuming its own run). It is deliberately explicit
+ * so an omission is a mistake rather than a silent bypass.
+ */
+async function get(id, { orgId } = {}) {
+  if (orgId === undefined) {
+    throw new Error('run-store.get(id, { orgId }) requires an explicit orgId (use null for trusted internal callers)');
+  }
+  const scoped = (run) => {
+    if (!run) return null;
+    if (orgId === null) return run;          // explicit internal bypass
+    return run.orgId === orgId ? run : null; // cross-tenant read -> 404 upstream
+  };
+
+  if (_cache.has(id)) return scoped(_cache.get(id));
   try {
     const row = await prisma.agentRun.findUnique({ where: { id } });
     if (!row) return null;
     const run = _inflate(row);
     _cache.set(id, run);
-    return run;
+    return scoped(run);
   } catch { return null; }
 }
 

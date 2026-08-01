@@ -128,5 +128,7 @@ async function stopWorker() {
   worker = null; queue = null;
 }
 
+// getRun is re-exported with its (id, { orgId }) signature intact — callers
+// must scope. See lib/run-store.js#get for why this is not optional.
 module.exports = { enqueue, startWorker, stopWorker, getRun: store.get };
 

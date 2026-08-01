@@ -85,8 +85,10 @@ async function submitGoal(goal, ctx = {}, opts = {}) {
   return _execute(g, ctx);
 }
 
-async function approveGoal(id, ctx = {}) {
-  const g = await store.get(id);
+async function approveGoal(id, ctx = {}, { orgId } = {}) {
+  // orgId scoping is mandatory: this APPROVES AND EXECUTES a plan, so an
+  // unscoped lookup let any authenticated user run another tenant's goal.
+  const g = await store.get(id, { orgId });
   if (!g) return null;
   if (g.status !== 'awaiting_approval') return g;
   return _execute(g, ctx);
@@ -118,7 +120,7 @@ async function _execute(g, ctx) {
   return g;
 }
 
-async function getGoal(id) { return store.get(id); }
+async function getGoal(id, { orgId } = {}) { return store.get(id, { orgId }); }
 async function listGoals(orgId) { return store.list({ kind: 'goal', orgId }); }
 
 module.exports = { submitGoal, approveGoal, getGoal, listGoals, planGoal };
