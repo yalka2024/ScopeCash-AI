@@ -38,20 +38,51 @@ function _bump(orgId, event, field, qty) {
 
 function isBillable(event) { return BILLABLE.has(event); }
 
-/** Report metered usage to Stripe (best-effort; no-op unless configured). */
+/**
+ * Report metered usage to Stripe.
+ *
+ * Uses the Meter Events API. The previous implementation called
+ * `stripe.subscriptionItems.createUsageRecord`, which Stripe REMOVED in SDK
+ * v22 (this repo runs 22.3.2, where the property is literally `undefined`).
+ * Every call therefore threw "not a function" into the catch below, which
+ * returned `{ reported: false }` — and the caller reported success anyway. The
+ * platform has been recording billable outcomes and charging for none of them,
+ * silently, on every deployment since the SDK bump.
+ *
+ * Meter Events are keyed by a meter's `event_name` and identify the customer
+ * by `stripe_customer_id`, rather than by a per-tier subscription-item id — so
+ * configuration is one env var per billable event instead of one per
+ * (event × tier), and it no longer needs to know which item a given org's
+ * subscription happens to use.
+ */
 async function reportToStripe(event, quantity, ctx) {
   if (!process.env.STRIPE_SECRET_KEY) return { reported: false, reason: 'stripe_unconfigured' };
-  const itemEnv = `STRIPE_OUTCOME_ITEM_${event.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}`;
-  const subscriptionItem = process.env[itemEnv];
-  if (!subscriptionItem) return { reported: false, reason: 'no_subscription_item' };
+
+  const meterEnv = `STRIPE_METER_${event.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}`;
+  const eventName = process.env[meterEnv];
+  if (!eventName) return { reported: false, reason: 'no_meter_configured', expectedEnv: meterEnv };
+
+  // Meter events bill a CUSTOMER, so without one there is nothing to charge.
+  const prisma = require('./prisma');
+  const sub = await prisma.subscription.findFirst({
+    where: { orgId: ctx.orgId, stripeCustomerId: { not: null } },
+    select: { stripeCustomerId: true },
+  }).catch(() => null);
+  if (!sub?.stripeCustomerId) return { reported: false, reason: 'no_stripe_customer' };
+
   try {
-    const Stripe = require('stripe');
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-    await stripe.subscriptionItems.createUsageRecord(subscriptionItem, {
-      quantity, timestamp: Math.floor(Date.now() / 1000), action: 'increment',
-    }, { idempotencyKey: `${ctx.orgId}:${event}:${ctx.outcomeId || Date.now()}` });
-    return { reported: true, subscriptionItem };
+    const stripe = require('./billing/stripe');
+    return await stripe.reportMeterEvent({
+      eventName,
+      stripeCustomerId: sub.stripeCustomerId,
+      quantity,
+      // Stable per (org, event, outcome) so a retry cannot double-bill. Falls
+      // back to a timestamp only when there is no outcome to key on.
+      identifier: `${ctx.orgId}:${event}:${ctx.outcomeId || Date.now()}`,
+    });
   } catch (e) {
+    // Still non-throwing — recording an outcome must not fail because billing
+    // is down — but the caller now surfaces this instead of discarding it.
     return { reported: false, reason: e.message };
   }
 }
@@ -74,7 +105,28 @@ async function recordOutcome(ctx, event, { quantity = 1, success = true, metadat
   }
   _bump(ctx.orgId, event, 'billed', quantity);
   const stripe = await reportToStripe(event, quantity, ctx);
-  return { billed: true, event, quantity, metered: CONFIG.model === 'outcome', stripe };
+
+  // `billed` now reflects whether Stripe ACTUALLY accepted the charge, not
+  // merely that we tried. It previously returned an unconditional `true`,
+  // which is how a dead SDK call went unnoticed: the API answered
+  // 201 {billed: true} while every single charge failed, and the reason was
+  // buried in a nested field nobody read.
+  const billed = Boolean(stripe && stripe.reported);
+  if (!billed) {
+    // ERROR severity so the Cloud Monitoring policies see it. Revenue
+    // silently not being collected is the most expensive class of bug here.
+    console.error(JSON.stringify({
+      severity: 'ERROR', type: 'outcome_billing_failed',
+      orgId: ctx.orgId, event, quantity, reason: stripe && stripe.reason,
+    }));
+  }
+  return {
+    billed,
+    // Distinguishes "we recorded the outcome" from "we charged for it" — the
+    // local ledger entry is real either way.
+    recorded: true,
+    event, quantity, metered: CONFIG.model === 'outcome', stripe,
+  };
 }
 
 function summary(orgId) {

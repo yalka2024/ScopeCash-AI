@@ -162,14 +162,44 @@ function verifyWebhook(rawBody, signature) {
  * is not configured or when the meter has no Stripe item id mapped.
  */
 async function reportMeteredUsage({ stripeSubItemId, quantity, idempotencyKey }) {
+  // DEPRECATED and now inert by design. subscriptionItems.createUsageRecord
+  // was removed in Stripe SDK v22 (this repo runs 22.3.2 — the property is
+  // `undefined`), so this used to throw "not a function" at every caller.
+  // Kept as an explicit, loud no-op rather than deleted because its only
+  // caller (jobs/usage-aggregator.js#reportMeteredUsageToStripe) is itself a
+  // documented skeleton; deleting it would silently change that file's shape.
+  // Use reportMeterEvent below.
+  console.warn(JSON.stringify({
+    severity: 'WARNING', type: 'stripe_deprecated_usage_record_call',
+    note: 'subscriptionItems.createUsageRecord no longer exists in Stripe v22; use reportMeterEvent',
+    stripeSubItemId, quantity, idempotencyKey,
+  }));
+  return { sent: false, reason: 'deprecated_api_removed_in_stripe_v22' };
+}
+
+/**
+ * Report a usage event via Stripe's Meter Events API — the supported
+ * replacement for createUsageRecord.
+ *
+ * `identifier` is Stripe's own dedup key for meter events: replaying the same
+ * identifier does not double-count, which is what makes this safe to call
+ * from a retried job or a redelivered webhook.
+ */
+async function reportMeterEvent({ eventName, stripeCustomerId, quantity = 1, identifier }) {
   const s = getStripe();
-  if (!s || !stripeSubItemId) return { sent: false };
-  await s.subscriptionItems.createUsageRecord(
-    stripeSubItemId,
-    { quantity, action: 'increment', timestamp: Math.floor(Date.now() / 1000) },
-    { idempotencyKey }
-  );
-  return { sent: true };
+  if (!s) return { sent: false, reason: 'stripe_unconfigured' };
+  if (!eventName || !stripeCustomerId) return { sent: false, reason: 'missing_meter_or_customer' };
+
+  await s.billing.meterEvents.create({
+    event_name: eventName,
+    identifier,
+    payload: {
+      // Stripe requires these as strings on the payload.
+      stripe_customer_id: String(stripeCustomerId),
+      value: String(quantity),
+    },
+  });
+  return { sent: true, reported: true, eventName, identifier };
 }
 
 function billingNotConfigured() {
@@ -187,5 +217,6 @@ module.exports = {
   createPortalSession,
   verifyWebhook,
   reportMeteredUsage,
+  reportMeterEvent,
 };
 

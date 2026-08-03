@@ -856,7 +856,23 @@ router.post('/commercialOutcomes/:id/transition', requireAnyOrgRole('owner', 'ad
         { orgId: req.tenant.orgId, userId: req.user.id, outcomeId: earnedRevenueEvent.id },
         'success_fee_collected',
         { metadata: { commercialOutcomeId: outcome.id, feeAmount: earnedRevenueEvent.feeAmount } },
-      ).catch(() => {});
+      ).then((r) => {
+        // Was `.catch(() => {})` — which discarded the only signal that a
+        // success fee had been earned but never charged. recordOutcome does
+        // not throw, so the swallow hid a returned failure, not an exception.
+        if (!r || !r.billed) {
+          console.error(JSON.stringify({
+            severity: 'ERROR', type: 'success_fee_not_billed',
+            orgId: req.tenant.orgId, earnedRevenueEventId: earnedRevenueEvent.id,
+            feeAmount: earnedRevenueEvent.feeAmount, reason: r && r.stripe && r.stripe.reason,
+          }));
+        }
+      }).catch((err) => {
+        console.error(JSON.stringify({
+          severity: 'ERROR', type: 'success_fee_billing_threw',
+          orgId: req.tenant.orgId, error: err && err.message,
+        }));
+      });
     }
     res.json({ outcome: updatedOutcome, transition, earnedRevenueEvent });
   }));
