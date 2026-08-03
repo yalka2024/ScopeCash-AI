@@ -905,6 +905,45 @@ effect, not by exploit path.
       queries, tenants cost/margin with a caller-supplied org id).
 - [x] Money-as-float **characterised** — 13 tests establishing the baseline.
 
+### Payment demand letters — shipped 2026-08-03
+
+`POST /api/evidencePackets/:id/demand-letter[/preview]`. Composes the letter a
+contractor sends when approved change-order work goes unpaid, from facts the
+system already holds. Reviewed as a draft, then generated only against a
+complete attestation; recorded with who attested, when, from where, and the
+sha256 of the exact PDF.
+
+The constraints are the feature — see the header comment in
+`server/lib/demand-letter.js` for why each one exists. Short version: no
+statute is ever cited, no deadline is ever computed, threatened consequences
+come from a closed list, and nothing about this product appears on the page.
+
+**Deliberately NOT built, and the reason is not "later":**
+- **Lien-deadline tracking.** Computing "your deadline is October 14" applies
+  law to a specific person's facts. N.C. State Bar v. Lienguard (2014 NCBC 11)
+  enjoined a service doing exactly this and counted its deadline warnings as
+  part of the violation. Competitors do compute deadlines — behind heavy
+  disclaimers and, in Levelset's case, an attorney network. That is a real
+  legal budget, not a feature flag.
+- **Sending the letter for the contractor.** Generating a file the contractor
+  sends themselves keeps us out of FDCPA "collecting for another", out of
+  state collection-agency licensing and bonding, and out of the Lienguard
+  fact pattern. Deliver the PDF; never operate the mail.
+- **Any vendor branding on the output.** 15 U.S.C. 1692j makes it unlawful to
+  furnish a form knowing it creates the false belief that a third party is
+  involved in collection — and the liability is the software vendor's.
+
+**Open questions for counsel before this is marketed:**
+- Marketing copy must not describe this as a collection system. Tex. Fin. Code
+  392.001(7) reaches whoever "sells or offers to sell forms represented to be
+  a collection system"; the hinge is how it is described, not what it does.
+- California: does Civ. Code 1788.17's incorporation of 1692b–1692j oblige a
+  first-party creditor to give the 1692g validation notice? Unsettled. The
+  letter currently includes the debt-collection sentence for consumer
+  recipients on the cheaper-to-include reasoning.
+- North Carolina: Gen. Stat. 84-2.2 conditions conflict with any liability cap
+  we would otherwise want. That is a business decision, not a drafting one.
+
 **Still open, ranked:**
 - [ ] Migrate money to integer cents (or Prisma `Decimal`). 38 Float columns,
       0 Decimal, no rounding in the pricing path. The drift test now exists,
@@ -912,8 +951,12 @@ effect, not by exploit path.
       itself is a separate, larger piece of work.
 - [ ] Webhook SSRF: the URL is validated as http(s) only, with no private-IP
       or metadata-endpoint denylist.
-- [ ] `mapStripeStatus` defaults unknown Stripe statuses to `'active'` —
-      fail-open on a billing state machine.
+- [ ] Two prisma migration lineages (`prisma/migrations` for SQLite,
+      `prisma/migrations-postgres` for Postgres) with nothing linking them.
+      `migrate dev` writes only the first, so a new model reaches production
+      missing its table while the whole SQLite suite stays green. Hit this on
+      DemandLetter. Needs a CI check that the two lineages agree, not a note
+      telling people to remember.
 - [ ] Success-fee stacking: a same-stage transition can record a second
       EarnedRevenueEvent without netting out the first.
 - [ ] `lib/safety.js` `gated: false` makes `assertLiveAllowed()` unreachable
