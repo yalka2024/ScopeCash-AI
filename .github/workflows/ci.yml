@@ -29,6 +29,15 @@ jobs:
       - name: Install
         working-directory: server
         run: npm ci --no-audit --no-fund
+      # The two Prisma lineages must describe the same changes. `migrate dev`
+      # writes only prisma/migrations (SQLite); prisma/migrations-postgres is
+      # separate and is the one that reaches production, so a new model can
+      # ship with no table while every test below stays green. Cheap, and it
+      # runs before the Postgres steps so the failure names the real cause
+      # rather than surfacing as a confusing runtime error later.
+      - name: Check migration lineages agree
+        working-directory: server
+        run: node prisma/check-migration-parity.js
       # Validates the Postgres migration set applies cleanly against a real
       # Postgres on every PR — no `|| true`: a migration that fails here would
       # have failed identically in production. This previously pointed

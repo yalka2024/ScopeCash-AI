@@ -19,6 +19,7 @@
     "db:seed:demo": "node prisma/seed-riverside-demo.js",
     "db:postgres:sync": "node prisma/sync-postgres-schema.js",
     "db:postgres:check": "node prisma/sync-postgres-schema.js --check",
+    "db:check:migrations": "node prisma/check-migration-parity.js",
     "db:postgres:generate": "npm run db:postgres:sync && prisma generate --config prisma.postgres.config.ts",
     "db:postgres:migrate:dev": "npm run db:postgres:sync && prisma migrate dev --config prisma.postgres.config.ts",
     "db:postgres:deploy": "npm run db:postgres:sync && prisma migrate deploy --config prisma.postgres.config.ts && npm run db:postgres:rls && node prisma/seed.js",
