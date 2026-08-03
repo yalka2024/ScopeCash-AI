@@ -79,15 +79,23 @@ describe('lib/competition-evidence.js aggregation', () => {
     expect(result.discrepancyCents).not.toBe(0);
   });
 
+  // Period '2099-01', not a real one. competition.reconcile() is deliberately
+  // a PLATFORM-WIDE aggregation with no org filter — it reports total revenue
+  // for the submission — so asserting an exact match is only sound in a period
+  // no other test or code path can write to. This test hardcoded '2026-08',
+  // which was safely in the future until 2026-08-01, at which point
+  // currentPeriodKey() started returning it and every other test that creates
+  // current-period revenue began colliding with it at random. That is the
+  // intermittent full-suite failure seen repeatedly and finally caught by CI.
   test('reconcile matches when CompetitionEvidence total equals real paid Invoice total for the period', async () => {
     const org = await prisma.organization.create({ data: { name: uid('Org') } });
     await prisma.competitionEvidence.create({
-      data: { orgId: org.id, category: 'revenue', classification: 'arms_length', period: '2026-08', label: 'Matches invoice', amountCents: 4900 },
+      data: { orgId: org.id, category: 'revenue', classification: 'arms_length', period: '2099-01', label: 'Matches invoice', amountCents: 4900 },
     });
     await prisma.invoice.create({
-      data: { stripeInvoiceId: uid('inv'), orgId: org.id, amountCents: 4900, status: 'paid', periodStart: new Date('2026-08-01'), periodEnd: new Date('2026-08-31') },
+      data: { stripeInvoiceId: uid('inv'), orgId: org.id, amountCents: 4900, status: 'paid', periodStart: new Date('2099-01-01'), periodEnd: new Date('2099-01-31') },
     });
-    const result = await competition.reconcile('2026-08', '2026-08');
+    const result = await competition.reconcile('2099-01', '2099-01');
     expect(result.matched).toBe(true);
     expect(result.discrepancyCents).toBe(0);
   });
