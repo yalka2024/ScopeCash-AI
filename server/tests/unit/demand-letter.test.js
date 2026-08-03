@@ -431,3 +431,28 @@ describe('required identity', () => {
     }
   });
 });
+
+describe('layout survives hostile text', () => {
+  // Both of these produced a broken mailed document, not merely an ugly one.
+  test('a token longer than the page is broken by force', () => {
+    // A pasted URL has no space to wrap at. Without a hard break the renderer
+    // — which does no layout of its own — runs it off the right edge.
+    const out = dl.compose({ ...BASE, additionalContext: `See ${'a'.repeat(300)}` });
+    for (const line of out.lines) expect(line.length).toBeLessThanOrEqual(78);
+    expect(out.lines.join('')).toContain('a'.repeat(78));
+  });
+
+  test('the contractor’s own line breaks are preserved as lines', () => {
+    // An embedded \n survives wrapping and reaches pdfStr, which maps control
+    // characters to '?' — so a multi-paragraph note came out as literal
+    // question marks in the PDF.
+    const out = dl.compose({ ...BASE, additionalContext: 'Line one.\nLine two.\nLine three.' });
+    expect(out.lines.filter(l => l.includes('\n'))).toHaveLength(0);
+    expect(out.lines).toEqual(expect.arrayContaining(['Line one.', 'Line two.', 'Line three.']));
+  });
+
+  test('a very long organisation name still wraps the footer', () => {
+    const out = dl.compose({ ...BASE, org: { ...BASE.org, legal_name: 'A'.repeat(200) } });
+    for (const line of out.lines) expect(line.length).toBeLessThanOrEqual(78);
+  });
+});

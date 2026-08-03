@@ -38,6 +38,8 @@ const { maybeRecordEarnedRevenue } = require('../lib/success-fee');
 const outcomes = require('../lib/outcomes');
 const { notifyUser } = require('../lib/notifications');
 const { attachApiKeyProjectScope } = require('../lib/api-key-scope');
+const demandLetter = require('../lib/demand-letter');
+const demandPacket = require('../lib/demand-packet');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -636,6 +638,179 @@ router.post('/evidencePackets/:id/export', requireAnyOrgRole(...PACKET_APPROVE_R
   });
   res.json({ ...row, billedVia: authz.via });
 }));
+
+// ── Payment demand letters ────────────────────────────────────────────────
+//
+// Two endpoints, and the split between them is the legal design rather than a
+// UI convenience. See lib/demand-letter.js for why each rule exists.
+//
+//   POST /evidencePackets/:id/demand-letter/preview   compose, return text
+//   POST /evidencePackets/:id/demand-letter           attest, render, store
+//
+// The preview is produced by the same code from the same inputs as the real
+// thing, so the document a contractor reads and the document that gets sent
+// are byte-identical. The attestation says "I have read this letter in full
+// and approve it as my own communication" — which is worth nothing if the
+// reviewed draft and the sent letter can differ.
+
+const DemandLetterSchema = z.object({
+  recipientType: z.enum(['homeowner', 'commercial']),
+  // A closed list, not free text — see INTENDED_ACTIONS. z.enum here means an
+  // unknown action is rejected by the schema before it reaches the composer,
+  // which keeps the error a 400 with a field path rather than a thrown
+  // DemandLetterError.
+  intendedActions: z.array(z.enum(['suspend_work', 'civil_suit', 'lien_or_bond_claim', 'contract_remedies'])).max(4).optional(),
+  responseDueDate: z.string().datetime().optional(),
+  additionalContext: z.string().max(2000).optional(),
+  signerTitle: z.string().max(120).optional(),
+  // Preview omits this; generate requires it. Enforced in the composer rather
+  // than by the schema so there is exactly one place that decides what a
+  // complete attestation is.
+  attestation: z.object({ confirmed: z.record(z.boolean()) }).optional(),
+});
+
+/** Shared fact-gathering + composition for both endpoints. */
+async function buildDemandLetterFacts(req, packet) {
+  // validate() writes the parsed result back over req.body, so this is the
+  // schema-checked object, not the raw one.
+  const body = req.body || {};
+  const facts = await demandPacket.gatherFacts({
+    orgId: req.tenant.orgId,
+    packetId: packet.id,
+    signerUserId: req.user.id,
+  });
+  if (!facts) throw new HttpError(404, 'Packet not found.', 'not_found');
+  return {
+    ...facts,
+    signer: { ...facts.signer, title: body.signerTitle || null },
+    recipientType: body.recipientType,
+    intendedActions: body.intendedActions || [],
+    responseDueDate: body.responseDueDate || null,
+    additionalContext: body.additionalContext || null,
+    attestation: body.attestation
+      ? { ...body.attestation, attestedAt: new Date() }
+      : undefined,
+  };
+}
+
+/**
+ * Errors from lib/demand-letter.js are user-facing refusals with a reason and
+ * a remedy, not internal failures — surfaced as 400s with their details intact
+ * so the review screen can show which rule fired and why. A generic 500 here
+ * would leave someone retyping the same prohibited sentence forever.
+ */
+function rethrowDemandError(err) {
+  if (err instanceof demandLetter.DemandLetterError) {
+    throw new HttpError(400, err.message, err.code, err.details);
+  }
+  throw err;
+}
+
+router.post('/evidencePackets/:id/demand-letter/preview',
+  requireAnyOrgRole(...PACKET_APPROVE_ROLES),
+  validate(DemandLetterSchema),
+  asyncHandler(async (req, res) => {
+    const packet = await prisma.evidencePacket.findFirst({ where: scope(req, EVIDENCE_PACKET_ENTITY, { id: req.params.id }) });
+    if (!packet) return res.status(404).json({ error: 'not_found' });
+
+    let out;
+    try {
+      out = demandLetter.preview(await buildDemandLetterFacts(req, packet));
+    } catch (err) { rethrowDemandError(err); }
+
+    // Not audited and nothing persisted: no letter exists yet, and recording a
+    // draft as if it were a sent communication would make the audit log say
+    // something untrue.
+    res.json({
+      draft: true,
+      text: out.lines.join('\n'),
+      warnings: out.warnings,
+      requiredAttestations: out.requiredAttestations,
+      summary: out.summary,
+    });
+  }));
+
+router.post('/evidencePackets/:id/demand-letter',
+  requireAnyOrgRole(...PACKET_APPROVE_ROLES),
+  validate(DemandLetterSchema),
+  asyncHandler(async (req, res) => {
+    const packet = await prisma.evidencePacket.findFirst({ where: scope(req, EVIDENCE_PACKET_ENTITY, { id: req.params.id }) });
+    if (!packet) return res.status(404).json({ error: 'not_found' });
+
+    const facts = await buildDemandLetterFacts(req, packet);
+    let composed;
+    try {
+      // Throws unless every attestation is confirmed. The gate is in the
+      // composer, not here, so it cannot be skipped by a future caller.
+      composed = demandLetter.compose(facts);
+    } catch (err) { rethrowDemandError(err); }
+
+    // 'letter' only — no 'disclaimer' (which would name this product on a
+    // letter from the contractor: 15 U.S.C. 1692j) and no 'body' (raw JSON).
+    // The renderer refuses the combination itself; passing exactly this is
+    // belt and braces, not the guarantee.
+    const prevMode = process.env.INTEGRATION_PDFPACKETRENDERER_MODE;
+    process.env.INTEGRATION_PDFPACKETRENDERER_MODE = 'live';
+    let rendered;
+    try {
+      rendered = await pdfPacketRenderer.run(
+        { packet_data_json: JSON.stringify({ letter: composed.lines }), template_id: 'demand-letter', sections: ['letter'] },
+        { orgId: req.tenant.orgId, userId: req.user.id },
+      );
+    } finally {
+      if (prevMode === undefined) delete process.env.INTEGRATION_PDFPACKETRENDERER_MODE;
+      else process.env.INTEGRATION_PDFPACKETRENDERER_MODE = prevMode;
+    }
+
+    const pdfBuf = Buffer.isBuffer(rendered.pdf_bytes) ? rendered.pdf_bytes : Buffer.from(rendered.pdf_bytes);
+    const key = storage.newKey(req.user.id, `demand-${packet.packet_number}-v${packet.version}.pdf`);
+    await storage.putObject({ key, body: pdfBuf, contentType: 'application/pdf' });
+
+    const row = await prisma.demandLetter.create({
+      data: {
+        orgId: req.tenant.orgId,
+        packetId: packet.id,
+        projectId: packet.project_id,
+        recipientType: facts.recipientType,
+        amountDue: Number(facts.amountDue),
+        responseDueDate: facts.responseDueDate ? new Date(facts.responseDueDate) : null,
+        intendedActions: facts.intendedActions.join(','),
+        attestedById: req.user.id,
+        attestedAt: facts.attestation.attestedAt,
+        // Recorded because an attestation is a statement by a specific person
+        // at a specific time; a bare boolean is not evidence of that later.
+        attestedIp: req.ip || null,
+        attestedUserAgent: (req.get && req.get('user-agent')) || null,
+        // Stored verbatim so a later change to REQUIRED_ATTESTATIONS cannot
+        // retroactively alter what this person actually agreed to.
+        attestationJson: JSON.stringify(facts.attestation.confirmed),
+        contentHash: crypto.createHash('sha256').update(pdfBuf).digest('hex'),
+        storageUri: key,
+        letterText: composed.lines.join('\n'),
+      },
+    });
+
+    await audit(req, 'evidencePackets.demandLetter', {
+      resource: 'demandLetter', resourceId: row.id,
+      details: {
+        packetId: packet.id,
+        recipientType: facts.recipientType,
+        intendedActions: facts.intendedActions,
+        amountDue: Number(facts.amountDue),
+        contentHash: row.contentHash,
+        bytes: pdfBuf.length,
+      },
+    });
+
+    res.status(201).json({
+      id: row.id,
+      contentHash: row.contentHash,
+      storageUri: row.storageUri,
+      text: composed.lines.join('\n'),
+      warnings: composed.warnings,
+      summary: composed.summary,
+    });
+  }));
 
 // ── Rate sheet CSV import + versioning ────────────────────────────────────
 // Same rationale as the evidence-packet workflow above: these are state

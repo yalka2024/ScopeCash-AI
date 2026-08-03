@@ -275,9 +275,19 @@ function wrapLines(lines, width = WRAP_WIDTH) {
     const indent = bullet ? ' '.repeat(bullet[1].length) : '';
     let current = '';
     for (const word of line.split(' ')) {
-      if (current === '') { current = word; continue; }
-      if (`${current} ${word}`.length > width) { out.push(current); current = indent + word; }
-      else current += ` ${word}`;
+      // A single token longer than the page (a pasted URL, a run-on string)
+      // has no space to break at, so it must be broken by force. Without this
+      // the loop happily emits one 300-character line and it runs straight off
+      // the right edge of the PDF — the renderer does no layout of its own.
+      let rest = word;
+      while (rest.length > width) {
+        if (current !== '') { out.push(current); current = ''; }
+        out.push(rest.slice(0, width));
+        rest = indent + rest.slice(width);
+      }
+      if (current === '') { current = rest; continue; }
+      if (`${current} ${rest}`.length > width) { out.push(current); current = indent + rest; }
+      else current += ` ${rest}`;
     }
     if (current !== '') out.push(current);
   }
@@ -422,7 +432,12 @@ function assertNoVendorBranding(lines) {
 }
 
 /**
- * Compose the letter.
+ * Build the letter. Shared by preview() and compose() so that the letter a
+ * contractor reads and the letter that gets sent are produced by the same code
+ * from the same inputs — byte-identical, not merely similar. That is the whole
+ * point: the attestation says "I have read this letter in full and approve it
+ * as my own communication", which means nothing if the reviewed draft and the
+ * sent document can differ.
  *
  * Every fact comes from `facts`; nothing is inferred and nothing is inflated.
  * Where a fact is missing the sentence is omitted rather than hedged, because
@@ -432,7 +447,7 @@ function assertNoVendorBranding(lines) {
  * Returns { lines, warnings, summary }. `warnings` are for the contractor's
  * review screen — things that weaken the letter but are not unlawful.
  */
-function compose(facts) {
+function _composeBody(facts) {
   const {
     org = {},              // OrganizationRecord: legal_name, address, phone, website
     signer = {},           // { name, title } — a named human, not "the office"
@@ -456,7 +471,6 @@ function compose(facts) {
       { allowed: Object.keys(RECIPIENT_TYPES) });
   }
   assertKnownActions(intendedActions);
-  assertAttested(attestation, intendedActions);
 
   const ctx = screenText(additionalContext, 'additionalContext');
   if (!ctx.ok) {
@@ -574,7 +588,14 @@ function compose(facts) {
   }
 
   if (additionalContext) {
-    L.push(String(additionalContext).trim());
+    // Split on the contractor's own line breaks rather than pushing the whole
+    // block as one array element. Each element becomes one rendered line, and
+    // an embedded \n survives wrapping only to hit pdfStr, which maps control
+    // characters to '?' — so a perfectly ordinary multi-paragraph note came
+    // out as literal question marks in the mailed PDF.
+    for (const para of String(additionalContext).trim().split(/\r?\n/)) {
+      L.push(para.trim());
+    }
     L.push('');
   }
 
@@ -634,6 +655,39 @@ function compose(facts) {
   };
 }
 
+/**
+ * The letter as it will be sent, WITHOUT requiring an attestation yet — this
+ * is what the contractor reads before attesting to it.
+ *
+ * Also returns the exact list of confirmations they will have to make, so the
+ * review screen is generated from the same source of truth that later enforces
+ * it, rather than from a hand-maintained copy that can drift out of step.
+ */
+function preview(facts) {
+  const out = _composeBody(facts);
+  const actions = (facts && facts.intendedActions) || [];
+  return {
+    ...out,
+    draft: true,
+    requiredAttestations: [
+      ...REQUIRED_ATTESTATIONS,
+      ...actions.map(k => ({ id: `action:${k}`, text: INTENDED_ACTIONS[k].requiresAffirmation })),
+    ],
+  };
+}
+
+/**
+ * The letter, gated on a complete attestation. Same body as preview() — the
+ * gate is the only difference, and it lives here rather than in the route so
+ * that no future caller can reach a composed letter without passing it.
+ */
+function compose(facts) {
+  const { attestation, intendedActions = [] } = facts || {};
+  assertKnownActions(intendedActions);
+  assertAttested(attestation, intendedActions);
+  return { ..._composeBody(facts), draft: false };
+}
+
 module.exports = {
   RECIPIENT_TYPES,
   INTENDED_ACTIONS,
@@ -648,5 +702,6 @@ module.exports = {
   buildFooter,
   formatMoney,
   daysBetween,
+  preview,
   compose,
 };

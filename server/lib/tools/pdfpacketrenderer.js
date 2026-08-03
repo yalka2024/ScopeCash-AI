@@ -30,7 +30,25 @@ async function mockRun(input, ctx) {
 // caller-resolved subset/reordering of these keys (resolving a
 // PacketTemplate.sections string into this array is the caller's job —
 // this tool stays dependency-free and never queries the database itself).
-const ALL_SECTIONS = ['disclaimer', 'body', 'appendix', 'approval'];
+const ALL_SECTIONS = ['disclaimer', 'body', 'appendix', 'approval', 'letter'];
+
+/**
+ * Sections that must never appear alongside 'letter'.
+ *
+ * 'letter' renders a payment demand letter (lib/demand-letter.js), which is a
+ * document from the CONTRACTOR to their customer — not a ScopeCash artefact.
+ * The 'disclaimer' block names this product on the page, and on a demand
+ * letter that sentence is not a disclaimer at all: 15 U.S.C. 1692j makes it
+ * unlawful to furnish a form knowing it will create the false belief that
+ * someone other than the creditor is involved in collecting the debt, and the
+ * liability for that lands on the software vendor. 'body' is excluded for a
+ * duller reason: it dumps packet_data_json as raw JSON, which has no business
+ * on a letter someone mails to a homeowner.
+ *
+ * Enforced here rather than in the caller so the guarantee holds for every
+ * caller, including ones written later.
+ */
+const LETTER_INCOMPATIBLE = ['disclaimer', 'body'];
 
 /**
  * Generates a minimal but structurally valid PDF in pure Node.js (no deps).
@@ -47,7 +65,20 @@ const ALL_SECTIONS = ['disclaimer', 'body', 'appendix', 'approval'];
 async function realRun(input, ctx) {
   const { packet_data_json, template_id, sections } = input || {};
   const wanted = Array.isArray(sections) ? [...new Set(sections.filter((s) => ALL_SECTIONS.includes(s)))] : [];
-  const wantedSections = wanted.length ? wanted : ALL_SECTIONS;
+  // Defaulting to ALL_SECTIONS would now silently include 'letter' (rendering
+  // an empty letter block) for every existing caller that passes nothing, so
+  // the default is the original four rather than "everything we know how to
+  // render". New block types are opt-in.
+  const wantedSections = wanted.length ? wanted : ALL_SECTIONS.filter((s) => s !== 'letter');
+
+  if (wantedSections.includes('letter')) {
+    const clash = wantedSections.filter((s) => LETTER_INCOMPATIBLE.includes(s));
+    if (clash.length) {
+      const err = new Error(`A demand letter cannot be rendered with these sections: ${clash.join(', ')}. See LETTER_INCOMPATIBLE.`);
+      err.code = 'letter_section_conflict';
+      throw err;
+    }
+  }
 
   // ── Parse packet data ────────────────────────────────────────────────────
   let packet = {};
@@ -121,9 +152,24 @@ async function realRun(input, ctx) {
     ...(approval.notes ? [`Notes       : ${approval.notes}`] : []),
   ];
 
+  // Pre-formatted letter text: `packet.letter` is an array of lines already
+  // wrapped to a page width by lib/demand-letter.js. Emitted verbatim — no
+  // JSON, no added header, nothing this renderer contributes to the page —
+  // because the contractor attested to exactly these words and anything this
+  // module adds is text they never approved.
+  let letterPages = [];
+  if (wantedSections.includes('letter')) {
+    const letterLines = Array.isArray(packet.letter) ? packet.letter.map(String) : [];
+    const LINES_PER_PAGE = 50;
+    for (let i = 0; i < letterLines.length; i += LINES_PER_PAGE) {
+      letterPages.push(letterLines.slice(i, i + LINES_PER_PAGE));
+    }
+    if (letterPages.length === 0) letterPages.push(['(no letter content)']);
+  }
+
   // Assemble the requested blocks, in the requested order — each maps to
-  // one-or-more logical pages; 'body' is the only multi-page block.
-  const BLOCK_PAGES = { disclaimer: [DISCLAIMER], body: bodyPages, appendix: [APPENDIX], approval: [APPROVAL] };
+  // one-or-more logical pages; 'body' and 'letter' are the multi-page blocks.
+  const BLOCK_PAGES = { disclaimer: [DISCLAIMER], body: bodyPages, appendix: [APPENDIX], approval: [APPROVAL], letter: letterPages };
   const allPages = wantedSections.flatMap((key) => BLOCK_PAGES[key]);
 
   // ── Build a valid PDF 1.4 file ───────────────────────────────────────────
@@ -160,12 +206,39 @@ async function realRun(input, ctx) {
   }
 
   // ── Helper: escape PDF string ────────────────────────────────────────────
+  //
+  // Encodes to WinAnsi (cp1252), which is what the font resource below
+  // declares. This previously replaced every non-ASCII character with '?',
+  // which was survivable on an internal evidence packet and is not on a
+  // payment demand letter: "Dear Jos? Mart?nez" is not a document anyone
+  // sends to a customer, and the em dashes and curly quotes in our own
+  // composed text came out as '?' too.
+  //
+  // cp1252 agrees with Latin-1 over 0xA0-0xFF, so those pass through by code
+  // point; the 0x80-0x9F range is where cp1252 differs, holding exactly the
+  // typographic characters that show up in real prose. Bytes >= 0x80 are
+  // written as octal escapes so the content stream stays 7-bit-safe
+  // regardless of how it is later handled. Anything with no cp1252 glyph
+  // still degrades to '?' — that is a genuine limitation of a standard-14
+  // font (no CJK, no emoji) rather than something worth pretending about.
+  const WIN_ANSI_EXTRA = {
+    '€': 0x80, '‚': 0x82, 'ƒ': 0x83, '„': 0x84, '…': 0x85,
+    '†': 0x86, '‡': 0x87, 'ˆ': 0x88, '‰': 0x89, 'Š': 0x8A,
+    '‹': 0x8B, 'Œ': 0x8C, 'Ž': 0x8E, '‘': 0x91, '’': 0x92,
+    '“': 0x93, '”': 0x94, '•': 0x95, '–': 0x96, '—': 0x97,
+    '˜': 0x98, '™': 0x99, 'š': 0x9A, '›': 0x9B, 'œ': 0x9C,
+    'ž': 0x9E, 'Ÿ': 0x9F,
+  };
   function pdfStr(s) {
-    return s
-      .replace(/\\/g, '\\\\')
-      .replace(/\(/g, '\\(')
-      .replace(/\)/g, '\\)')
-      .replace(/[^\x20-\x7E]/g, '?');   // drop non-ASCII
+    let out = '';
+    for (const ch of String(s)) {
+      if (ch === '\\' || ch === '(' || ch === ')') { out += `\\${ch}`; continue; }
+      const cp = ch.codePointAt(0);
+      if (cp >= 0x20 && cp <= 0x7E) { out += ch; continue; }
+      const byte = WIN_ANSI_EXTRA[ch] ?? ((cp >= 0xA0 && cp <= 0xFF) ? cp : null);
+      out += byte === null ? '?' : `\\${byte.toString(8).padStart(3, '0')}`;
+    }
+    return out;
   }
 
   // ── Build content stream for each page ──────────────────────────────────
@@ -216,7 +289,7 @@ async function realRun(input, ctx) {
     emit('<< /Type /Page\n');
     emit(`   /Parent ${pagesId} 0 R\n`);
     emit('   /MediaBox [0 0 612 792]\n');
-    emit('   /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Courier >> >> >>\n');
+    emit('   /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >> >> >>\n');
     emit(`   /Contents ${contentIds[p]} 0 R\n`);
     emit('>>\nendobj\n');
   }

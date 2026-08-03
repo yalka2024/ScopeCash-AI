@@ -9,46 +9,46 @@ datasource db {
 // ─── Core Auth & Organization ─────────────────────────
 
 model User {
-  id              String   @id @default(uuid())
-  email           String   @unique
-  passwordHash    String
-  name            String?
-  role            String   @default("user")
-  orgId           String?
-  org             Organization? @relation(fields: [orgId], references: [id])
-  emailVerified   Boolean  @default(false)
-  mfaEnabled      Boolean  @default(false)
-  mfaSecret       String?  // app-layer AES-256-GCM envelope (lib/encryption.js) — never plaintext at rest
-  failedLogins    Int      @default(0)
-  lockedUntil     DateTime?
-  lastLoginAt     DateTime?
-  passwordChangedAt DateTime @default(now())
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                String        @id @default(uuid())
+  email             String        @unique
+  passwordHash      String
+  name              String?
+  role              String        @default("user")
+  orgId             String?
+  org               Organization? @relation(fields: [orgId], references: [id])
+  emailVerified     Boolean       @default(false)
+  mfaEnabled        Boolean       @default(false)
+  mfaSecret         String? // app-layer AES-256-GCM envelope (lib/encryption.js) — never plaintext at rest
+  failedLogins      Int           @default(0)
+  lockedUntil       DateTime?
+  lastLoginAt       DateTime?
+  passwordChangedAt DateTime      @default(now())
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 
-  records         Project[]
-  notifications   Notification[]
+  records                 Project[]
+  notifications           Notification[]
   notificationPreferences NotificationPreference[]
-  apiKeys         ApiKey[]
-  activities      Activity[]
-  refreshTokens   RefreshToken[]
-  emailTokens     EmailVerificationToken[]
-  pwResetTokens   PasswordResetToken[]
-  consents        Consent[]
-  onboarding      OnboardingState?
-  orgMemberships  OrgMembership[]
+  apiKeys                 ApiKey[]
+  activities              Activity[]
+  refreshTokens           RefreshToken[]
+  emailTokens             EmailVerificationToken[]
+  pwResetTokens           PasswordResetToken[]
+  consents                Consent[]
+  onboarding              OnboardingState?
+  orgMemberships          OrgMembership[]
 
   @@index([orgId])
 }
 
 model Organization {
-  id          String   @id @default(uuid())
-  name        String
-  plan        String   @default("free")
-  createdAt   DateTime @default(now())
-  users       User[]
-  memberships OrgMembership[]
-  invitations Invitation[]
+  id                        String                     @id @default(uuid())
+  name                      String
+  plan                      String                     @default("free")
+  createdAt                 DateTime                   @default(now())
+  users                     User[]
+  memberships               OrgMembership[]
+  invitations               Invitation[]
   ownershipTransferRequests OwnershipTransferRequest[]
 
   // Org-wide deletion request (lib/org-deletion.js) — set by an owner via
@@ -64,8 +64,8 @@ model Organization {
 
 model Project {
   id              String   @id @default(uuid())
-  projectName   String
-  projectPath   String?
+  projectName     String
+  projectPath     String?
   storageKey      String?
   storageProvider String?
   contentType     String?
@@ -74,7 +74,7 @@ model Project {
   riskScore       Int?
   overallRisk     String?
   reportJson      String?
-  conformityJson  String?   // EU AI Act Article 43 self-assessment state
+  conformityJson  String? // EU AI Act Article 43 self-assessment state
   userId          String
   user            User     @relation(fields: [userId], references: [id])
   orgId           String?
@@ -124,17 +124,17 @@ model NotificationPreference {
 // ─── API Keys ─────────────────────────────────────────
 
 model ApiKey {
-  id          String   @id @default(uuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
-  name        String
-  keyHash     String   @unique
-  prefix      String
-  lastUsedAt  DateTime?
-  expiresAt   DateTime?
-  scopes      String   @default("read")
-  active      Boolean  @default(true)
-  createdAt   DateTime @default(now())
+  id            String               @id @default(uuid())
+  userId        String
+  user          User                 @relation(fields: [userId], references: [id])
+  name          String
+  keyHash       String               @unique
+  prefix        String
+  lastUsedAt    DateTime?
+  expiresAt     DateTime?
+  scopes        String               @default("read")
+  active        Boolean              @default(true)
+  createdAt     DateTime             @default(now())
   projectGrants ApiKeyProjectGrant[]
 
   @@index([userId])
@@ -177,8 +177,8 @@ model Activity {
 
   // Tamper-evident hash chain (OBS-005). prevHash is unique so racing writers
   // collide on the unique constraint and retry rather than forking the chain.
-  prevHash   String?  @unique
-  hash       String?
+  prevHash String? @unique
+  hash     String?
 
   @@index([userId, createdAt])
   @@index([orgId, createdAt])
@@ -188,31 +188,31 @@ model Activity {
 // ─── Webhooks ─────────────────────────────────────────
 
 model Webhook {
-  id           String   @id @default(uuid())
+  id           String    @id @default(uuid())
   userId       String
   url          String
   events       String
   secret       String
-  active       Boolean  @default(true)
-  failureCount Int      @default(0)
+  active       Boolean   @default(true)
+  failureCount Int       @default(0)
   disabledAt   DateTime?
-  createdAt    DateTime @default(now())
+  createdAt    DateTime  @default(now())
 
-  deliveries   WebhookDelivery[]
+  deliveries WebhookDelivery[]
 }
 
 model WebhookDelivery {
-  id            String   @id @default(uuid())
+  id            String    @id @default(uuid())
   webhookId     String
-  webhook       Webhook  @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  webhook       Webhook   @relation(fields: [webhookId], references: [id], onDelete: Cascade)
   event         String
   payload       String
-  status        String   @default("pending") // pending|delivered|failed|dead
-  attemptCount  Int      @default(0)
+  status        String    @default("pending") // pending|delivered|failed|dead
+  attemptCount  Int       @default(0)
   lastError     String?
   nextAttemptAt DateTime?
   deliveredAt   DateTime?
-  createdAt     DateTime @default(now())
+  createdAt     DateTime  @default(now())
 
   @@index([status, nextAttemptAt])
   @@index([webhookId, createdAt])
@@ -221,17 +221,17 @@ model WebhookDelivery {
 // ─── Refresh tokens & revocation ──────────────────────
 
 model RefreshToken {
-  id          String   @id @default(uuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tokenHash   String   @unique
-  family      String   // rotation family id; reuse of a revoked one in family => force-logout
-  revokedAt   DateTime?
-  replacedBy  String?
-  expiresAt   DateTime
-  ipAddress   String?
-  userAgent   String?
-  createdAt   DateTime @default(now())
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique
+  family     String // rotation family id; reuse of a revoked one in family => force-logout
+  revokedAt  DateTime?
+  replacedBy String?
+  expiresAt  DateTime
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime  @default(now())
 
   @@index([userId])
   @@index([family])
@@ -240,40 +240,40 @@ model RefreshToken {
 // ─── Email verification & password reset ──────────────
 
 model EmailVerificationToken {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tokenHash String   @unique
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 }
 
 model PasswordResetToken {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tokenHash String   @unique
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 }
 
 // ─── AI usage / quotas ────────────────────────────────
 
 model AiUsage {
-  id          String   @id @default(uuid())
-  userId      String
-  orgId       String?
-  provider    String
-  model       String?
-  promptTokens Int     @default(0)
-  completionTokens Int @default(0)
-  totalTokens Int      @default(0)
-  costUsd     Float    @default(0)
-  promptHash  String?
-  outcome     String   @default("success")
-  createdAt   DateTime @default(now())
+  id               String   @id @default(uuid())
+  userId           String
+  orgId            String?
+  provider         String
+  model            String?
+  promptTokens     Int      @default(0)
+  completionTokens Int      @default(0)
+  totalTokens      Int      @default(0)
+  costUsd          Float    @default(0)
+  promptHash       String?
+  outcome          String   @default("success")
+  createdAt        DateTime @default(now())
 
   @@index([userId, createdAt])
   @@index([orgId, createdAt])
@@ -282,13 +282,13 @@ model AiUsage {
 // ─── Consent / ToS / DPA acceptance ───────────────────
 
 model Consent {
-  id        String   @id @default(uuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  policy    String   // "tos" | "privacy" | "dpa" | "marketing"
-  version   String
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  policy     String // "tos" | "privacy" | "dpa" | "marketing"
+  version    String
   acceptedAt DateTime @default(now())
-  ipAddress String?
+  ipAddress  String?
 
   @@index([userId, policy])
 }
@@ -298,7 +298,7 @@ model Consent {
 model Subscription {
   id                 String    @id @default(uuid())
   orgId              String    @unique
-  planId             String    // matches plans.json tier id (free|starter|pro|enterprise|...)
+  planId             String // matches plans.json tier id (free|starter|pro|enterprise|...)
   status             String    @default("trialing") // trialing|active|past_due|grace|suspended|canceled|none
   stripeCustomerId   String?
   stripeSubId        String?   @unique
@@ -323,9 +323,9 @@ model UsageEvent {
   id        String   @id @default(uuid())
   orgId     String
   userId    String?
-  meter     String   // records_per_month | api_calls_per_month | ai_tokens_per_month | ...
+  meter     String // records_per_month | api_calls_per_month | ai_tokens_per_month | ...
   quantity  Int
-  period    String   // "YYYY-MM"
+  period    String // "YYYY-MM"
   metadata  String?
   createdAt DateTime @default(now())
 
@@ -334,11 +334,11 @@ model UsageEvent {
 }
 
 model UsageCounter {
-  id      String  @id @default(uuid())
-  orgId   String
-  meter   String
-  period  String   // "YYYY-MM"
-  value   BigInt   @default(0)
+  id     String @id @default(uuid())
+  orgId  String
+  meter  String
+  period String // "YYYY-MM"
+  value  BigInt @default(0)
 
   @@unique([orgId, meter, period])
   @@index([orgId, period])
@@ -350,7 +350,7 @@ model Invoice {
   orgId           String
   amountCents     Int
   currency        String   @default("usd")
-  status          String   // paid|open|void|uncollectible
+  status          String // paid|open|void|uncollectible
   periodStart     DateTime
   periodEnd       DateTime
   hostedUrl       String?
@@ -360,7 +360,7 @@ model Invoice {
 }
 
 model StripeEvent {
-  id         String   @id        // Stripe event id, idempotency key
+  id         String   @id // Stripe event id, idempotency key
   type       String
   receivedAt DateTime @default(now())
 
@@ -372,10 +372,10 @@ model StripeEvent {
 model TenantCostEvent {
   id        String   @id @default(uuid())
   orgId     String
-  resource  String   // http_compute_ms | db_query_ms | storage_bytes | ai_tokens | egress_bytes
-  quantity  Int      // resource units consumed (rounded)
-  ucents    Int      // attributed cost in micro-cents (1/1000 of a cent)
-  period    String   // "YYYY-MM"
+  resource  String // http_compute_ms | db_query_ms | storage_bytes | ai_tokens | egress_bytes
+  quantity  Int // resource units consumed (rounded)
+  ucents    Int // attributed cost in micro-cents (1/1000 of a cent)
+  period    String // "YYYY-MM"
   metadata  String?
   createdAt DateTime @default(now())
 
@@ -395,8 +395,8 @@ model AiSpendEvent {
   promptTokens     Int      @default(0)
   completionTokens Int      @default(0)
   totalTokens      Int      @default(0)
-  ucents           Int      @default(0)   // micro-cents (1/1000 cent)
-  period           String   // "YYYY-MM"
+  ucents           Int      @default(0) // micro-cents (1/1000 cent)
+  period           String // "YYYY-MM"
   outcome          String   @default("success")
   createdAt        DateTime @default(now())
 
@@ -406,20 +406,20 @@ model AiSpendEvent {
 }
 
 model EvalRun {
-  id           String   @id @default(uuid())
-  suite        String
-  model        String
-  provider     String?
-  score        Float
-  passed       Int
-  total        Int
-  durationMs   Int
-  ucents       Int      @default(0)
-  totalTokens  Int      @default(0)
-  recordId     String?
-  userId       String?
-  createdAt    DateTime @default(now())
-  results      EvalResult[]
+  id          String       @id @default(uuid())
+  suite       String
+  model       String
+  provider    String?
+  score       Float
+  passed      Int
+  total       Int
+  durationMs  Int
+  ucents      Int          @default(0)
+  totalTokens Int          @default(0)
+  recordId    String?
+  userId      String?
+  createdAt   DateTime     @default(now())
+  results     EvalResult[]
 
   @@index([suite, createdAt])
   @@index([model, createdAt])
@@ -427,18 +427,18 @@ model EvalRun {
 }
 
 model EvalResult {
-  id              String   @id @default(uuid())
-  runId           String
-  run             EvalRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
-  caseId          String
-  passed          Boolean
-  durationMs      Int      @default(0)
-  promptTokens    Int      @default(0)
-  completionTokens Int     @default(0)
-  ucents          Int      @default(0)
-  failures        String?
-  output          String?
-  createdAt       DateTime @default(now())
+  id               String   @id @default(uuid())
+  runId            String
+  run              EvalRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  caseId           String
+  passed           Boolean
+  durationMs       Int      @default(0)
+  promptTokens     Int      @default(0)
+  completionTokens Int      @default(0)
+  ucents           Int      @default(0)
+  failures         String?
+  output           String?
+  createdAt        DateTime @default(now())
 
   @@index([runId, passed])
 }
@@ -448,12 +448,12 @@ model AgentRun {
   id        String   @id @default(uuid())
   orgId     String?
   userId    String?
-  kind      String   // 'agent' | 'workflow' | 'goal'
+  kind      String // 'agent' | 'workflow' | 'goal'
   name      String
-  status    String   // running | completed | failed | awaiting_approval | truncated
+  status    String // running | completed | failed | awaiting_approval | truncated
   input     String?
   output    String?
-  steps     String?  // JSON: per-step trace
+  steps     String? // JSON: per-step trace
   error     String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -467,16 +467,16 @@ model AgentRun {
 // owner console / audit view can list and replay them. `slots` is the captured
 // lead data; `trace` the full decision path.
 model BehaviorSession {
-  id          String   @id
+  id          String    @id
   orgId       String?
   packId      String
-  source      String   @default("authed") // authed | public
+  source      String    @default("authed") // authed | public
   outcome     String?
-  guardsFired String?  // JSON array
-  slots       String?  // JSON: captured fields (the lead)
-  trace       String?  // JSON: full decision trace
+  guardsFired String? // JSON array
+  slots       String? // JSON: captured fields (the lead)
+  trace       String? // JSON: full decision trace
   notifiedAt  DateTime?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
 
   @@index([orgId, createdAt])
   @@index([packId, outcome])
@@ -486,7 +486,7 @@ model BehaviorSession {
 
 model GrowthEvent {
   id         String   @id @default(uuid())
-  name       String   // canonical event name e.g. signup.completed
+  name       String // canonical event name e.g. signup.completed
   userId     String?
   orgId      String?
   source     String   @default("server") // server | client | system | webhook
@@ -499,11 +499,11 @@ model GrowthEvent {
 }
 
 model OnboardingState {
-  userId         String   @id
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  completedSteps String   @default("[]")  // JSON array of step ids
+  userId         String    @id
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  completedSteps String    @default("[]") // JSON array of step ids
   completedAt    DateTime?
-  updatedAt      DateTime @default(now()) @updatedAt
+  updatedAt      DateTime  @default(now()) @updatedAt
 }
 
 model LifecycleSent {
@@ -531,16 +531,16 @@ model FeatureFlag {
 
 // ─── Data products (Tier 15) ────────────────────────────
 model DataExport {
-  id           String    @id @default(uuid())
-  runId        String    @unique
-  status       String    @default("running") // running | success | partial | failed
-  requestedBy  String?
-  sinceMs      Int?
-  manifest     String?
-  sizeBytes    Int       @default(0)
-  rowCount     Int       @default(0)
-  startedAt    DateTime  @default(now())
-  finishedAt   DateTime?
+  id          String    @id @default(uuid())
+  runId       String    @unique
+  status      String    @default("running") // running | success | partial | failed
+  requestedBy String?
+  sinceMs     Int?
+  manifest    String?
+  sizeBytes   Int       @default(0)
+  rowCount    Int       @default(0)
+  startedAt   DateTime  @default(now())
+  finishedAt  DateTime?
 
   @@index([status, startedAt])
 }
@@ -552,7 +552,7 @@ model OAuthApp {
   clientSecretHash String
   name             String
   description      String?
-  redirectUris     String   // newline-separated
+  redirectUris     String // newline-separated
   scopes           String   @default("read")
   orgId            String?
   ownerUserId      String?
@@ -564,7 +564,7 @@ model OAuthApp {
 
 model OAuthGrant {
   id                  String    @id @default(uuid())
-  grantType           String    // code | access | refresh
+  grantType           String // code | access | refresh
   tokenHash           String
   clientId            String
   userId              String
@@ -598,7 +598,7 @@ model IntegrationInstallation {
 // ─── Operations (Tier 17) ──────────────────────────────
 model RequestSample {
   id         String   @id @default(uuid())
-  kind       String   // http | job
+  kind       String // http | job
   bucketAt   DateTime
   count      Int      @default(0)
   errorCount Int      @default(0)
@@ -613,8 +613,8 @@ model RequestSample {
 model Incident {
   id         String    @id @default(uuid())
   title      String
-  status     String    @default("open")    // open|investigating|identified|monitoring|resolved
-  severity   String    @default("sev3")    // sev1..sev4
+  status     String    @default("open") // open|investigating|identified|monitoring|resolved
+  severity   String    @default("sev3") // sev1..sev4
   component  String?
   publish    Boolean   @default(true)
   openedBy   String?
@@ -622,7 +622,7 @@ model Incident {
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
 
-  updates    IncidentUpdate[]
+  updates IncidentUpdate[]
 
   @@index([status, createdAt])
   @@index([publish, createdAt])
@@ -643,25 +643,25 @@ model IncidentUpdate {
 // ---- Tier 18: Trust-to-revenue ----
 
 model ProspectKit {
-  id              String    @id @default(uuid())
-  prospectName    String?
-  prospectCompany String?
-  prospectEmail   String
-  message         String?
-  status          String    @default("requested") // requested | approved | rejected
-  tokenHash       String?
-  expiresAt       DateTime?
-  maxDownloads    Int?
-  downloadCount   Int       @default(0)
+  id               String    @id @default(uuid())
+  prospectName     String?
+  prospectCompany  String?
+  prospectEmail    String
+  message          String?
+  status           String    @default("requested") // requested | approved | rejected
+  tokenHash        String?
+  expiresAt        DateTime?
+  maxDownloads     Int?
+  downloadCount    Int       @default(0)
   lastDownloadedAt DateTime?
-  requestedBy     String?
-  approvedBy      String?
-  approvedAt      DateTime?
-  rejectedBy      String?
-  rejectedAt      DateTime?
-  rejectionReason String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @default(now()) @updatedAt
+  requestedBy      String?
+  approvedBy       String?
+  approvedAt       DateTime?
+  rejectedBy       String?
+  rejectedAt       DateTime?
+  rejectionReason  String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @default(now()) @updatedAt
 
   @@index([status, createdAt])
   @@index([prospectEmail])
@@ -709,16 +709,16 @@ model ModelRegistration {
 }
 
 model ModelEvaluation {
-  id      String   @id @default(uuid())
+  id      String            @id @default(uuid())
   modelId String
   model   ModelRegistration @relation(fields: [modelId], references: [id], onDelete: Cascade)
   suite   String
   metric  String
   score   Float
-  passed  Boolean  @default(false)
+  passed  Boolean           @default(false)
   notes   String?
   runBy   String?
-  runAt   DateTime @default(now())
+  runAt   DateTime          @default(now())
 
   @@index([modelId, runAt])
   @@index([suite, metric])
@@ -797,15 +797,15 @@ model OpsAppointment {
 }
 
 model OpsInvoice {
-  id         String    @id @default(uuid())
-  orgId      String    @default("default")
-  customer   String
-  currency   String    @default("usd")
-  amountCents Int      @default(0)
-  items      String    @default("[]")
-  status     String    @default("open")
-  createdAt  DateTime  @default(now())
-  paidAt     DateTime?
+  id          String    @id @default(uuid())
+  orgId       String    @default("default")
+  customer    String
+  currency    String    @default("usd")
+  amountCents Int       @default(0)
+  items       String    @default("[]")
+  status      String    @default("open")
+  createdAt   DateTime  @default(now())
+  paidAt      DateTime?
 
   @@index([orgId, createdAt])
   @@index([orgId, status])
@@ -860,48 +860,48 @@ model Customer {
 }
 
 model OrganizationRecord {
-  id               String   @id @default(uuid())
-  orgId            String   @unique
-  name             String
-  legal_name       String
-  trade_types      String?
-  timezone         String?
-  currency         String?
-  address          String?
-  phone            String?
-  website          String?
-  billing_plan     String?
-  default_markup   Float?
-  default_tax_rate Float?
+  id                       String   @id @default(uuid())
+  orgId                    String   @unique
+  name                     String
+  legal_name               String
+  trade_types              String?
+  timezone                 String?
+  currency                 String?
+  address                  String?
+  phone                    String?
+  website                  String?
+  billing_plan             String?
+  default_markup           Float?
+  default_tax_rate         Float?
   default_retention_policy String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
 
   @@index([orgId])
 }
 
 model ProjectRecord {
-  id               String   @id @default(uuid())
-  orgId            String
-  customer_id      String
-  customer         Customer @relation(fields: [customer_id], references: [id])
-  name             String
-  project_number   String?
-  trade            String?
-  status           String   @default("active") // active|on_hold|completed|cancelled
-  address          String?
-  start_date       DateTime?
+  id                       String    @id @default(uuid())
+  orgId                    String
+  customer_id              String
+  customer                 Customer  @relation(fields: [customer_id], references: [id])
+  name                     String
+  project_number           String?
+  trade                    String?
+  status                   String    @default("active") // active|on_hold|completed|cancelled
+  address                  String?
+  start_date               DateTime?
   expected_completion_date DateTime?
-  contract_value   Float?
-  original_estimate_value Float?
-  project_manager_id String?
-  estimator_id     String?
-  original_scope_summary String?
-  exclusions_summary String?
-  audit_tier       String?
-  userId           String
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  contract_value           Float?
+  original_estimate_value  Float?
+  project_manager_id       String?
+  estimator_id             String?
+  original_scope_summary   String?
+  exclusions_summary       String?
+  audit_tier               String?
+  userId                   String
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
 
   sourceDocuments    SourceDocument[]
   changeEvents       ChangeEvent[]
@@ -920,19 +920,19 @@ model ProjectRecord {
 }
 
 model SourceDocument {
-  id               String   @id @default(uuid())
-  orgId            String
-  project_id       String
-  project          ProjectRecord @relation(fields: [project_id], references: [id], onDelete: Cascade)
-  document_type    String   // contract|estimate|change_order|invoice|photo|audio|email|message|other
-  original_filename String
-  storage_uri      String
-  mime_type        String?
-  file_size_bytes  Int?
-  sha256_hash      String @unique
-  uploaded_by_id   String?
-  uploaded_at      DateTime
-  extraction_status String?  // pending|processing|extracted|failed
+  id                 String        @id @default(uuid())
+  orgId              String
+  project_id         String
+  project            ProjectRecord @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  document_type      String // contract|estimate|change_order|invoice|photo|audio|email|message|other
+  original_filename  String
+  storage_uri        String
+  mime_type          String?
+  file_size_bytes    Int?
+  sha256_hash        String        @unique
+  uploaded_by_id     String?
+  uploaded_at        DateTime
+  extraction_status  String? // pending|processing|extracted|failed
   // Set by lib/evidence-jobs.js#_processSourceDocumentAnalyze — the OCR
   // (Gemini-native document fallback) equivalent of EvidenceItem.quality,
   // which does the same job for photos. Counts "[illegible]" markers the
@@ -942,12 +942,12 @@ model SourceDocument {
   // then discarded entirely. null when local pdf-parse/mammoth extraction
   // succeeded (no comparable per-span confidence signal from that path).
   extraction_quality String? // ok|low_quality|unreadable
-  page_count       Int?
-  document_date    DateTime?
-  superseded       Boolean?
-  userId           String
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  page_count         Int?
+  document_date      DateTime?
+  superseded         Boolean?
+  userId             String
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
 
   contractProvisions ContractProvision[]
   evidenceItems      EvidenceItem[]
@@ -959,24 +959,24 @@ model SourceDocument {
 }
 
 model ChangeEvent {
-  id               String   @id @default(uuid())
-  orgId            String
-  project_id       String
-  project          ProjectRecord @relation(fields: [project_id], references: [id], onDelete: Cascade)
-  title            String
-  description      String?
-  event_date       DateTime?
-  status           String   // detected|reviewing|supported|unsupported|rejected|submitted
-  reason_category  String?
-  ai_confidence    Float?
-  risk_level       String?
-  missing_evidence String?
-  contradictions   String?
-  reviewer_notes   String?
+  id                    String        @id @default(uuid())
+  orgId                 String
+  project_id            String
+  project               ProjectRecord @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  title                 String
+  description           String?
+  event_date            DateTime?
+  status                String // detected|reviewing|supported|unsupported|rejected|submitted
+  reason_category       String?
+  ai_confidence         Float?
+  risk_level            String?
+  missing_evidence      String?
+  contradictions        String?
+  reviewer_notes        String?
   customer_validated_at DateTime?
-  userId           String
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  userId                String
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
 
   evidenceFindings   EvidenceFinding[]
   scopeItems         ScopeItem[]
@@ -988,25 +988,25 @@ model ChangeEvent {
 }
 
 model EvidenceFinding {
-  id               String   @id @default(uuid())
-  orgId            String
-  project_id       String
-  project          ProjectRecord @relation(fields: [project_id], references: [id], onDelete: Cascade)
-  change_event_id  String?
-  changeEvent      ChangeEvent? @relation(fields: [change_event_id], references: [id])
-  finding_type     String   // scope_delta|contradiction|missing_evidence|duplicate|unsupported
-  assertion        String
-  source_citations String   // legacy denormalized JSON cache; Citation rows below are authoritative
+  id                     String        @id @default(uuid())
+  orgId                  String
+  project_id             String
+  project                ProjectRecord @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  change_event_id        String?
+  changeEvent            ChangeEvent?  @relation(fields: [change_event_id], references: [id])
+  finding_type           String // scope_delta|contradiction|missing_evidence|duplicate|unsupported
+  assertion              String
+  source_citations       String // legacy denormalized JSON cache; Citation rows below are authoritative
   contradictory_evidence String?
-  confidence       Float?
-  severity         String?  // low|medium|high
-  ai_generated     Boolean?
-  human_decision   String?  // supported|unsupported|rejected|pending
-  reviewer_id      String?
-  decision_reason  String?
-  userId           String?  // null for AI-generated findings (ai_generated=true) — no human creator until reviewed
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  confidence             Float?
+  severity               String? // low|medium|high
+  ai_generated           Boolean?
+  human_decision         String? // supported|unsupported|rejected|pending
+  reviewer_id            String?
+  decision_reason        String?
+  userId                 String? // null for AI-generated findings (ai_generated=true) — no human creator until reviewed
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
 
   citations Citation[]
 
@@ -1018,48 +1018,48 @@ model EvidenceFinding {
 // citation validity can be checked against the actual document/evidence
 // instead of trusting a free-text `source_citations` blob.
 model Citation {
-  id               String   @id @default(uuid())
+  id               String          @id @default(uuid())
   orgId            String
   findingId        String
   finding          EvidenceFinding @relation(fields: [findingId], references: [id], onDelete: Cascade)
   sourceDocumentId String?
   sourceDocument   SourceDocument? @relation(fields: [sourceDocumentId], references: [id])
   evidenceItemId   String?
-  evidenceItem     EvidenceItem? @relation(fields: [evidenceItemId], references: [id])
+  evidenceItem     EvidenceItem?   @relation(fields: [evidenceItemId], references: [id])
   pageNumber       Int?
   spanStart        Int?
   spanEnd          Int?
   quotedText       String?
-  createdAt        DateTime @default(now())
+  createdAt        DateTime        @default(now())
 
   @@index([orgId, findingId])
   @@index([sourceDocumentId])
 }
 
 model EvidencePacket {
-  id               String   @id @default(uuid())
-  orgId            String
-  project_id       String
-  project          ProjectRecord @relation(fields: [project_id], references: [id], onDelete: Cascade)
-  packet_number    String
-  version          Int
-  status           String   @default("draft") // draft|pending_approval|approved|exported|submitted
-  recipient        String?
-  executive_summary String?
-  total_potential_amount Float?
+  id                        String        @id @default(uuid())
+  orgId                     String
+  project_id                String
+  project                   ProjectRecord @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  packet_number             String
+  version                   Int
+  status                    String        @default("draft") // draft|pending_approval|approved|exported|submitted
+  recipient                 String?
+  executive_summary         String?
+  total_potential_amount    Float?
   customer_validated_amount Float?
-  pdf_storage_uri  String?
-  content_hash     String?
-  approved_by_id   String?
-  approved_at      DateTime?
-  exported_at      DateTime?
-  submission_date  DateTime?
-  submission_method String?
-  external_reference String?
-  userId           String
-  packetTemplateId String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  pdf_storage_uri           String?
+  content_hash              String?
+  approved_by_id            String?
+  approved_at               DateTime?
+  exported_at               DateTime?
+  submission_date           DateTime?
+  submission_method         String?
+  external_reference        String?
+  userId                    String
+  packetTemplateId          String?
+  createdAt                 DateTime      @default(now())
+  updatedAt                 DateTime      @updatedAt
 
   commercialOutcomes CommercialOutcome[]
 
@@ -1079,7 +1079,7 @@ model PacketTemplate {
   name      String
   status    String   @default("draft") // draft|active|superseded
   version   Int      @default(1)
-  sections  String   // comma-separated block keys, e.g. "disclaimer,body,appendix,approval"
+  sections  String // comma-separated block keys, e.g. "disclaimer,body,appendix,approval"
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1087,32 +1087,32 @@ model PacketTemplate {
 }
 
 model CommercialOutcome {
-  id               String   @id @default(uuid())
-  orgId            String
-  project_id       String
-  project          ProjectRecord @relation(fields: [project_id], references: [id], onDelete: Cascade)
-  change_event_id  String?
-  changeEvent      ChangeEvent? @relation(fields: [change_event_id], references: [id])
-  packet_id        String?
-  packet           EvidencePacket? @relation(fields: [packet_id], references: [id])
+  id                String          @id @default(uuid())
+  orgId             String
+  project_id        String
+  project           ProjectRecord   @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  change_event_id   String?
+  changeEvent       ChangeEvent?    @relation(fields: [change_event_id], references: [id])
+  packet_id         String?
+  packet            EvidencePacket? @relation(fields: [packet_id], references: [id])
   identified_amount Float?
-  validated_amount Float?
-  submitted_amount Float?
-  approved_amount  Float?
-  invoiced_amount  Float?
-  collected_amount Float?
-  invoice_number   String?
-  invoice_date     DateTime?
-  payment_date     DateTime?
+  validated_amount  Float?
+  submitted_amount  Float?
+  approved_amount   Float?
+  invoiced_amount   Float?
+  collected_amount  Float?
+  invoice_number    String?
+  invoice_date      DateTime?
+  payment_date      DateTime?
   // Who actually pays this outcome. Success fees are only ever computed when
   // this is explicitly 'customer' -- left null/'insurance' fails closed, per
   // the public-adjuster-statute compliance requirement that a success fee
   // must never be charged against an insurance-paid outcome.
-  payer_type       String?
-  notes            String?
-  userId           String
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  payer_type        String?
+  notes             String?
+  userId            String
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
 
   outcomeEvidence     OutcomeEvidence[]
   stageTransitions    StageTransition[]
@@ -1128,16 +1128,16 @@ model CommercialOutcome {
 // transition that changes one is also appended here so the history can never
 // be silently overwritten or a stage skipped/mislabeled without a trace.
 model StageTransition {
-  id        String   @id @default(uuid())
+  id        String            @id @default(uuid())
   orgId     String
   outcomeId String
   outcome   CommercialOutcome @relation(fields: [outcomeId], references: [id], onDelete: Cascade)
-  fromStage String?  // null on the first transition
-  toStage   String   // identified|validated|submitted|approved|invoiced|collected
+  fromStage String? // null on the first transition
+  toStage   String // identified|validated|submitted|approved|invoiced|collected
   amount    Float
   actorId   String?
   reason    String?
-  createdAt DateTime @default(now())
+  createdAt DateTime          @default(now())
 
   earnedRevenueEvent EarnedRevenueEvent?
 
@@ -1151,15 +1151,15 @@ model StageTransition {
 // POST from an org owner/admin, so the feature is off by default for every
 // org and stays off until that happens.
 model SuccessFeeAgreement {
-  id               String   @id @default(uuid())
+  id               String    @id @default(uuid())
   orgId            String
-  ratePercent      Float    // e.g. 0.10 = 10% of collected_amount
+  ratePercent      Float // e.g. 0.10 = 10% of collected_amount
   acceptedAt       DateTime
   acceptedByUserId String
-  active           Boolean  @default(true)
+  active           Boolean   @default(true)
   deactivatedAt    DateTime?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   earnedRevenueEvents EarnedRevenueEvent[]
 
@@ -1172,79 +1172,79 @@ model SuccessFeeAgreement {
 // transition (not just the outcome) because outcomes can be re-collected
 // (corrected) more than once, and each correction is its own earning event.
 model EarnedRevenueEvent {
-  id                    String   @id @default(uuid())
+  id                    String              @id @default(uuid())
   orgId                 String
   commercialOutcomeId   String
-  commercialOutcome     CommercialOutcome @relation(fields: [commercialOutcomeId], references: [id], onDelete: Cascade)
-  stageTransitionId     String   @unique
-  stageTransition       StageTransition @relation(fields: [stageTransitionId], references: [id], onDelete: Cascade)
+  commercialOutcome     CommercialOutcome   @relation(fields: [commercialOutcomeId], references: [id], onDelete: Cascade)
+  stageTransitionId     String              @unique
+  stageTransition       StageTransition     @relation(fields: [stageTransitionId], references: [id], onDelete: Cascade)
   successFeeAgreementId String
   successFeeAgreement   SuccessFeeAgreement @relation(fields: [successFeeAgreementId], references: [id])
   collectedAmount       Float
   ratePercent           Float
   feeAmount             Float
-  createdAt             DateTime @default(now())
+  createdAt             DateTime            @default(now())
 
   @@index([orgId, createdAt])
 }
 
 model OutcomeEvidence {
-  id           String   @id @default(uuid())
+  id           String            @id @default(uuid())
   orgId        String
   outcomeId    String
   outcome      CommercialOutcome @relation(fields: [outcomeId], references: [id], onDelete: Cascade)
-  evidenceType String   // invoice|payment_confirmation|remittance|bank_statement|email_confirmation
+  evidenceType String // invoice|payment_confirmation|remittance|bank_statement|email_confirmation
   storageUri   String?
   amount       Float?
   documentDate DateTime?
   notes        String?
-  createdAt    DateTime @default(now())
+  createdAt    DateTime          @default(now())
 
   @@index([orgId, outcomeId])
 }
 
 model AgentRunRecord {
-  id               String   @id @default(uuid())
-  orgId            String
-  project_id       String?
-  project          ProjectRecord? @relation(fields: [project_id], references: [id])
-  agent_type       String
-  status           String   // running|completed|failed|awaiting_approval
-  model_name       String?
-  model_version    String?
-  input_refs       String?
-  output_refs      String?
-  source_citations String?
-  confidence       Float?
-  token_usage      Int?
-  estimated_cost_usd Float?
-  latency_ms       Int?
-  error_message    String?
-  human_decision   String?
+  id                  String         @id @default(uuid())
+  orgId               String
+  project_id          String?
+  project             ProjectRecord? @relation(fields: [project_id], references: [id])
+  agent_type          String
+  status              String // running|completed|failed|awaiting_approval
+  model_name          String?
+  model_version       String?
+  input_refs          String?
+  output_refs         String?
+  source_citations    String?
+  confidence          Float?
+  token_usage         Int?
+  estimated_cost_usd  Float?
+  latency_ms          Int?
+  error_message       String?
+  human_decision      String?
   // Durable-job fields. status gains: queued|running|completed|failed|
   // awaiting_approval|cancelled|dead_lettered.
-  heartbeat_at     DateTime? // last liveness ping from the worker executing this run — a `running` row with a stale heartbeat is a crashed worker, which the reconciler previously could never detect (it only swept `queued`)
-  attempt_count    Int      @default(0) // incremented per dispatch; bounds redispatch so a permanently-failing job dead-letters instead of looping forever
+  heartbeat_at        DateTime? // last liveness ping from the worker executing this run — a `running` row with a stale heartbeat is a crashed worker, which the reconciler previously could never detect (it only swept `queued`)
+  attempt_count       Int            @default(0) // incremented per dispatch; bounds redispatch so a permanently-failing job dead-letters instead of looping forever
   cancel_requested_at DateTime? // set by the cancel route; the worker checks it at stage boundaries and stops cooperatively rather than being killed mid-write
-  progress         String?  // JSON: { stage, pct, note } — last reported progress, so a long run isn't an opaque "running"
-  dead_lettered_at DateTime?
-  completed_at     DateTime?
-  userId           String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  progress            String? // JSON: { stage, pct, note } — last reported progress, so a long run isn't an opaque "running"
+  dead_lettered_at    DateTime?
+  completed_at        DateTime?
+  userId              String?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
 
   @@index([orgId, createdAt])
   @@index([project_id])
 }
 
 model ScopeItem {
-  id               String   @id @default(uuid())
+  id               String          @id @default(uuid())
   orgId            String
   project_id       String
-  project          ProjectRecord @relation(fields: [project_id], references: [id], onDelete: Cascade)
-  source           String   @default("original") // original|revised|change_event
+  project          ProjectRecord   @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  source           String          @default("original") // original|revised|change_event
   change_event_id  String?
-  changeEvent      ChangeEvent? @relation(fields: [change_event_id], references: [id])
+  changeEvent      ChangeEvent?    @relation(fields: [change_event_id], references: [id])
   description      String
   quantity         Float?
   unit             String?
@@ -1254,8 +1254,8 @@ model ScopeItem {
   sourceDocumentId String?
   sourceDocument   SourceDocument? @relation(fields: [sourceDocumentId], references: [id])
   pageReference    String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
 
   costItems CostItem[]
 
@@ -1264,34 +1264,34 @@ model ScopeItem {
 }
 
 model ContractProvision {
-  id               String   @id @default(uuid())
+  id               String         @id @default(uuid())
   orgId            String
   project_id       String
-  project          ProjectRecord @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  project          ProjectRecord  @relation(fields: [project_id], references: [id], onDelete: Cascade)
   sourceDocumentId String
   sourceDocument   SourceDocument @relation(fields: [sourceDocumentId], references: [id], onDelete: Cascade)
-  category         String?  // scope|pricing|schedule|change_order|exclusion|payment_terms
+  category         String? // scope|pricing|schedule|change_order|exclusion|payment_terms
   clauseText       String
   pageNumber       Int?
   sectionRef       String?
   extractedByRunId String?
   confidence       Float?
-  createdAt        DateTime @default(now())
+  createdAt        DateTime       @default(now())
 
   @@index([orgId, project_id])
   @@index([sourceDocumentId])
 }
 
 model CostItem {
-  id              String   @id @default(uuid())
+  id              String        @id @default(uuid())
   orgId           String
   project_id      String
   project         ProjectRecord @relation(fields: [project_id], references: [id], onDelete: Cascade)
   change_event_id String?
-  changeEvent     ChangeEvent? @relation(fields: [change_event_id], references: [id])
+  changeEvent     ChangeEvent?  @relation(fields: [change_event_id], references: [id])
   scopeItemId     String?
-  scopeItem       ScopeItem? @relation(fields: [scopeItemId], references: [id])
-  category        String   // labor|material|equipment|subcontractor|markup|tax
+  scopeItem       ScopeItem?    @relation(fields: [scopeItemId], references: [id])
+  category        String // labor|material|equipment|subcontractor|markup|tax
   description     String
   quantity        Float?
   unit            String?
@@ -1301,24 +1301,24 @@ model CostItem {
   markupAmount    Float?
   taxAmount       Float?
   billedTotal     Float?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
   @@index([orgId, project_id])
 }
 
 model RateSheet {
-  id            String   @id @default(uuid())
+  id            String    @id @default(uuid())
   orgId         String
   customerId    String?
   customer      Customer? @relation(fields: [customerId], references: [id])
   name          String
   trade         String?
   effectiveDate DateTime?
-  version       Int      @default(1)
-  status        String   @default("active") // draft|active|superseded
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  version       Int       @default(1)
+  status        String    @default("active") // draft|active|superseded
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   items RateSheetItem[]
 
@@ -1327,7 +1327,7 @@ model RateSheet {
 }
 
 model RateSheetItem {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   orgId       String
   rateSheetId String
   rateSheet   RateSheet @relation(fields: [rateSheetId], references: [id], onDelete: Cascade)
@@ -1336,31 +1336,31 @@ model RateSheetItem {
   unit        String?
   unitRate    Float
   category    String?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
 
   @@index([orgId, rateSheetId])
 }
 
 model EvidenceItem {
-  id               String   @id @default(uuid())
-  orgId            String
-  project_id       String
-  project          ProjectRecord @relation(fields: [project_id], references: [id], onDelete: Cascade)
-  sourceDocumentId String?
-  sourceDocument   SourceDocument? @relation(fields: [sourceDocumentId], references: [id])
-  evidenceType     String   // photo|audio|receipt|message|video|document
-  storageUri       String
-  sha256Hash       String
-  fileSizeBytes    Int?     // byte size of the stored object — set at upload; feeds the storage_gb plan quota (lib/entitlements.js#checkStorageBytes). Null on rows predating the column, which count as 0.
-  mimeType         String?  // real sniffed content-type (e.g. image/heic) — set at upload; older rows may be null
-  capturedAt       DateTime?
-  gpsLat           Float?
-  gpsLng           Float?
-  deviceMetadata   String?  // JSON: EXIF / device model / app version
-  transcript       String?  // audio transcription text
-  extractedText    String?  // OCR / extracted text
-  uploadedById     String?
-  duplicateOfId    String?
+  id                String          @id @default(uuid())
+  orgId             String
+  project_id        String
+  project           ProjectRecord   @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  sourceDocumentId  String?
+  sourceDocument    SourceDocument? @relation(fields: [sourceDocumentId], references: [id])
+  evidenceType      String // photo|audio|receipt|message|video|document
+  storageUri        String
+  sha256Hash        String
+  fileSizeBytes     Int? // byte size of the stored object — set at upload; feeds the storage_gb plan quota (lib/entitlements.js#checkStorageBytes). Null on rows predating the column, which count as 0.
+  mimeType          String? // real sniffed content-type (e.g. image/heic) — set at upload; older rows may be null
+  capturedAt        DateTime?
+  gpsLat            Float?
+  gpsLng            Float?
+  deviceMetadata    String? // JSON: EXIF / device model / app version
+  transcript        String? // audio transcription text
+  extractedText     String? // OCR / extracted text
+  uploadedById      String?
+  duplicateOfId     String?
   // Set by lib/evidence-pipeline.js#interpretImage after Gemini analysis —
   // a same-project photo whose generated description is textually similar
   // enough to this one to likely be a near-duplicate (re-shot, re-cropped,
@@ -1371,10 +1371,10 @@ model EvidenceItem {
   // "pure JS, no native build" rationale for heic-convert); reuses text
   // Gemini already generates for every photo, no extra AI call.
   nearDuplicateOfId String?
-  quality          String?  // ok|low_quality|unreadable
-  analysisStatus   String?  // null=never analyzed|queued|processing|completed|failed — Cloud Tasks idempotency gate
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  quality           String? // ok|low_quality|unreadable
+  analysisStatus    String? // null=never analyzed|queued|processing|completed|failed — Cloud Tasks idempotency gate
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
 
   citations Citation[]
 
@@ -1394,35 +1394,35 @@ model EvidenceItem {
 }
 
 model ConsentRecord {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   orgId       String
   project_id  String?
-  subjectType String   // employee|customer|third_party
+  subjectType String // employee|customer|third_party
   subjectName String?
-  consentType String   // photo|audio|video|testimonial|location|biometric
-  granted     Boolean  @default(true)
+  consentType String // photo|audio|video|testimonial|location|biometric
+  granted     Boolean   @default(true)
   grantedById String?
-  method      String?  // verbal_logged|written|digital_signature
+  method      String? // verbal_logged|written|digital_signature
   evidenceUri String?
-  grantedAt   DateTime @default(now())
+  grantedAt   DateTime  @default(now())
   revokedAt   DateTime?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
 
   @@index([orgId, project_id])
   @@index([orgId, consentType])
 }
 
 model Feedback {
-  id              String   @id @default(uuid())
+  id              String    @id @default(uuid())
   orgId           String
   project_id      String?
   customerId      String?
   customer        Customer? @relation(fields: [customerId], references: [id])
   rating          Int?
   comment         String?
-  consentToShare  Boolean  @default(false)
+  consentToShare  Boolean   @default(false)
   consentRecordId String?
-  createdAt       DateTime @default(now())
+  createdAt       DateTime  @default(now())
 
   testimonials Testimonial[]
 
@@ -1431,7 +1431,7 @@ model Feedback {
 }
 
 model Testimonial {
-  id              String   @id @default(uuid())
+  id              String    @id @default(uuid())
   orgId           String
   customerId      String?
   customer        Customer? @relation(fields: [customerId], references: [id])
@@ -1441,25 +1441,25 @@ model Testimonial {
   authorName      String?
   authorTitle     String?
   consentRecordId String?
-  status          String   @default("pending") // pending|approved|rejected
-  featured        Boolean  @default(false)
+  status          String    @default("pending") // pending|approved|rejected
+  featured        Boolean   @default(false)
   approvedById    String?
   approvedAt      DateTime?
-  createdAt       DateTime @default(now())
+  createdAt       DateTime  @default(now())
 
   @@index([orgId, status])
 }
 
 model RetentionLegalHold {
-  id           String   @id @default(uuid())
+  id           String    @id @default(uuid())
   orgId        String
-  resourceType String   // project|sourceDocument|evidenceItem|evidencePacket
+  resourceType String // project|sourceDocument|evidenceItem|evidencePacket
   resourceId   String
-  holdType     String   // legal_hold|retention_policy
+  holdType     String // legal_hold|retention_policy
   reason       String?
   policyDays   Int?
   placedById   String?
-  placedAt     DateTime @default(now())
+  placedAt     DateTime  @default(now())
   releasedById String?
   releasedAt   DateTime?
 
@@ -1473,13 +1473,13 @@ model RetentionLegalHold {
 model CompetitionEvidence {
   id                String   @id @default(uuid())
   orgId             String
-  category          String   // revenue|customer|expense|testimonial|deployment|uptime
-  classification    String?  // arms_length|related_party (revenue rows)
-  period            String?  // "YYYY-MM"
+  category          String // revenue|customer|expense|testimonial|deployment|uptime
+  classification    String? // arms_length|related_party (revenue rows)
+  period            String? // "YYYY-MM"
   label             String
   amountCents       Int?
   quantity          Int?
-  sourceType        String?  // stripe|gcp_billing|agent_run|manual
+  sourceType        String? // stripe|gcp_billing|agent_run|manual
   sourceRef         String?
   isDemoData        Boolean  @default(false)
   excludeFromReport Boolean  @default(false)
@@ -1497,15 +1497,15 @@ model CompetitionEvidence {
 // "current/active org" pointer (set at signup, updated on invite-accept);
 // OrgMembership is authoritative for multi-member access control.
 model OrgMembership {
-  id        String   @id @default(uuid())
+  id        String       @id @default(uuid())
   orgId     String
   org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role      String   @default("viewer")
-  status    String   @default("active") // active|suspended|removed
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String       @default("viewer")
+  status    String       @default("active") // active|suspended|removed
   invitedBy String?
-  joinedAt  DateTime @default(now())
+  joinedAt  DateTime     @default(now())
   removedAt DateTime?
 
   @@unique([orgId, userId])
@@ -1514,18 +1514,18 @@ model OrgMembership {
 }
 
 model Invitation {
-  id         String   @id @default(uuid())
+  id         String       @id @default(uuid())
   orgId      String
   org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   email      String
   role       String
-  tokenHash  String   @unique
+  tokenHash  String       @unique
   invitedBy  String?
-  status     String   @default("pending") // pending|accepted|revoked|expired
+  status     String       @default("pending") // pending|accepted|revoked|expired
   expiresAt  DateTime
   acceptedAt DateTime?
   revokedAt  DateTime?
-  createdAt  DateTime @default(now())
+  createdAt  DateTime     @default(now())
 
   @@index([orgId, status])
   @@index([email])
@@ -1539,23 +1539,21 @@ model Invitation {
 // since the semantics differ (an existing member accepting a role handoff,
 // not a new person joining by email).
 model OwnershipTransferRequest {
-  id          String   @id @default(uuid())
-  orgId       String
-  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  fromUserId  String
-  toUserId    String
-  tokenHash   String   @unique
-  status      String   @default("pending") // pending|accepted|revoked|expired
-  expiresAt   DateTime
-  acceptedAt  DateTime?
-  revokedAt   DateTime?
-  createdAt   DateTime @default(now())
+  id         String       @id @default(uuid())
+  orgId      String
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  fromUserId String
+  toUserId   String
+  tokenHash  String       @unique
+  status     String       @default("pending") // pending|accepted|revoked|expired
+  expiresAt  DateTime
+  acceptedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime     @default(now())
 
   @@index([orgId, status])
   @@index([toUserId])
 }
-
-
 
 // Single-winner lease for scheduled jobs.
 //
@@ -1573,8 +1571,8 @@ model OwnershipTransferRequest {
 model SchedulerLease {
   id        String   @id @default(uuid())
   jobName   String
-  period    String   // granularity is the job's own — e.g. "2026-07-28T14" hourly
-  claimedBy String?  // instance hint for debugging; never used for correctness
+  period    String // granularity is the job's own — e.g. "2026-07-28T14" hourly
+  claimedBy String? // instance hint for debugging; never used for correctness
   claimedAt DateTime @default(now())
 
   @@unique([jobName, period])
@@ -1592,18 +1590,61 @@ model SchedulerLease {
 // stripeSessionId is unique: Stripe can redeliver checkout.session.completed,
 // and a redelivery must not mint a second credit.
 model PacketCredit {
-  id                    String    @id @default(uuid())
-  orgId                 String
-  source                String    @default("purchase") // purchase|promo|concierge
-  amountCents           Int       @default(0)
-  stripeSessionId       String?   @unique
+  id                     String    @id @default(uuid())
+  orgId                  String
+  source                 String    @default("purchase") // purchase|promo|concierge
+  amountCents            Int       @default(0)
+  stripeSessionId        String?   @unique
   // Set when spent on an export; a credit is single-use.
-  consumedAt            DateTime?
-  consumedByPacketId    String?
+  consumedAt             DateTime?
+  consumedByPacketId     String?
   // Unspent credits count toward a plan upgrade for this long.
-  expiresAt             DateTime?
-  creditedToSubscription Boolean  @default(false)
-  createdAt             DateTime  @default(now())
+  expiresAt              DateTime?
+  creditedToSubscription Boolean   @default(false)
+  createdAt              DateTime  @default(now())
 
   @@index([orgId, consumedAt])
+}
+
+/// A payment demand letter generated for an evidence packet, and — the point
+/// of the model — the attestation that authorised it.
+///
+/// The attestation is the legal protection this feature rests on (see
+/// lib/demand-letter.js): it makes the contractor the author of their own
+/// communication, which is the answer to unauthorized-practice-of-law, and it
+/// records that each threatened action was actually intended, which is the
+/// answer to 15 U.S.C. 1692e(5). None of that is worth anything unless it is
+/// durable and tied to the exact words that were sent — hence contentHash over
+/// the rendered letter, and the raw confirmations stored verbatim rather than
+/// as a boolean "attested: true".
+model DemandLetter {
+  id              String    @id @default(uuid())
+  orgId           String
+  packetId        String
+  projectId       String
+  recipientType   String // homeowner|commercial — selects the legal ruleset
+  amountDue       Float
+  responseDueDate DateTime?
+  intendedActions String    @default("") // comma-separated INTENDED_ACTIONS keys
+
+  /// Who attested, when, and from where. Stored because "I intend to take
+  /// every action described" is a statement by a specific person at a specific
+  /// time, and a bare boolean cannot be evidence of that later.
+  attestedById      String
+  attestedAt        DateTime
+  attestedIp        String?
+  attestedUserAgent String?
+  /// The confirmed map exactly as submitted, so a later change to
+  /// REQUIRED_ATTESTATIONS cannot retroactively alter what someone agreed to.
+  attestationJson   String
+
+  /// sha256 of the rendered PDF. Ties the attestation to the exact document.
+  contentHash String
+  storageUri  String?
+  letterText  String  @default("")
+
+  createdAt DateTime @default(now())
+
+  @@index([orgId, projectId])
+  @@index([orgId, packetId])
 }

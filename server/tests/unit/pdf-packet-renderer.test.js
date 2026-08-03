@@ -82,3 +82,85 @@ describe('PDFPacketRenderer sections', () => {
     expect(iAppendix).toBeGreaterThan(iApproval);
   });
 });
+
+/**
+ * The 'letter' block and text encoding.
+ *
+ * Added for payment demand letters (lib/demand-letter.js), which differ from
+ * evidence packets in a way that matters legally: the document is from the
+ * CONTRACTOR to their customer, and nothing about this product may appear on
+ * it. See LETTER_INCOMPATIBLE in the renderer.
+ */
+describe('letter rendering', () => {
+  const renderer = require('../../lib/tools/pdfpacketrenderer');
+  const render = (packet, sections) =>
+    renderer.run({ packet_data_json: packet, sections }, { orgId: 'o1', userId: 'u1' });
+
+  let prev;
+  beforeAll(() => { prev = process.env.INTEGRATION_PDFPACKETRENDERER_MODE; process.env.INTEGRATION_PDFPACKETRENDERER_MODE = 'live'; });
+  afterAll(() => { process.env.INTEGRATION_PDFPACKETRENDERER_MODE = prev; });
+
+  test('emits the letter lines verbatim, with no JSON and no added text', () => {
+    // The contractor attested to exactly these words; anything this renderer
+    // contributes is text they never approved.
+    return render({ letter: ['Dear Priya Raman,', 'We are requesting payment.'] }, ['letter'])
+      .then((out) => {
+        const s = out.pdf_bytes.toString('latin1');
+        expect(s).toContain('(Dear Priya Raman,) Tj');
+        expect(s).toContain('(We are requesting payment.) Tj');
+        expect(s).not.toContain('DISCLAIMER');
+        expect(s).not.toMatch(/ScopeCash/i);
+      });
+  });
+
+  test('refuses to render a letter together with the vendor disclaimer', () => {
+    // 15 U.S.C. 1692j: furnishing a form that implies a third party is
+    // involved in collecting the debt is unlawful, and the liability lands on
+    // the software vendor. Enforced in the renderer so every caller inherits
+    // it, not just the one that exists today.
+    return expect(render({ letter: ['x'] }, ['letter', 'disclaimer'])).rejects
+      .toMatchObject({ code: 'letter_section_conflict' });
+  });
+
+  test('refuses to render a letter together with the raw JSON body block', () =>
+    expect(render({ letter: ['x'] }, ['letter', 'body'])).rejects
+      .toMatchObject({ code: 'letter_section_conflict' }));
+
+  test('callers passing no sections do not silently get an empty letter page', () => {
+    // Adding 'letter' to ALL_SECTIONS would otherwise have changed the output
+    // of every existing caller that relies on the default.
+    return render({ hello: 'world' }, undefined).then((out) => {
+      expect(out.pdf_bytes.toString('latin1')).not.toContain('(no letter content)');
+    });
+  });
+
+  test('accented names and typographic punctuation survive encoding', () => {
+    // Previously every non-ASCII character became '?'. Tolerable on an
+    // internal evidence packet; not on a letter mailed to a customer —
+    // "Dear Jos? Mart?nez" is not a document anyone sends.
+    return render({ letter: ['Dear José Martínez,', 'Balance — $4,820.50 “due”.'] }, ['letter'])
+      .then((out) => {
+        const s = out.pdf_bytes.toString('latin1');
+        expect(s).toContain('(Dear Jos\\351 Mart\\355nez,)');  // é = 0xE9, í = 0xED
+        expect(s).toContain('\\227');                           // em dash = 0x97 in cp1252
+        expect(s).not.toMatch(/Jos\? Mart\?nez/);
+        // The escapes only mean anything if the font declares the encoding.
+        expect(s).toContain('/Encoding /WinAnsiEncoding');
+      });
+  });
+
+  test('characters with no cp1252 glyph still degrade to ?', () => {
+    // A real limitation of a standard-14 font, not something to pretend about.
+    return render({ letter: ['Dear 山田さん,'] }, ['letter']).then((out) => {
+      expect(out.pdf_bytes.toString('latin1')).toContain('(Dear ????,)');
+    });
+  });
+
+  test('PDF string delimiters in letter text are escaped, not dropped', () => {
+    // An unescaped ( or ) in a name or address would corrupt the content
+    // stream and make the whole document unopenable.
+    return render({ letter: ['Ridgeline (Ohio) LLC \\ Co.'] }, ['letter']).then((out) => {
+      expect(out.pdf_bytes.toString('latin1')).toContain('(Ridgeline \\(Ohio\\) LLC \\\\ Co.)');
+    });
+  });
+});
