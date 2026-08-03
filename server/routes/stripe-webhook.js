@@ -235,18 +235,47 @@ router.post(
   }
 );
 
+/**
+ * Stripe subscription status -> our Subscription.status.
+ *
+ * lib/entitlements.js grants the paid tier for LIVE_STATUSES only, so this
+ * map is the sole thing standing between a Stripe status string and paid
+ * access. It used to `default: return 'active'`, which meant any status
+ * nobody had enumerated silently granted the full paid tier. That was not
+ * hypothetical: `paused` (from Stripe's pause_collection, i.e. deliberately
+ * not billing) hit the default and came out `active`.
+ *
+ * Unknown now maps to a non-live status instead. The trade is real and
+ * chosen, not overlooked: if Stripe adds a status meaning "still paying",
+ * this briefly downgrades a paying customer until the next webhook or the
+ * daily reconcile — a support ticket. Fail-open gives the product away and
+ * nobody finds out. On a billing state machine the entitlement should
+ * require an affirmative known-good signal, so the unknown case is loud
+ * (ERROR + `stripe_status_unmapped`, which the alerting policy watches)
+ * rather than quietly permissive.
+ */
+const STRIPE_STATUS_MAP = {
+  trialing:           'trialing',
+  active:             'active',
+  past_due:           'past_due',
+  unpaid:             'grace',
+  canceled:           'canceled',
+  incomplete:         'past_due',
+  incomplete_expired: 'canceled',
+  paused:             'paused',
+};
+
 function mapStripeStatus(s) {
-  switch (s) {
-    case 'trialing':   return 'trialing';
-    case 'active':     return 'active';
-    case 'past_due':   return 'past_due';
-    case 'unpaid':     return 'grace';
-    case 'canceled':   return 'canceled';
-    case 'incomplete': return 'past_due';
-    case 'incomplete_expired': return 'canceled';
-    default:           return 'active';
-  }
+  const mapped = STRIPE_STATUS_MAP[s];
+  if (mapped) return mapped;
+  console.error(JSON.stringify({
+    severity: 'ERROR', type: 'stripe_status_unmapped', stripeStatus: String(s),
+    message: 'Unknown Stripe subscription status; withholding paid entitlements until it is mapped.',
+  }));
+  return 'unknown';
 }
 
 module.exports = router;
+module.exports.mapStripeStatus = mapStripeStatus;
+module.exports.STRIPE_STATUS_MAP = STRIPE_STATUS_MAP;
 

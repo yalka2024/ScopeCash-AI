@@ -208,6 +208,9 @@ function currentPeriodKey() {
 module.exports = {
   PLANS,
   FREE_TIER_ID,
+  // Exported so the Stripe status map can be tested against the actual list
+  // that gates paid access, rather than a copy of it that can drift.
+  LIVE_STATUSES,
   getTier,
   listPlans,
   getActiveSubscription,

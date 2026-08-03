@@ -706,6 +706,84 @@ resource "google_logging_metric" "quota_rejections" {
   }
 }
 
+# Revenue-integrity failures. Every type below is a path where the product
+# keeps working normally while money quietly stops being collected or recorded
+# — no 5xx, no user complaint, nothing the two metrics above would catch. The
+# whole class is silent by construction, which is exactly why it needs a metric
+# rather than a dashboard someone remembers to check.
+#
+#   outcome_billing_failed    Stripe rejected a usage/meter event: work
+#                             delivered, nothing billed for it.
+#   stripe_status_unmapped    A subscription status we do not map. Paid access
+#                             is withheld until someone maps it, so this alert
+#                             is also the customer-impact signal.
+#   success_fee_billing_threw Success fee earned but not charged.
+#   ai_spend_record_failed    Spend happened but was not counted, so the AI
+#                             budget ceiling under-reads and stops capping.
+resource "google_logging_metric" "revenue_integrity" {
+  name = "${var.name}-${var.environment}-revenue-integrity"
+  filter = <<-EOT
+    resource.type="cloud_run_revision"
+    severity>=ERROR
+    jsonPayload.type=("outcome_billing_failed" OR "stripe_status_unmapped" OR "success_fee_billing_threw" OR "ai_spend_record_failed")
+  EOT
+  label_extractors = { "event_type" = "EXTRACT(jsonPayload.type)" }
+  metric_descriptor {
+    metric_kind = "DELTA"
+    value_type  = "INT64"
+    unit        = "1"
+    labels {
+      key         = "event_type"
+      value_type  = "STRING"
+      description = "The jsonPayload.type that fired, so the alert says which failure it is."
+    }
+  }
+}
+
+resource "google_monitoring_alert_policy" "revenue_integrity" {
+  count        = var.alert_email == null ? 0 : 1
+  display_name = "${var.name}-${var.environment}: revenue integrity failure"
+  combiner     = "OR"
+  conditions {
+    display_name = "any billing/accounting failure in 5 minutes"
+    condition_threshold {
+      filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.revenue_integrity.name}\""
+      comparison      = "COMPARISON_GT"
+      # Threshold 0, not 5: one uncharged invoice is already a defect. These
+      # are rare by nature, so this does not become background noise.
+      threshold_value = 0
+      duration        = "300s"
+      aggregations {
+        alignment_period     = "300s"
+        per_series_aligner   = "ALIGN_SUM"
+        cross_series_reducer = "REDUCE_SUM"
+        group_by_fields      = ["metric.label.event_type"]
+      }
+    }
+  }
+  notification_channels = [google_monitoring_notification_channel.email[0].id]
+  documentation {
+    content = <<-EOT
+      Money was earned but not billed, or spend was not recorded. The service
+      is healthy; only the accounting failed, so nothing else will surface it.
+
+      Find the entries with:
+        severity>=ERROR AND jsonPayload.type="<event_type from the alert>"
+
+      outcome_billing_failed / success_fee_billing_threw -- the local ledger
+      entry exists (`recorded`), so the charge can be replayed once the Stripe
+      cause is fixed. Do not assume it self-heals.
+
+      stripe_status_unmapped -- add the status to STRIPE_STATUS_MAP in
+      server/routes/stripe-webhook.js. Paid access is withheld meanwhile, so a
+      real customer is affected.
+
+      ai_spend_record_failed -- the AI budget ceiling is reading low and will
+      under-enforce until this is fixed.
+    EOT
+  }
+}
+
 resource "google_monitoring_alert_policy" "server_errors" {
   count        = var.alert_email == null ? 0 : 1
   display_name = "${var.name}-${var.environment}: elevated 5xx rate"
