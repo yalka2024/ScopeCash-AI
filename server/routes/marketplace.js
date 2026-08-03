@@ -112,8 +112,12 @@ admin.post('/', validate(RegisterSchema), asyncHandler(async (req, res) => {
 }));
 
 admin.delete('/:clientId', asyncHandler(async (req, res) => {
-  await oauthApps.deleteApp(req.params.clientId);
-  res.json({ ok: true });
+  // Scoped to the caller's org: a bare clientId delete let one org remove
+  // another's OAuth app. Reports whether anything was actually deleted rather
+  // than always answering ok — a silent no-op on a wrong id reads as success.
+  const { deleted } = await oauthApps.deleteApp(req.params.clientId, { orgId: req.tenant.orgId });
+  if (!deleted) return res.status(404).json({ error: 'not_found', code: 'not_found' });
+  res.json({ ok: true, deleted });
 }));
 
 router.use('/oauth-apps', admin);

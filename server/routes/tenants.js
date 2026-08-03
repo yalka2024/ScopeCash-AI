@@ -83,6 +83,12 @@ router.get('/lanes', async (req, res, next) => {
 
 router.get('/:orgId/cost', async (req, res, next) => {
   try {
+    // runWithOrg() below sets the RLS context to whatever org id the CALLER
+    // supplied, so RLS cannot protect this route by design — the check has to
+    // live here. routes/ai-admin.js guards the identical pattern this way.
+    if (req.params.orgId !== req.user.orgId && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'forbidden', code: 'cross_tenant' });
+    }
     const period = req.query.period || cost.currentPeriodKey();
     const data = await runWithOrg(req.params.orgId, () => cost.getTenantCosts(req.params.orgId, period));
     res.json(data);
@@ -91,6 +97,10 @@ router.get('/:orgId/cost', async (req, res, next) => {
 
 router.get('/:orgId/margin', async (req, res, next) => {
   try {
+    // Same reason as /cost above: the caller chooses the RLS context.
+    if (req.params.orgId !== req.user.orgId && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'forbidden', code: 'cross_tenant' });
+    }
     const period = req.query.period || cost.currentPeriodKey();
     const data = await runWithOrg(req.params.orgId, () => cost.getTenantMargin(req.params.orgId, period));
     res.json(data);

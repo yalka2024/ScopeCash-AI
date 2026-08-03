@@ -183,7 +183,7 @@ router.get('/observability', async (req, res, next) => {
 
     const period = budget.currentPeriodKey();
     const spendRows = await prisma.aiSpendEvent.groupBy({
-      by: ['model'], where: { period }, _sum: { ucents: true, totalTokens: true },
+      by: ['model'], where: { orgId: req.tenant.orgId, period }, _sum: { ucents: true, totalTokens: true },
     }).catch(() => []);
     const spendUsd = spendRows.reduce((s, r) => s + Number(r._sum.ucents || 0), 0) / 100_000;
 
