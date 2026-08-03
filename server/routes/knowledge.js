@@ -5,6 +5,7 @@
 const express = require('express');
 const { authMiddleware, requireScope } = require('../middleware/auth');
 const attachTenant = require('../middleware/tenant');
+const { requireAnyOrgRole } = require('../lib/roles');
 const { z, validate, asyncHandler } = require('../lib/validate');
 const limiters = require('../lib/ratelimit');
 const guard = require('../lib/ai-guardrails');
@@ -52,7 +53,11 @@ router.get('/stats', requireScope('read'), asyncHandler(async (req, res) => {
 }));
 
 // DELETE /api/knowledge — clear this tenant's knowledge base.
-router.delete('/', requireScope('write'), asyncHandler(async (req, res) => {
+// requireScope alone is NOT authorization here: middleware/auth.js gives every
+// user session '*', which short-circuits the scope check, so this destructive
+// route was reachable by any member including `viewer`. Wiping the org's
+// entire knowledge base is an owner/admin action.
+router.delete('/', requireAnyOrgRole('owner', 'admin'), requireScope('write'), asyncHandler(async (req, res) => {
   const removed = rag.clear(req.user.orgId);
   await audit(req, 'knowledge.clear', { details: { removed } });
   res.json({ removed });

@@ -38,7 +38,11 @@ services:
       context: ./server
     restart: unless-stopped
     # Apply reviewed migrations to Postgres (idempotent) before starting the API.
-    command: ["sh", "-c", "npx prisma migrate deploy --config prisma.postgres.config.ts && node index.js"]
+    # db:postgres:deploy, not `migrate deploy` — the latter creates the tables but
+    # does NOT apply prisma/rls.sql, so this path used to start with tenant
+    # isolation silently absent. The server now refuses to boot that way in
+    # production (lib/rls-assert.js); this makes the compose path correct too.
+    command: ["sh", "-c", "npm run db:postgres:deploy && node index.js"]
     depends_on:
       postgres: { condition: service_healthy }
       redis:    { condition: service_healthy }

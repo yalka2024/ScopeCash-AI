@@ -3,6 +3,9 @@ const crypto = require('crypto');
 const prisma = require('../lib/prisma');
 const { authMiddleware } = require('../middleware/auth');
 const attachTenant = require('../middleware/tenant');
+// API keys are org credentials. The role catalogue (lib/roles.js) already says
+// owner controls them; this is that statement actually enforced.
+const { requireAnyOrgRole } = require('../lib/roles');
 const { z, validate, asyncHandler, HttpError } = require('../lib/validate');
 const { audit } = require('../lib/audit');
 const router = express.Router();
@@ -12,7 +15,13 @@ router.use(authMiddleware);
 // router that skips it is invisible to that quota — see middleware/tenant.js.
 router.use(attachTenant);
 
-const VALID_SCOPES = ['read', 'write', 'upload', 'delete', 'admin', '*'];
+// '*' is deliberately NOT mintable. middleware/auth.js#requireScope short-
+// circuits on '*', so a key holding it bypasses every scope check in the app
+// — and this route had no role gate, meaning any member (down to `viewer`,
+// whose own role description says it "cannot create or modify any record")
+// could mint themselves one. That is self-escalation to full API access.
+// User sessions still carry '*' internally; it is only unrequestable here.
+const VALID_SCOPES = ['read', 'write', 'upload', 'delete', 'admin'];
 const MAX_PROJECT_GRANTS = 50;
 const CreateSchema = z.object({
   name: z.string().min(1).max(120),
@@ -41,7 +50,7 @@ async function assertProjectsInOrg(projectIds, orgId) {
   }
 }
 
-router.post('/', validate(CreateSchema), asyncHandler(async (req, res) => {
+router.post('/', requireAnyOrgRole('owner', 'admin'), validate(CreateSchema), asyncHandler(async (req, res) => {
   const { name, scopes, expiresInDays, projectIds } = req.body;
   const requested = (scopes || 'read').split(/[,\s]+/).filter(Boolean);
   for (const s of requested) {
@@ -92,7 +101,7 @@ const ProjectGrantsSchema = z.object({ projectIds: z.array(z.string().min(1)).ma
 
 // PUT /api/apikey/:id/projects — replace the full project-grant set for an
 // existing key. An empty array reverts the key to org-wide (the default).
-router.put('/:id/projects', validate(ProjectGrantsSchema), asyncHandler(async (req, res) => {
+router.put('/:id/projects', requireAnyOrgRole('owner', 'admin'), validate(ProjectGrantsSchema), asyncHandler(async (req, res) => {
   const key = await prisma.apiKey.findFirst({ where: { id: req.params.id, userId: req.user.id } });
   if (!key) return res.status(404).json({ error: 'not_found' });
   const uniqueProjectIds = [...new Set(req.body.projectIds)];
@@ -109,7 +118,7 @@ router.put('/:id/projects', validate(ProjectGrantsSchema), asyncHandler(async (r
   res.json({ id: key.id, projectIds: uniqueProjectIds });
 }));
 
-router.delete('/:id', asyncHandler(async (req, res) => {
+router.delete('/:id', requireAnyOrgRole('owner', 'admin'), asyncHandler(async (req, res) => {
   await prisma.apiKey.deleteMany({ where: { id: req.params.id, userId: req.user.id } });
   await audit(req, 'apikey.delete', { resource: 'apiKey', resourceId: req.params.id });
   res.json({ message: 'API key deleted' });

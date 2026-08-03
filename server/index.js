@@ -304,6 +304,11 @@ async function start() {
   // contradicts, so this fails closed in production. See lib/data-residency.js.
   require('./lib/data-residency').assertResidencyAtBoot();
   await require('./lib/prisma').initCloudSqlIamAuth();
+  // After the DB client exists: confirm the tenant-isolation policies this
+  // codebase treats as its hard backstop are actually present. Fails closed
+  // in production — `prisma migrate deploy` alone does not apply rls.sql, so
+  // a deployment can otherwise run with the backstop silently absent.
+  await require('./lib/rls-assert').assertRlsAtBoot();
   server = app.listen(PORT, () => {
     console.log(`ScopeCash AI API running on http://localhost:${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);

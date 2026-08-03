@@ -75,7 +75,21 @@ async function authMiddleware(req, res, next) {
   }
 }
 
-// Scope guard for API-key endpoints. Cookie/Bearer sessions have '*'.
+/**
+ * Scope guard for API-KEY endpoints. NOT an authorization control.
+ *
+ * Read this before adding it to a route: a cookie/Bearer user session is
+ * assigned `authScopes = ['*']` above, and the first line below short-circuits
+ * on '*'. So for every human user this middleware is a PASS-THROUGH — it
+ * constrains API keys only.
+ *
+ * Several destructive routes were relying on it as if it were a permission
+ * check (clearing an org's knowledge base, deleting projects), which meant a
+ * `viewer` — a role whose own description says it "cannot create or modify any
+ * record" — could reach them. Anything that needs a permission check must use
+ * requireAnyOrgRole() from lib/roles.js, which reads the real OrgMembership
+ * role; requireScope can sit alongside it to additionally narrow API keys.
+ */
 function requireScope(...needed) {
   return (req, res, next) => {
     const scopes = req.authScopes || [];

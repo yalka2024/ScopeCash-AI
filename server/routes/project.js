@@ -5,6 +5,7 @@ const fs = require('fs');
 const prisma = require('../lib/prisma');
 const { authMiddleware, requireScope } = require('../middleware/auth');
 const attachTenant = require('../middleware/tenant');
+const { requireAnyOrgRole } = require('../lib/roles');
 const { tenantPrisma, tenantContextFromUser } = require('../lib/tenant');
 const { enqueueJob, getQueueStatus } = require('../lib/worker');
 const { z, validate, asyncHandler, HttpError } = require('../lib/validate');
@@ -142,7 +143,9 @@ router.get('/:id/download-url', requireScope('read'), asyncHandler(async (req, r
 }));
 
 // Delete
-router.delete('/:id', requireScope('write', 'delete'), asyncHandler(async (req, res) => {
+// Same reason as knowledge.js: a user session carries '*', so requireScope
+// never blocked anyone. This deletes the stored object AND unlinks from disk.
+router.delete('/:id', requireAnyOrgRole('owner', 'admin', 'project_manager'), requireScope('write', 'delete'), asyncHandler(async (req, res) => {
   const tp = tenantPrisma(prisma, tenantContextFromUser(req.user));
   const record = await tp.project.findFirst({ where: { id: req.params.id } });
   if (!record) throw new HttpError(404, 'Not found', 'not_found');
