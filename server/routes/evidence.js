@@ -31,11 +31,18 @@ const evidenceJobs = require('../lib/evidence-jobs');
 const { attachApiKeyProjectScope } = require('../lib/api-key-scope');
 const { enforceMeter } = require('../middleware/entitlements');
 const ent = require('../lib/entitlements');
+const aiBudget = require('../lib/ai-budget');
 
 const router = express.Router();
 router.use(authMiddleware);
 router.use(attachTenant);
 router.use(attachApiKeyProjectScope);
+// The evidence pipeline is the single heaviest Gemini consumer in the product
+// (whole-document extraction, audio transcription, image interpretation,
+// scope comparison) and mounted NO budget guard at all, while lighter routers
+// like /api/ai did. The ceiling now also sees this spend, because
+// lib/evidence-pipeline.js#withAgentRun records it.
+router.use(aiBudget.aiBudgetGuard);
 
 const MAX_BYTES = parseInt(process.env.UPLOAD_MAX_BYTES || `${20 * 1024 * 1024}`, 10);
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_BYTES } });

@@ -184,7 +184,7 @@ async function _runBehaviorBound(agentDef, input, ctx) {
   }
 }
 
-async function runAgent(agentDef, input, ctx = {}) {
+async function _runAgentInner(agentDef, input, ctx = {}) {
   if (agentDef && agentDef.behavior) {
     const gated = await _runBehaviorBound(agentDef, input, ctx);
     if (gated) return gated;
@@ -351,6 +351,49 @@ async function execDelegate(input, ctx, trace) {
   const r = await runAgent(sub, input.task || '', { ...ctx, depth: depth + 1, parentAgent: ctx.agentName });
   // Summary-only: the sub-agent's full transcript stays isolated.
   return { agent: sub.name, output: r.output, truncated: !!r.truncated };
+}
+
+/**
+ * runAgent wraps the real implementation solely to record what it spent.
+ *
+ * lib/ai-budget.js enforces a real ceiling (429 on cutoff), but until now only
+ * routes/ai.js ever recorded spend — so agents, workflows and goals consumed
+ * tokens that the ceiling never saw. The guard was real; its input was near
+ * zero. Wrapping rather than recording inline because _runAgentInner has
+ * several exit paths (final answer, step exhaustion, behaviour-bound early
+ * return) and any one of them missed would silently reopen the hole.
+ *
+ * Only the OUTERMOST call records: a delegated sub-agent (ctx.depth > 0)
+ * accumulates its usage into the parent's trace, so recording at depth would
+ * double-count the same tokens.
+ */
+async function runAgent(agentDef, input, ctx = {}) {
+  const result = await _runAgentInner(agentDef, input, ctx);
+  const orgId = ctx && ctx.orgId;
+  const depth = (ctx && ctx.depth) || 0;
+  if (orgId && depth === 0 && result && result.usage) {
+    try {
+      const aiBudget = require('./ai-budget');
+      const router = require('./model-router');
+      const modelId = (ctx && ctx.modelId) || null;
+      const prompt = result.usage.promptTokens || 0;
+      const completion = result.usage.completionTokens || 0;
+      const ucents = typeof router.estimateCostUcents === 'function'
+        ? router.estimateCostUcents(modelId, prompt, completion)
+        : 0;
+      await aiBudget.recordAiSpend({
+        orgId, userId: ctx.userId || null, modelId, provider: AI_PROVIDER,
+        promptTokens: prompt, completionTokens: completion, ucents,
+      });
+    } catch (err) {
+      // Accounting must never fail the agent run — but it must not be silent.
+      console.error(JSON.stringify({
+        severity: 'ERROR', type: 'ai_spend_record_failed',
+        orgId, agent: agentDef && agentDef.name, error: err && err.message,
+      }));
+    }
+  }
+  return result;
 }
 
 module.exports = { runAgent, providerConfigured, MAX_STEPS, MAX_DEPTH };

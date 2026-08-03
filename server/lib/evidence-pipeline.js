@@ -48,6 +48,36 @@ async function withAgentRun({ orgId, projectId, agentType, inputRefs }, fn) {
         completed_at: new Date(),
       },
     });
+
+    // Tell the AI budget what this actually cost.
+    //
+    // Until now ONLY routes/ai.js recorded spend, so lib/ai-budget.js's
+    // ceiling — which IS enforced, and blocks with a 429 — measured a number
+    // that stayed near zero while the evidence pipeline (whole-document
+    // Gemini extraction, audio transcription, image interpretation, scope
+    // comparison) spent the real money. The guard was real; its input was
+    // fiction.
+    //
+    // Recorded here rather than at each of the five call sites because this
+    // wrapper already holds both the orgId and the usage — adding it per
+    // caller would be five chances to forget.
+    if (result.usage) {
+      const aiBudget = require('./ai-budget');
+      await aiBudget.recordAiSpend({
+        orgId,
+        modelId: result.modelVersion || null,
+        provider: 'vertex',
+        promptTokens: result.usage.promptTokens || 0,
+        completionTokens: result.usage.completionTokens || 0,
+        ucents: Math.round((result.costUsd || 0) * 100_000),
+      }).catch((err) => {
+        // Never fail the analysis because accounting failed — but say so.
+        console.error(JSON.stringify({
+          severity: 'ERROR', type: 'ai_spend_record_failed',
+          orgId, agentType, error: err && err.message,
+        }));
+      });
+    }
     return { ...result, agentRunId: run.id };
   } catch (err) {
     await prisma.agentRunRecord.update({

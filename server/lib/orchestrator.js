@@ -12,6 +12,8 @@
  * Generated for ScopeCash AI (agent-orchestrator archetype).
  */
 const crypto = require('crypto');
+// Upper bound on an LLM-authored plan; each step drives a whole agent tree.
+const MAX_PLAN_STEPS = Number(process.env.MAX_PLAN_STEPS || 12);
 const agentRegistry = require('./agent-registry');
 const { runAgent } = require('./agent-runtime');
 const store = require('./run-store');
@@ -72,7 +74,18 @@ async function submitGoal(goal, ctx = {}, opts = {}) {
 
   try {
     const steps = await planGoal(goal, ctx);
-    g.steps = steps.map((s, i) => ({ index: i, step: s, status: 'pending' }));
+    // Cap the plan. `steps` is authored by the model, and each entry below
+    // drives a full agent tree (itself up to MAX_STEPS turns and MAX_DEPTH
+    // delegations). An unbounded list therefore multiplies straight into the
+    // Vertex bill, with the model choosing the multiplier.
+    const capped = Array.isArray(steps) ? steps.slice(0, MAX_PLAN_STEPS) : [];
+    if (Array.isArray(steps) && steps.length > MAX_PLAN_STEPS) {
+      console.warn(JSON.stringify({
+        severity: 'WARNING', type: 'goal_plan_truncated',
+        goalId: g.id, planned: steps.length, cap: MAX_PLAN_STEPS,
+      }));
+    }
+    g.steps = capped.map((s, i) => ({ index: i, step: s, status: 'pending' }));
   } catch (e) {
     g.status = 'failed'; g.error = e.message; await store.save(g); return g;
   }

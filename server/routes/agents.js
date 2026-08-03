@@ -158,6 +158,12 @@ router.post('/:name/run/async', requireScope('read', 'ai'), validate(RunSchema),
     if (!agent) throw new HttpError(404, `Unknown agent: ${req.params.name}`, 'agent_not_found');
     const ctx = { userId: req.user.id, orgId: req.user.orgId, role: req.user.role, modelId: req.body.model };
     if (req.body.session) ctx.session = `${req.user.orgId}:${req.body.session}`;
+    // The sync and stream variants have always checked this; async did not —
+    // so the one entry point that queues UNBOUNDED background work was also
+    // the one with no quota gate. That is the cheapest way to burn a Vertex
+    // budget, and it is reachable by any authenticated user.
+    const quota = await guard.checkAiQuota(prisma, ctx);
+    if (!quota.ok) throw new HttpError(429, quota.reason, 'ai_quota_exceeded', { used: quota.used, limit: quota.limit });
 
     const rawInput = typeof req.body.input === 'string' ? req.body.input : JSON.stringify(req.body.input);
     const inj = guard.detectInjection(rawInput);

@@ -38,6 +38,8 @@ const cloudTasks = require('./cloud-tasks');
 const { runWithOrg, runWithSystemAccess } = require('./tenant-context');
 
 const MIN_EXTRACTED_CHARS = 20;
+// Max rows of each kind fed into one findings-generation prompt.
+const FINDINGS_ROW_CAP = Number(process.env.FINDINGS_ROW_CAP || 200);
 
 const QUEUE_NAME = 'scopecash-ai-evidence-jobs';
 const REDIS_URL = process.env.REDIS_URL || '';
@@ -382,9 +384,12 @@ async function _processFindingsGenerate({ runId, projectId, orgId, changeEventId
     const project = await prisma.projectRecord.findFirst({ where: { id: projectId, orgId } });
     if (!project) return _finishJobRun(runId, { status: 'failed', errorMessage: 'project no longer exists' });
     const [scopeItems, contractProvisions, evidenceItems] = await Promise.all([
-      prisma.scopeItem.findMany({ where: { orgId, project_id: project.id } }),
-      prisma.contractProvision.findMany({ where: { orgId, project_id: project.id } }),
-      prisma.evidenceItem.findMany({ where: { orgId, project_id: project.id } }),
+      // take: — every one of these rows becomes part of a Gemini prompt, so an
+      // unbounded fetch lets a large project turn one request into an
+      // arbitrarily expensive (and eventually context-overflowing) call.
+      prisma.scopeItem.findMany({ where: { orgId, project_id: project.id }, take: FINDINGS_ROW_CAP }),
+      prisma.contractProvision.findMany({ where: { orgId, project_id: project.id }, take: FINDINGS_ROW_CAP }),
+      prisma.evidenceItem.findMany({ where: { orgId, project_id: project.id }, take: FINDINGS_ROW_CAP }),
     ]);
     if (scopeItems.length === 0 && contractProvisions.length === 0) {
       return _finishJobRun(runId, { status: 'failed', errorMessage: 'No contract baseline extracted for this project yet — analyze a contract/estimate source document first' });
