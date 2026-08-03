@@ -721,8 +721,8 @@ resource "google_logging_metric" "quota_rejections" {
 #   ai_spend_record_failed    Spend happened but was not counted, so the AI
 #                             budget ceiling under-reads and stops capping.
 resource "google_logging_metric" "revenue_integrity" {
-  name = "${var.name}-${var.environment}-revenue-integrity"
-  filter = <<-EOT
+  name             = "${var.name}-${var.environment}-revenue-integrity"
+  filter           = <<-EOT
     resource.type="cloud_run_revision"
     severity>=ERROR
     jsonPayload.type=("outcome_billing_failed" OR "stripe_status_unmapped" OR "success_fee_billing_threw" OR "ai_spend_record_failed")
@@ -747,8 +747,8 @@ resource "google_monitoring_alert_policy" "revenue_integrity" {
   conditions {
     display_name = "any billing/accounting failure in 5 minutes"
     condition_threshold {
-      filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.revenue_integrity.name}\""
-      comparison      = "COMPARISON_GT"
+      filter     = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.revenue_integrity.name}\""
+      comparison = "COMPARISON_GT"
       # Threshold 0, not 5: one uncharged invoice is already a defect. These
       # are rare by nature, so this does not become background noise.
       threshold_value = 0
