@@ -885,20 +885,39 @@ effect, not by exploit path.
       into access logs. Limiter mounted; credential query params redacted in
       `lib/gcp-logging.js` for every logged URL, not just that route.
 
+**Also fixed 2026-08-03:**
+- [x] Outcome billing called a Stripe method removed in SDK v22 — reporting
+      `billed: true` while every charge failed. Migrated to the Meter Events
+      API; `billed` now means Stripe accepted it, with a separate `recorded`
+      for the local ledger entry.
+- [x] `requireScope()` is not authorization — sessions carry `'*'`, making it
+      a pass-through. Destructive routes now use real OrgMembership roles;
+      `'*'` is no longer a mintable API-key scope and key management is
+      owner/admin only.
+- [x] AI spend ceiling enforced against a number nobody wrote. Recording added
+      at the two chokepoints (evidence-pipeline's withAgentRun, agent-runtime's
+      runAgent wrapper); evidence router now mounts the budget guard; async
+      agent runs check quota; plan length and prompt-feeding queries capped.
+- [x] Boot-time RLS assertion — fails closed in production when
+      `tenant_isolation` policies are absent. Verified against a real Postgres
+      both ways. `docker-compose.yml` fixed to apply them.
+- [x] Operator-console cross-tenant reads (oauth-apps delete, two ai-admin
+      queries, tenants cost/margin with a caller-supplied org id).
+- [x] Money-as-float **characterised** — 13 tests establishing the baseline.
+
 **Still open, ranked:**
-- [ ] Outcome billing calls a Stripe SDK method removed in v22 — it reports
-      `billed: true` while every call fails, and the failure is swallowed.
-      Revenue-critical now that the $149 SKU is live. (The new SKU itself is
-      unaffected — it uses `checkout.sessions.create`.)
-- [ ] `requireScope()` is not an authorization control: sessions get `'*'`,
-      so scope checks are pass-through on destructive routes, and any member
-      can mint a full-scope API key.
-- [ ] AI spend ceiling measures almost nothing — only one route records
-      spend, so the budget guard blocks on a near-zero number while agents,
-      workflows and the evidence pipeline spend uncounted.
-- [ ] No boot-time assertion that RLS policies exist. `docker-compose.yml`
-      genuinely deploys without them and nothing detects it.
-- [ ] Operator-console cross-tenant reads (platform-admin gated, so low
-      exploitability, high blast radius if an operator account is phished).
-- [ ] Money is IEEE-754 float with no rounding and no unit test — highest
-      correctness stakes, lowest exploitability. Write the drift test first.
+- [ ] Migrate money to integer cents (or Prisma `Decimal`). 38 Float columns,
+      0 Decimal, no rounding in the pricing path. The drift test now exists,
+      so the migration has something to be checked against; the migration
+      itself is a separate, larger piece of work.
+- [ ] Webhook SSRF: the URL is validated as http(s) only, with no private-IP
+      or metadata-endpoint denylist.
+- [ ] `mapStripeStatus` defaults unknown Stripe statuses to `'active'` —
+      fail-open on a billing state machine.
+- [ ] Success-fee stacking: a same-stage transition can record a second
+      EarnedRevenueEvent without netting out the first.
+- [ ] `lib/safety.js` `gated: false` makes `assertLiveAllowed()` unreachable
+      at all 9 call sites.
+- [ ] `lib/worker.js` risk-scan is permanently inert (`fs` never required, its
+      data file absent), silently marking uploads completed with riskScore 0.
+      Legacy pre-pivot path; either fix or remove.
