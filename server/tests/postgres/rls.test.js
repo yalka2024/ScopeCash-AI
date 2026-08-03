@@ -50,6 +50,43 @@ d('Postgres RLS', () => {
   });
   afterAll(async () => { await prisma.$disconnect(); });
 
+  test('DemandLetter is isolated by RLS, like every other tenant table', async () => {
+    // A demand letter carries an attestation naming a person, an IP, a user
+    // agent, the amount claimed and the full text of a letter sent to a named
+    // customer. Leaking one across tenants exposes both parties' identities
+    // and a live payment dispute, so it gets the same proof as the rest.
+    //
+    // prisma/rls.sql derives its table list from the presence of an "orgId"
+    // column rather than a hand-maintained list, so a new table SHOULD be
+    // covered automatically. This asserts that it actually was — "should be
+    // automatic" is how tables get missed.
+    const orgA = await runWithSystemAccess(async () => prisma.organization.create({ data: { name: uid('OrgA') } }));
+    const orgB = await runWithSystemAccess(async () => prisma.organization.create({ data: { name: uid('OrgB') } }));
+
+    await runWithOrg(orgA.id, async () => prisma.demandLetter.create({
+      data: {
+        orgId: orgA.id, packetId: uid('pk'), projectId: uid('pr'),
+        recipientType: 'homeowner', amountDue: 6130.5,
+        attestedById: uid('u'), attestedAt: new Date(),
+        attestationJson: '{"work_completed":true}',
+        contentHash: crypto.randomBytes(32).toString('hex'),
+        letterText: 'Dear Priya Raman, ...',
+      },
+    }));
+
+    // Unfiltered read from the other org — the query "forgets" to scope, and
+    // RLS is what has to catch it.
+    const fromB = await runWithOrg(orgB.id, async () => prisma.demandLetter.findMany({}));
+    expect(fromB).toHaveLength(0);
+
+    const fromA = await runWithOrg(orgA.id, async () => prisma.demandLetter.findMany({}));
+    expect(fromA).toHaveLength(1);
+    expect(fromA[0].letterText).toContain('Priya Raman');
+
+    // And with no context at all: fail closed, not fail open.
+    expect(await prisma.demandLetter.findMany({})).toHaveLength(0);
+  });
+
   test('a query with NO tenant/system context sees zero rows (fail-closed), not an error and not every org', async () => {
     const org = await runWithSystemAccess(async () => prisma.organization.create({ data: { name: uid('Org') } }));
     await runWithSystemAccess(async () => prisma.customer.create({ data: { orgId: org.id, name: uid('Customer') } }));
