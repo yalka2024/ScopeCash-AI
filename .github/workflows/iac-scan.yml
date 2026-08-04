@@ -55,7 +55,7 @@ jobs:
       - name: Upload results to code scanning (403s without GHAS — see above)
         if: always()
         continue-on-error: true
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-iac.sarif
       - name: Upload results as artifact (no GHAS — readable copy)
