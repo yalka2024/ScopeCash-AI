@@ -43,8 +43,15 @@ const FULL_ATTESTATION = {
   reviewed_and_adopts: true,
 };
 
-/** An org with a paid-up project, one validated change order, and an invoice. */
-async function seedScenario({ invoiced = 6130.5, collected = 0 } = {}) {
+/**
+ * An org with a project, one validated change order, and an invoice.
+ *
+ * `exported` defaults to true: the demand letter is billed as part of the
+ * evidence-packet deliverable, so an already-exported packet includes it. Tests
+ * that are about billing pass `{ exported: false }` explicitly; every other
+ * test wants to exercise its own subject, not the paywall.
+ */
+async function seedScenario({ invoiced = 6130.5, collected = 0, exported = true } = {}) {
   const org = await prisma.organization.create({ data: { name: `Org ${rand()}`, plan: 'free' } });
   const user = await prisma.user.create({
     data: {
@@ -77,6 +84,7 @@ async function seedScenario({ invoiced = 6130.5, collected = 0 } = {}) {
     data: {
       orgId: org.id, project_id: project.id, packet_number: `PK-${rand()}`, version: 1,
       status: 'approved', userId: user.id,
+      exported_at: exported ? new Date() : null,
     },
   });
   await prisma.commercialOutcome.create({
@@ -298,4 +306,75 @@ describe('facts come from rows, correctly scoped', () => {
     expect(res.body.text.replace(/\s+/g, ' '))
       .toContain('2 photographs with capture timestamps');
   });
+});
+
+describe('billing and input bounds', () => {
+  test('a free-tier org cannot generate a letter for an unexported packet', async () => {
+    // This shipped ungated while /export charged $149 — backwards, since by
+    // this product's own pricing note a demand letter is the more valuable of
+    // the two. A free-tier org could produce them against packets it could
+    // not even export.
+    const s = await seedScenario({ exported: false });
+    const res = await generate(s, { recipientType: 'homeowner', attestation: { confirmed: FULL_ATTESTATION } });
+    expect(res.status).toBe(402);
+    expect(res.body.code).toBe('packet_payment_required');
+    expect(await prisma.demandLetter.count({ where: { orgId: s.org.id } })).toBe(0);
+  });
+
+  test('an already-exported packet includes its demand letter', async () => {
+    // The packet is the billable artifact and the letter is part of that
+    // deliverable — charging twice for one job would be the wrong call.
+    const s = await seedScenario({ exported: true });
+    const res = await generate(s, { recipientType: 'homeowner', attestation: { confirmed: FULL_ATTESTATION } });
+    expect(res.status).toBe(201);
+    expect(res.body.billedVia).toBe('packet_already_paid');
+  });
+
+  test('a purchased credit covers it, and is spent exactly once', async () => {
+    const credits = require('../../lib/billing/packet-credits');
+    const s = await seedScenario({ exported: false });
+    await credits.grantCredit({ orgId: s.org.id, stripeSessionId: `cs_${rand()}` });
+
+    const res = await generate(s, { recipientType: 'homeowner', attestation: { confirmed: FULL_ATTESTATION } });
+    expect(res.status).toBe(201);
+    expect(res.body.billedVia).toBe('credit');
+    expect(await prisma.packetCredit.count({ where: { orgId: s.org.id, consumedAt: null } })).toBe(0);
+
+    // Second attempt has nothing left to spend.
+    expect((await generate(s, { recipientType: 'homeowner', attestation: { confirmed: FULL_ATTESTATION } })).status).toBe(402);
+  });
+
+  test('preview stays free', async () => {
+    // Charging to read the letter you are about to attest to would push people
+    // to attest without reading — the one behaviour the design exists to stop.
+    const s = await seedScenario();
+    expect((await preview(s, { recipientType: 'homeowner' })).status).toBe(200);
+  });
+
+  test('the attestation payload cannot carry arbitrary keys', async () => {
+    // `confirmed` is stored verbatim, so an open record would let a caller
+    // persist megabytes of junk alongside the five real confirmations.
+    const s = await seedScenario();
+    const junk = {};
+    for (let i = 0; i < 500; i++) junk[`k${i}`] = true;
+    const res = await generate(s, {
+      recipientType: 'homeowner',
+      attestation: { confirmed: { ...FULL_ATTESTATION, ...junk } },
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('validation_error');
+  });
+
+  test('a hostile hanging indent does not hang the request', async () => {
+    // Remote OOM: the break loop never terminated when the hanging indent
+    // reached the page width. Reachable through the unauthenticated-by-billing
+    // preview endpoint, which writes nothing and is not audited.
+    const s = await seedScenario();
+    const res = await preview(s, {
+      recipientType: 'homeowner',
+      additionalContext: `-${' '.repeat(120)}${'A'.repeat(1800)}`,
+    });
+    expect(res.status).toBe(200);
+    for (const line of res.body.text.split('\n')) expect(line.length).toBeLessThanOrEqual(78);
+  }, 20000);
 });

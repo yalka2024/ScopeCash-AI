@@ -456,3 +456,68 @@ describe('layout survives hostile text', () => {
     for (const line of out.lines) expect(line.length).toBeLessThanOrEqual(78);
   });
 });
+
+describe('screening cannot be evaded by disguising the words', () => {
+  // Every case below reads as the prohibited word to a human and matched
+  // nothing before normalization. There is no innocent reason to write
+  // "attorney" with a Cyrillic а, so folding these is anti-evasion, not
+  // helpfulness — and it applies only to the copy used for matching.
+  const disguised = [
+    ['zero-width space',   'Our attor​ney will call you.'],
+    ['Cyrillic lookalike', 'Our аttorney will call you.'],
+    ['soft hyphen',        'Our attor­ney will call you.'],
+    ['fullwidth',          'Our ａttorney will call you.'],
+    ['combining accent',   'Our attórney will call you.'],
+    ['Cyrillic in theft',  'This is thеft.'],
+    ['padded whitespace',  'Our  law   firm  will call.'],
+    ['split by newline',   'Our law\nfirm will call.'],
+  ];
+  test.each(disguised)('%s is still caught', (_label, sample) => {
+    expect(dl.screenText(sample).ok).toBe(false);
+  });
+
+  test('this matters even though the PDF would mangle most of them', () => {
+    // pdfStr maps anything without a cp1252 glyph to '?', so a zero-width
+    // space dies at the PDF boundary. That is not a defence to rely on: the
+    // clean text is stored in DemandLetter.letterText and returned by both
+    // endpoints, so any future channel that ships it gets the raw version.
+    expect(() => dl.compose({ ...BASE, additionalContext: 'Our attor​ney will call you.' }))
+      .toThrow(/cannot be sent/i);
+  });
+
+  test('normalization does not create false positives on real names', () => {
+    // Accents are stripped from the MATCHING copy only, so an accented name
+    // is still perfectly acceptable prose — and still renders accented.
+    const out = dl.compose({ ...BASE, customer: { name: 'José Martínez' },
+      additionalContext: 'José Martínez approved the change on May 4.' });
+    expect(dl.screenText('José Martínez approved the change on May 4.').ok).toBe(true);
+    expect(out.lines.join(' ')).toContain('José Martínez');
+  });
+});
+
+describe('wrapLines terminates on hostile indentation', () => {
+  test('a huge hanging indent does not hang the process', () => {
+    // The hanging indent is measured from the start of the line, which for
+    // user text is user-controlled. The break loop removes `width` characters
+    // and adds the indent back, so an indent >= width meant `rest` never
+    // shrank: an infinite loop allocating a string per pass — a remote OOM
+    // from ~160 characters, well inside the 2000-char schema cap. Clamping
+    // restores the invariant that every pass strictly shortens `rest`.
+    for (const spaces of [77, 78, 79, 200, 1000]) {
+      const payload = `-${' '.repeat(spaces)}${'A'.repeat(300)}`;
+      const out = dl.compose({ ...BASE, additionalContext: payload });
+      for (const line of out.lines) expect(line.length).toBeLessThanOrEqual(78);
+    }
+  });
+
+  test('a normal bullet still gets its hanging indent', () => {
+    // The clamp must not break the thing the indent exists for.
+    const out = dl.compose({ ...BASE, changeOrders: [{
+      title: 'A very long change order title that will certainly need to wrap onto another line',
+      approvedOn: '2026-05-04', amount: 100,
+    }] });
+    const bulletIdx = out.lines.findIndex(l => l.startsWith('- "A very long'));
+    expect(bulletIdx).toBeGreaterThan(-1);
+    expect(out.lines[bulletIdx + 1]).toMatch(/^ {2}\S/);
+  });
+});

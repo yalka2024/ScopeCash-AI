@@ -202,6 +202,44 @@ class DemandLetterError extends Error {
 }
 
 /**
+ * Confusable characters that let prohibited words through the regexes while
+ * still reading as the word to a human. "Our attor​ney will call you"
+ * matched nothing before this.
+ *
+ * These are not theoretical typos to be helpful about — the only reason to
+ * write "аttorney" with a Cyrillic а is to defeat a filter, so folding them is
+ * an anti-evasion measure and folding is safe: it applies ONLY to the copy used
+ * for matching, never to the text that gets rendered.
+ *
+ * Most of these already died at the PDF boundary, where pdfStr maps anything
+ * without a cp1252 glyph to '?'. That is not a defence to rely on: the clean,
+ * unmangled text is stored in DemandLetter.letterText and returned in both API
+ * responses, so any future channel that ships it — an email body, a web view,
+ * a copy-to-clipboard — gets the unfiltered version.
+ */
+const CONFUSABLES = {
+  а: 'a', е: 'e', о: 'o', р: 'p', с: 'c', у: 'y', х: 'x', і: 'i', ѕ: 's', ј: 'j',
+  ᴀ: 'a', ɡ: 'g', ɩ: 'l', Ι: 'I', Ο: 'O', Ρ: 'P', Τ: 'T', Χ: 'X', Ε: 'E', Α: 'A',
+};
+
+/**
+ * Normalise for matching only. NFKC folds fullwidth and compatibility forms
+ * (ａttorney -> attorney); the Cf strip removes zero-width and other format
+ * characters; the Mn strip removes combining marks left over from
+ * decomposition (attórney -> attorney); the confusable fold handles
+ * lookalikes from other scripts; and collapsing whitespace stops "law   firm"
+ * or a newline mid-phrase from splitting a match.
+ */
+function _normalizeForScreening(s) {
+  let out = String(s)
+    .normalize('NFKD')
+    .replace(/[\p{Cf}\p{Mn}­]/gu, '')
+    .normalize('NFKC');
+  out = out.replace(/[Ͱ-ӿᴀ-ᵿ]/gu, (ch) => CONFUSABLES[ch] || ch);
+  return out.replace(/\s+/g, ' ');
+}
+
+/**
  * Screen contractor-supplied free text. Returns every violation rather than
  * the first, so someone fixing a paragraph is told everything wrong with it
  * instead of discovering the problems one submit at a time.
@@ -209,7 +247,10 @@ class DemandLetterError extends Error {
 function screenText(text, fieldName = 'text') {
   const violations = [];
   if (text == null || text === '') return { ok: true, violations };
-  const s = String(text);
+  // Matched against the normalised copy; `matched` therefore reports the
+  // normalised form, which is the point — it shows the user what their text
+  // actually says once the disguise is removed.
+  const s = _normalizeForScreening(text);
   for (const rule of PROHIBITED_CONTENT) {
     const m = s.match(rule.pattern);
     if (m) violations.push({ field: fieldName, rule: rule.id, matched: m[0], why: rule.why });
@@ -272,7 +313,20 @@ function wrapLines(lines, width = WRAP_WIDTH) {
   for (const line of lines) {
     if (line.length <= width) { out.push(line); continue; }
     const bullet = /^(\s*-\s+)/.exec(line);
-    const indent = bullet ? ' '.repeat(bullet[1].length) : '';
+    // CLAMPED, and the loop below is why. The hanging indent is measured off
+    // the start of the line, which for user-supplied text is user-controlled
+    // and unbounded: "-" followed by 120 spaces yields a 121-character indent.
+    // The break loop removes `width` characters and adds `indent.length` back,
+    // so an indent at or above `width` means `rest` never shrinks — an
+    // infinite loop allocating a string per iteration, i.e. a remote OOM from
+    // ~160 characters of input, well inside the 2000-char schema cap.
+    //
+    // Clamping is the fix rather than an iteration guard: it restores the
+    // invariant the loop needs (every pass strictly shortens `rest`) instead
+    // of capping the symptom. Half the width is arbitrary but comfortably
+    // safe, and real bullets here indent by 2.
+    const rawIndent = bullet ? bullet[1].length : 0;
+    const indent = ' '.repeat(Math.min(rawIndent, Math.floor(width / 2)));
     let current = '';
     for (const word of line.split(' ')) {
       // A single token longer than the page (a pasted URL, a run-on string)

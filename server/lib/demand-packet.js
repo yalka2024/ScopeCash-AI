@@ -71,25 +71,36 @@ async function gatherFacts({ orgId, packetId, signerUserId }) {
     prisma.projectRecord.findFirst({ where: { id: packet.project_id, orgId } }),
     prisma.commercialOutcome.findMany({ where: { orgId, packet_id: packet.id } }),
     prisma.changeEvent.findMany({
-      where: { orgId, project_id: packet.project_id },
       // Only work the customer actually validated. An unvalidated change event
       // is exactly the thing a recipient disputes, and putting one in a demand
       // letter hands them the argument.
+      //
+      // Filtered in the QUERY, not afterwards in JS. Doing it after a `take`
+      // meant a project with more than 50 events could return 50 unvalidated
+      // ones and produce a letter listing no change orders at all, while
+      // validated work sat just past the cap — a silently empty demand.
+      where: { orgId, project_id: packet.project_id, customer_validated_at: { not: null } },
       orderBy: { event_date: 'asc' },
       take: 50,
     }),
-    signerUserId ? prisma.user.findFirst({ where: { id: signerUserId } }) : Promise.resolve(null),
+    // orgId, even though today's only caller passes req.user.id. User is the
+    // one table deliberately excluded from RLS (authentication happens before
+    // an org context exists — see prisma/rls.sql), so there is no database
+    // backstop here: an unscoped lookup is a genuine cross-tenant read waiting
+    // for a second caller. This function is exported and takes the id as a
+    // parameter, so "the only caller passes a safe value" is a property of
+    // today, not of the code.
+    signerUserId ? prisma.user.findFirst({ where: { id: signerUserId, orgId } }) : Promise.resolve(null),
   ]);
 
   const customer = project && project.customer_id
     ? await prisma.customer.findFirst({ where: { id: project.customer_id, orgId } })
     : null;
 
-  const validated = changeEvents.filter(ce => ce.customer_validated_at);
-  const costByEvent = validated.length
+  const costByEvent = changeEvents.length
     ? await prisma.costItem.groupBy({
       by: ['change_event_id'],
-      where: { orgId, change_event_id: { in: validated.map(ce => ce.id) } },
+      where: { orgId, change_event_id: { in: changeEvents.map(ce => ce.id) } },
       _sum: { billedTotal: true },
     })
     : [];
@@ -113,7 +124,7 @@ async function gatherFacts({ orgId, packetId, signerUserId }) {
     signer: signer ? { name: signer.name || null, title: null } : {},
     customer: customer || {},
     project: project || {},
-    changeOrders: validated.map(ce => ({
+    changeOrders: changeEvents.map(ce => ({
       title: ce.title,
       approvedOn: ce.customer_validated_at,
       completedOn: ce.event_date,

@@ -653,6 +653,14 @@ router.post('/evidencePackets/:id/export', requireAnyOrgRole(...PACKET_APPROVE_R
 // and approve it as my own communication" — which is worth nothing if the
 // reviewed draft and the sent letter can differ.
 
+// The only keys `attestation.confirmed` may carry. Derived from the composer's
+// own constants rather than retyped, so the schema cannot drift away from the
+// rules it is meant to bound.
+const DEMAND_ATTESTATION_KEYS = [
+  ...demandLetter.REQUIRED_ATTESTATIONS.map(a => a.id),
+  ...Object.keys(demandLetter.INTENDED_ACTIONS).map(k => `action:${k}`),
+];
+
 const DemandLetterSchema = z.object({
   recipientType: z.enum(['homeowner', 'commercial']),
   // A closed list, not free text — see INTENDED_ACTIONS. z.enum here means an
@@ -663,10 +671,14 @@ const DemandLetterSchema = z.object({
   responseDueDate: z.string().datetime().optional(),
   additionalContext: z.string().max(2000).optional(),
   signerTitle: z.string().max(120).optional(),
-  // Preview omits this; generate requires it. Enforced in the composer rather
-  // than by the schema so there is exactly one place that decides what a
-  // complete attestation is.
-  attestation: z.object({ confirmed: z.record(z.boolean()) }).optional(),
+  // Preview omits this; generate requires it. WHETHER an attestation is
+  // complete is decided in the composer, so there is exactly one place that
+  // knows; what the schema decides is only which KEYS may appear, because
+  // `confirmed` is stored verbatim and an open z.record would let a caller
+  // persist megabytes of arbitrary keys with the five real ones.
+  attestation: z.object({
+    confirmed: z.record(z.enum(DEMAND_ATTESTATION_KEYS), z.boolean()),
+  }).optional(),
 });
 
 /** Shared fact-gathering + composition for both endpoints. */
@@ -737,6 +749,28 @@ router.post('/evidencePackets/:id/demand-letter',
     const packet = await prisma.evidencePacket.findFirst({ where: scope(req, EVIDENCE_PACKET_ENTITY, { id: req.params.id }) });
     if (!packet) return res.status(404).json({ error: 'not_found' });
 
+    // The packet is the billable artifact, and the demand letter is part of
+    // that deliverable — so an already-exported packet includes it rather than
+    // charging twice for one job. Without this the letter shipped completely
+    // ungated while /export charged $149, which is backwards: by this
+    // product's own pricing note (lib/billing/packet-credits.js) a demand
+    // letter is the more valuable of the two, and a free-tier org could
+    // generate them against packets it could not even export.
+    //
+    // Preview stays free deliberately. Charging to read the letter you are
+    // about to attest to would push people to attest without reading, which
+    // is the one behaviour the whole design exists to prevent.
+    let authz = { allowed: true, via: 'packet_already_paid' };
+    if (!packet.exported_at) {
+      authz = await packetCredits.authorizeExport(req.tenant.orgId);
+      if (!authz.allowed) {
+        throw new HttpError(402,
+          'A demand letter is included with an exported evidence packet ($149, or unlimited on any paid plan).',
+          'packet_payment_required',
+          { priceCents: authz.priceCents, checkoutPath: '/api/billing/checkout/packet' });
+      }
+    }
+
     const facts = await buildDemandLetterFacts(req, packet);
     let composed;
     try {
@@ -790,6 +824,13 @@ router.post('/evidencePackets/:id/demand-letter',
       },
     });
 
+    // Spend the credit only now that real bytes exist and are stored — same
+    // rule as /export: a render or upload failure must not consume what the
+    // contractor paid for.
+    if (authz.via === 'credit') {
+      await packetCredits.consumeCredit(authz.creditId, packet.id);
+    }
+
     await audit(req, 'evidencePackets.demandLetter', {
       resource: 'demandLetter', resourceId: row.id,
       details: {
@@ -799,11 +840,13 @@ router.post('/evidencePackets/:id/demand-letter',
         amountDue: Number(facts.amountDue),
         contentHash: row.contentHash,
         bytes: pdfBuf.length,
+        billedVia: authz.via,
       },
     });
 
     res.status(201).json({
       id: row.id,
+      billedVia: authz.via,
       contentHash: row.contentHash,
       storageUri: row.storageUri,
       text: composed.lines.join('\n'),
