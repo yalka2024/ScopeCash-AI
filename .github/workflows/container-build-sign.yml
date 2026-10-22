@@ -88,7 +88,7 @@ jobs:
           cosign attest --yes --predicate sbom-${{ matrix.name }}.spdx.json \
             --type spdxjson ${{ steps.img.outputs.image }}@${{ steps.build.outputs.digest }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sbom-${{ matrix.name }}
           path: sbom-${{ matrix.name }}.spdx.json
